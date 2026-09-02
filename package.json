@@ -17,7 +17,11 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "review": "pnpm --filter @fde/review start"
+    "review": "pnpm --filter @fde/review start",
+    "db:bootstrap": "sh -c 'set -a; [ -f .env ] && . ./.env; set +a; pnpm --filter @fde/db run db:bootstrap'",
+    "db:harden": "sh -c 'set -a; [ -f .env ] && . ./.env; set +a; pnpm --filter @fde/db run db:harden'",
+    "db:generate": "pnpm --filter @fde/db run db:generate",
+    "db:migrate": "tsx --env-file-if-exists=.env packages/db/src/migrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
