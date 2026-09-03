@@ -2,7 +2,6 @@ import {
   foreignKey,
   index,
   integer,
-  jsonb,
   pgTable,
   text,
   timestamp,
@@ -11,7 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { type AclPrincipalRule, SOURCE_KINDS } from '@fde/core';
+import { SOURCE_KINDS } from '@fde/core';
 
 import { createdAt, enumFrom, pk, tenantIsolation } from '../columns/_helpers.js';
 import { encrypted } from '../columns/encrypted.js';
@@ -37,7 +36,9 @@ export const aclSnapshots = pgTable(
       .references(() => engagements.id, { onDelete: 'cascade' }),
     /** connector + external id of the resource this ACL governs */
     sourceRef: text('source_ref').notNull(),
-    principalRules: jsonb('principal_rules').$type<AclPrincipalRule[]>().notNull(),
+    /** encrypted `AclPrincipalRule[]` — external user/group identifiers. NOT
+     * NULL, like the jsonb column it replaced; an empty ACL is an encrypted `[]`. */
+    principalRules: encrypted('principal_rules').notNull(),
     capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
     ttlSeconds: integer('ttl_seconds').notNull(),
     refreshState: aclRefreshStateEnum('refresh_state').notNull().default('fresh'),

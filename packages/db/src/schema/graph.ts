@@ -23,8 +23,15 @@ export const entities = pgTable(
       .references(() => engagements.id, { onDelete: 'cascade' }),
     type: entityTypeEnum('type').notNull(),
     displayName: text('display_name').notNull(),
+    /** left cleartext — needed for identity-resolution joins and dedup */
     externalRefs: jsonb('external_refs').$type<ExternalRef[]>().notNull().default([]),
-    attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
+    /**
+     * encrypted `Record<string, unknown>` — connector metadata (titles, emails,
+     * notes). NOT NULL, like the jsonb column it replaced; the repository mapper
+     * encrypts `{}` when a caller has no attributes (no DB-side default possible
+     * for ciphertext).
+     */
+    attributes: encrypted('attributes').notNull(),
     /** free-text body (notes, doc contents) — application-layer encrypted */
     body: encrypted('body'),
     createdAt: createdAt(),

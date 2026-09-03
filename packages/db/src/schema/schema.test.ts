@@ -15,7 +15,7 @@ import {
   sources,
   users,
 } from './index.js';
-import { TENANT_SCOPED_TABLES } from './tables.js';
+import { CRYPTO_COLUMNS, TENANT_SCOPED_TABLES } from './tables.js';
 
 const tenantTables = {
   users,
@@ -41,19 +41,37 @@ describe('schema', () => {
     expect(getTableColumns(table)).toHaveProperty('tenantId');
   });
 
-  it('content bodies / quotes / credential refs are `encrypted` (bytea) columns', () => {
-    const cases: [Record<string, { getSQLType(): string }>, string][] = [
-      [getTableColumns(facts), 'body'],
-      [getTableColumns(evidence), 'quote'],
-      [getTableColumns(sources), 'rawBody'],
-      [getTableColumns(entities), 'body'],
-      [getTableColumns(identities), 'connectionSecretRef'],
-    ];
-    for (const [cols, prop] of cases) {
-      // the `encrypted` custom type stores as bytea — a plaintext text/jsonb
-      // column would not, so this fails if a 🔒 column is ever downgraded.
-      expect(cols[prop]?.getSQLType(), prop).toBe('bytea');
+  it('every CRYPTO_COLUMNS spec points at a real `encrypted` (bytea) column', () => {
+    // both CRYPTO_COLUMNS and `tenantTables` are keyed by SQL table name
+    for (const [name, specs] of Object.entries(CRYPTO_COLUMNS)) {
+      const table = tenantTables[name as keyof typeof tenantTables];
+      expect(table, name).toBeDefined();
+      const cols = getTableColumns(table);
+      for (const spec of specs) {
+        const col = cols[spec.prop as keyof typeof cols];
+        expect(col, `${name}.${spec.prop} missing`).toBeDefined();
+        // the `encrypted` custom type stores as bytea — a plaintext jsonb/text
+        // column would not, so this fails if a 🔒 column is downgraded.
+        expect(col.getSQLType(), `${name}.${spec.prop} is not encrypted`).toBe('bytea');
+      }
     }
+  });
+
+  it('the sensitive columns from the plan are all in CRYPTO_COLUMNS', () => {
+    const flat = Object.entries(CRYPTO_COLUMNS).flatMap(([t, specs]) =>
+      specs.map((s) => `${t}.${s.prop}`),
+    );
+    expect(flat).toEqual(
+      expect.arrayContaining([
+        'facts.body',
+        'evidence.quote',
+        'sources.rawBody',
+        'identities.connectionSecretRef',
+        'acl_snapshots.principalRules',
+        'entities.attributes',
+        'entities.body',
+      ]),
+    );
   });
 
   it('content tables also carry engagement scope', () => {
