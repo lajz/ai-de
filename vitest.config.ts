@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@fde/core': pkg('core'),
+      '@fde/crypto': pkg('crypto'),
       '@fde/db': pkg('db'),
     },
   },

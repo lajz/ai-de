@@ -1,4 +1,5 @@
 export * from './branded.js';
+export * from './crypto.js';
 export * from './ids.js';
 export * from './region.js';
 export * from './retention.js';
