@@ -174,7 +174,9 @@ export interface SummaryInput {
   run: number;
   findings: Finding[];
   plan: ActionPlan;
+  /** Threads actually resolved / reopened this run (API confirmed). */
   resolvedThisRun: number;
+  reopenedThisRun: number;
   verdict: Verdict;
   blockingSeverity: Severity;
   unpositioned: Finding[];
@@ -225,12 +227,12 @@ export function renderSummary(s: SummaryInput): string {
     out.push('_No open findings._', '');
   }
 
-  if (s.plan.toResolve.length || s.resolvedThisRun) {
-    out.push(`✅ Resolved ${s.plan.toResolve.length} thread(s) this run.`, '');
+  if (s.resolvedThisRun) {
+    out.push(`✅ Resolved ${s.resolvedThisRun} thread(s) this run.`, '');
   }
-  if (s.plan.toReopen.length) {
+  if (s.reopenedThisRun) {
     out.push(
-      `⚠️ Reopened ${s.plan.toReopen.length} thread(s) — previously-fixed issues resurfaced.`,
+      `⚠️ Reopened ${s.reopenedThisRun} thread(s) — previously-fixed issues resurfaced.`,
       '',
     );
   }
@@ -271,8 +273,21 @@ export interface PrContext {
 function makeGh(token: string | undefined) {
   const env = { ...process.env };
   if (token) env.GH_TOKEN = token;
-  return (args: string[], input?: string): string =>
-    execFileSync('gh', args, { encoding: 'utf8', env, input, maxBuffer: 32 * 1024 * 1024 });
+  return (args: string[], input?: string): string => {
+    try {
+      return execFileSync('gh', args, {
+        encoding: 'utf8',
+        env,
+        input,
+        maxBuffer: 32 * 1024 * 1024,
+      });
+    } catch (err) {
+      // execFileSync's message is just the command line; the API error is on stderr.
+      const stderr = (err as { stderr?: unknown }).stderr;
+      if (stderr) (err as Error).message = String(stderr).trim() || (err as Error).message;
+      throw err;
+    }
+  };
 }
 
 type Gh = ReturnType<typeof makeGh>;
@@ -404,23 +419,29 @@ export class GitHubSink implements Sink {
       unpositioned.push(...plan.toCreate);
     }
 
+    let resolvedCount = 0;
     for (const thread of plan.toResolve) {
-      this.reply(
-        repoPath,
-        pr.number,
-        thread.rootCommentId,
-        `✅ Resolved — no longer flagged as of \`${short(pr.headSha)}\`.`,
-      );
-      this.setResolved(thread.threadId, true);
+      if (this.setResolved(thread.threadId, true)) {
+        resolvedCount++;
+        this.reply(
+          repoPath,
+          pr.number,
+          thread.rootCommentId,
+          `✅ Resolved — no longer flagged as of \`${short(pr.headSha)}\`.`,
+        );
+      }
     }
+    let reopenedCount = 0;
     for (const thread of plan.toReopen) {
-      this.setResolved(thread.threadId, false);
-      this.reply(
-        repoPath,
-        pr.number,
-        thread.rootCommentId,
-        `⚠️ Reopened — still flagged as of \`${short(pr.headSha)}\`.`,
-      );
+      if (this.setResolved(thread.threadId, false)) {
+        reopenedCount++;
+        this.reply(
+          repoPath,
+          pr.number,
+          thread.rootCommentId,
+          `⚠️ Reopened — still flagged as of \`${short(pr.headSha)}\`.`,
+        );
+      }
     }
 
     const prev = this.fetchSummary(pr);
@@ -450,7 +471,8 @@ export class GitHubSink implements Sink {
       run,
       findings,
       plan,
-      resolvedThisRun: plan.toResolve.length,
+      resolvedThisRun: resolvedCount,
+      reopenedThisRun: reopenedCount,
       verdict,
       blockingSeverity: this.opts.blockingSeverity,
       unpositioned,
@@ -461,8 +483,8 @@ export class GitHubSink implements Sink {
 
     note(
       `github: ${plan.toCreate.length - unpositioned.length} new comment(s), ` +
-        `${unpositioned.length} unpositioned, ${plan.toResolve.length} resolved, ` +
-        `${plan.toReopen.length} reopened, ${plan.stillOpen.length} still open`,
+        `${unpositioned.length} unpositioned, ${resolvedCount} resolved, ` +
+        `${reopenedCount} reopened, ${plan.stillOpen.length} still open`,
     );
   }
 
@@ -543,7 +565,8 @@ export class GitHubSink implements Sink {
     }
   }
 
-  private setResolved(threadId: string, resolved: boolean): void {
+  /** Returns whether the thread ended up in the requested state. */
+  private setResolved(threadId: string, resolved: boolean): boolean {
     const field = resolved ? 'resolveReviewThread' : 'unresolveReviewThread';
     try {
       const res = ghGraphql<{ data?: Record<string, { thread?: { isResolved?: boolean } }> }>(
@@ -552,9 +575,12 @@ export class GitHubSink implements Sink {
         { id: threadId },
       );
       const got = res.data?.[field]?.thread?.isResolved;
-      if (got !== resolved) note(`github: ${field} did not take for thread ${threadId}`);
+      if (got === resolved) return true;
+      note(`github: ${field} did not take for thread ${threadId}`);
+      return false;
     } catch (err) {
       note(`github: could not ${resolved ? 'resolve' : 'reopen'} thread (${firstLine(err)})`);
+      return false;
     }
   }
 
