@@ -25,6 +25,8 @@ export interface Config {
   minSeverity: Severity;
   /** Per-request timeout in milliseconds. */
   timeoutMs: number;
+  /** Extra attempts after the first on a transient failure (timeout, network, 5xx, 429). */
+  retries: number;
   /** Passes to run. */
   passes: { review: boolean; security: boolean };
   /** Findings at or above this severity block PR approval (github sink). */

@@ -477,7 +477,7 @@ export class GitHubSink implements Sink {
       if (!this.tryReview(['--approve', '--body', body], repo, num)) {
         this.comment(
           pr,
-          `${body} _(formal approval skipped — reviewer identity is the PR author)_`,
+          `${body}\n\n_Formal approval unavailable to this token — the PR author can't approve their own PR, and \`github-actions[bot]\` needs "Allow GitHub Actions to ... approve pull requests" (Settings → Actions → General) or a \`REVIEW_BOT_TOKEN\`._`,
         );
       }
       return;

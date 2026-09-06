@@ -28,7 +28,12 @@ export function extractJson<T = unknown>(text: string): T {
   return JSON.parse(candidate.slice(start, end + 1)) as T;
 }
 
-async function callOpenAiCompatible(messages: ChatMessage[], cfg: Config): Promise<string> {
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Retry-once semantics: 4xx other than 429 are permanent; everything else is transient. */
+class PermanentError extends Error {}
+
+async function attempt(messages: ChatMessage[], cfg: Config): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
   try {
@@ -47,7 +52,10 @@ async function callOpenAiCompatible(messages: ChatMessage[], cfg: Config): Promi
       }),
     });
     if (!res.ok) {
-      throw new Error(`${cfg.model} @ ${cfg.baseUrl} -> HTTP ${res.status} ${res.statusText}`);
+      const msg = `${cfg.model} @ ${cfg.baseUrl} -> HTTP ${res.status} ${res.statusText}`;
+      throw res.status !== 429 && res.status >= 400 && res.status < 500
+        ? new PermanentError(msg)
+        : new Error(msg);
     }
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const content = data.choices?.[0]?.message?.content;
@@ -56,6 +64,20 @@ async function callOpenAiCompatible(messages: ChatMessage[], cfg: Config): Promi
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callOpenAiCompatible(messages: ChatMessage[], cfg: Config): Promise<string> {
+  let lastErr: unknown;
+  for (let i = 0; i <= cfg.retries; i++) {
+    if (i > 0) await sleep(1000 * i);
+    try {
+      return await attempt(messages, cfg);
+    } catch (err) {
+      lastErr = err;
+      if (err instanceof PermanentError) break;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 function callClaudeCli(messages: ChatMessage[], cfg: Config): Promise<string> {

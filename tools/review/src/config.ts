@@ -10,7 +10,8 @@ const DEFAULTS: Omit<Config, 'apiKey'> = {
   model: 'deepseek-v4-flash',
   maxDiffBytes: 400_000,
   minSeverity: 'nit',
-  timeoutMs: 90_000,
+  timeoutMs: 120_000,
+  retries: 2,
   passes: { review: true, security: true },
   blockingSeverity: 'high',
   failOn: null,
@@ -64,6 +65,7 @@ export function loadConfig(overrides: Partial<Config> = {}, root = repoRoot()): 
     ),
     timeoutMs:
       overrides.timeoutMs ?? numeric(env.REVIEW_TIMEOUT_MS) ?? file.timeoutMs ?? DEFAULTS.timeoutMs,
+    retries: overrides.retries ?? numeric(env.REVIEW_RETRIES) ?? file.retries ?? DEFAULTS.retries,
     passes: { ...DEFAULTS.passes, ...file.passes, ...overrides.passes },
     blockingSeverity: asSeverity(
       overrides.blockingSeverity ?? env.REVIEW_BLOCKING_SEVERITY ?? file.blockingSeverity,
