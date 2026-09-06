@@ -27,10 +27,11 @@ Model config comes from .env / environment:
   REVIEW_MODEL (default deepseek-v4-flash). Use REVIEW_MODEL=claude to shell out
   to the Claude CLI, or point REVIEW_BASE_URL at a local Ollama.
 
-github sink: needs the gh CLI authed (or GH_TOKEN / REVIEW_GH_TOKEN set) and an
-open PR for the branch. Posts findings as inline review comments, resolves them
-on re-review with a note, and approves the PR when no finding is at or above
-blockingSeverity (default high; see .fde-review.json).
+github sink: needs an open PR for the branch and a token — the ambient gh login,
+or REVIEW_GH_TOKEN / REVIEW_BOT_TOKEN / GH_TOKEN. A PAT with "Pull requests:
+write" can resolve threads; a plain GITHUB_TOKEN can't (it leaves a note). Posts
+findings as inline review comments, resolves them on re-review, and approves when
+no finding is at or above blockingSeverity (default high; see .fde-review.json).
 
 Exits 0 unless --fail-on matches.`;
 
@@ -140,6 +141,7 @@ async function main(): Promise<void> {
     await new GitHubSink({
       token:
         process.env.REVIEW_GH_TOKEN ??
+        process.env.REVIEW_BOT_TOKEN ??
         process.env.GH_TOKEN ??
         process.env.GITHUB_TOKEN ??
         undefined,
