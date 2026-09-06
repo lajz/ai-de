@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.turbo/
+coverage/
+
+# env
+.env
+.env.*
+!.env.example
+
+# editors / os
+.DS_Store
+.idea/
+*.log

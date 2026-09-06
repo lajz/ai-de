@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# Pre-merge gate for a solo project (see tools/review/README.md).
+#   1. Deterministic checks — lint / typecheck / format / test. These BLOCK the push.
+#   2. Advisory AI review — prints findings, never blocks.
+#
+# Escape hatches:
+#   git push --no-verify        skip this hook entirely
+#   SKIP_REVIEW_GATE=1 git push  skip step 1
+#   SKIP_AI_REVIEW=1 git push     skip step 2
+set -euo pipefail
+
+# If every pushed ref is a deletion, there is nothing to check.
+only_deletions=true
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  if [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
+    only_deletions=false
+  fi
+done
+if [ "$only_deletions" = true ]; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pre-push: pnpm not found — skipping checks. Install pnpm to enable the gate." >&2
+  exit 0
+fi
+
+if [ "${SKIP_REVIEW_GATE:-}" = "1" ]; then
+  echo "pre-push: SKIP_REVIEW_GATE=1 — skipping deterministic checks" >&2
+else
+  echo "pre-push: lint / typecheck / format:check / test"
+  pnpm lint
+  pnpm typecheck
+  pnpm format:check
+  pnpm test
+fi
+
+if [ "${SKIP_AI_REVIEW:-}" != "1" ]; then
+  echo "pre-push: AI review (advisory)"
+  pnpm review || true
+fi
+
+exit 0

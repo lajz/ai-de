@@ -1,0 +1,8 @@
+{
+  "baseUrl": "https://api.deepseek.com",
+  "model": "deepseek-v4-flash",
+  "minSeverity": "nit",
+  "maxDiffBytes": 400000,
+  "timeoutMs": 90000,
+  "passes": { "review": true, "security": true }
+}

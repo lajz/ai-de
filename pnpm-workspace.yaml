@@ -1,0 +1,17 @@
+packages:
+  - 'packages/*'
+  - 'tools/*'
+  # - "apps/*"   # added when the first app lands (M1)
+
+# esbuild needs its postinstall to fetch the platform binary; tsx / vitest
+# both depend on it.
+onlyBuiltDependencies:
+  - esbuild
+
+allowBuilds:
+  esbuild: true
+
+catalog:
+  '@types/node': ^22.10.5
+  typescript: ^5.7.3
+  vitest: ^2.1.8
