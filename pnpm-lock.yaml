@@ -103,6 +103,9 @@ importers:
       '@fde/core':
         specifier: workspace:*
         version: link:../core
+      '@fde/crypto':
+        specifier: workspace:*
+        version: link:../crypto
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.38.4(postgres@3.4.9)

@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@fde/core": "workspace:*",
+    "@fde/crypto": "workspace:*",
     "drizzle-orm": "catalog:",
     "postgres": "catalog:"
   },

@@ -1,5 +1,5 @@
 {
-  "id": "d5dc96d0-3d64-4726-82ac-b69e2310641d",
+  "id": "b0c98a16-55ff-48bf-a6cd-adbcb9e41e03",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -41,11 +41,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "dek_key_ref": {
-          "name": "dek_key_ref",
+        "wrapped_dek": {
+          "name": "wrapped_dek",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "byok_key_arn": {
           "name": "byok_key_arn",
@@ -349,7 +349,7 @@
         },
         "principal_rules": {
           "name": "principal_rules",
-          "type": "jsonb",
+          "type": "bytea",
           "primaryKey": false,
           "notNull": true
         },
@@ -724,10 +724,9 @@
         },
         "attributes": {
           "name": "attributes",
-          "type": "jsonb",
+          "type": "bytea",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
+          "notNull": true
         },
         "body": {
           "name": "body",

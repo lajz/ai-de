@@ -60,7 +60,7 @@ export const users = pgTable(
 
 /**
  * An FDE-org ↔ end-customer relationship: the unit of cryptographic isolation
- * (`dekKeyRef`), data residency (`regionPin`), retention, and lifecycle.
+ * (`wrappedDek`), data residency (`regionPin`), retention, and lifecycle.
  */
 export const engagements = pgTable(
   'engagements',
@@ -72,8 +72,11 @@ export const engagements = pgTable(
     endCustomerName: text('end_customer_name').notNull(),
     regionPin: regionEnum('region_pin').notNull(),
     retentionPolicy: retentionPolicyEnum('retention_policy').notNull(),
-    /** KMS ref for this engagement's data-encryption key (wrapped by the tenant CMK) */
-    dekKeyRef: text('dek_key_ref').notNull(),
+    /**
+     * The engagement's data-encryption key, wrapped under the tenant CMK (or the
+     * BYOK key), base64. NULL once crypto-shredded — the DEK is then unrecoverable.
+     */
+    wrappedDek: text('wrapped_dek'),
     /** customer-managed key ARN when BYOK/CMEK is in effect — the crypto-shred handle */
     byokKeyArn: text('byok_key_arn'),
     status: engagementStatusEnum('status').notNull().default('active'),

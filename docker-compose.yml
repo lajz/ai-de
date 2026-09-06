@@ -1,4 +1,4 @@
-# Local dev Postgres with pgvector. Not used in any deployed environment.
+# Local dev services. Not used in any deployed environment.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -16,6 +16,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # KMS for @fde/crypto integration tests. Start with: docker compose --profile aws up -d
+  localstack:
+    image: localstack/localstack:3
+    profiles: ['aws']
+    environment:
+      SERVICES: kms
+      DEBUG: '0'
+    ports:
+      - '${LOCALSTACK_PORT:-4566}:4566'
 
 volumes:
   pgdata:
