@@ -15,6 +15,21 @@ const STATE_RE = /<!--\s*fde-review:state\s+run=(\d+)\s+verdict=(approve|block)\
 const SEV_EMOJI: Record<Severity, string> = { high: '🔴', medium: '🟠', low: '🟡', nit: '⚪' };
 const rank = (s: Severity): number => SEVERITIES.indexOf(s);
 
+/**
+ * Model output is untrusted: a crafted diff can make it echo back an HTML comment
+ * that would forge one of our markers, or break out of a table cell. Defang the
+ * comment delimiters and collapse newlines; callers escape `|` for table cells.
+ */
+export function clean(s: string): string {
+  return s
+    .replace(/<!--+/g, '&lt;!--')
+    .replace(/--+>/g, '--&gt;')
+    .replace(/\r?\n+/g, ' ')
+    .trim();
+}
+
+const cell = (s: string): string => clean(s).replace(/\|/g, '\\|');
+
 /** Stable per-finding id: survives line shifts, keyed on pass + file + title. */
 export function findingKey(f: Finding): string {
   const slug = f.title
@@ -35,11 +50,11 @@ export function keyFromBody(body: string): string | null {
 
 export function commentBody(f: Finding, key: string): string {
   const parts = [
-    `${SEV_EMOJI[f.severity]} **${f.severity.toUpperCase()} · ${f.pass}** — ${f.title}`,
+    `${SEV_EMOJI[f.severity]} **${f.severity.toUpperCase()} · ${clean(f.pass)}** — ${clean(f.title)}`,
     '',
-    f.detail,
+    clean(f.detail),
   ];
-  if (f.suggestion) parts.push('', `_Suggested fix:_ ${f.suggestion}`);
+  if (f.suggestion) parts.push('', `_Suggested fix:_ ${clean(f.suggestion)}`);
   parts.push('', markerFor(key));
   return parts.join('\n');
 }
@@ -113,6 +128,8 @@ export interface SummaryInput {
   verdict: Verdict;
   blockingSeverity: Severity;
   unpositioned: Finding[];
+  /** Passes that errored out — the review is incomplete and must not approve. */
+  failedPasses: string[];
 }
 
 export function renderSummary(s: SummaryInput): string {
@@ -122,14 +139,18 @@ export function renderSummary(s: SummaryInput): string {
     (a, b) => rank(a.severity) - rank(b.severity) || a.file.localeCompare(b.file),
   );
   for (const f of sorted) {
-    const loc = f.line ? `\`${f.file}:${f.line}\`` : `\`${f.file}\``;
+    const loc = f.line ? `\`${cell(f.file)}:${f.line}\`` : `\`${cell(f.file)}\``;
     const tag = newKeys.has(findingKey(f)) ? '🆕' : '📌';
-    rows.push(`| ${tag} | ${f.severity.toUpperCase()} | ${f.pass} | ${loc} | ${f.title} |`);
+    rows.push(
+      `| ${tag} | ${f.severity.toUpperCase()} | ${cell(f.pass)} | ${loc} | ${cell(f.title)} |`,
+    );
   }
 
-  const verdictLine = s.verdict.approve
-    ? '**Verdict: ✅ no blocking findings**'
-    : `**Verdict: ❌ ${s.verdict.blocking.length} blocking finding(s) at or above \`${s.blockingSeverity}\` — approval withheld**`;
+  const verdictLine = s.failedPasses.length
+    ? `**Verdict: ⚠️ review incomplete — the ${s.failedPasses.join(' and ')} pass did not finish; approval withheld**`
+    : s.verdict.approve
+      ? '**Verdict: ✅ no blocking findings**'
+      : `**Verdict: ❌ ${s.verdict.blocking.length} blocking finding(s) at or above \`${s.blockingSeverity}\` — approval withheld**`;
 
   const out = [
     `## 🤖 AI review — \`${s.model}\``,
@@ -165,7 +186,8 @@ export function renderSummary(s: SummaryInput): string {
       '<details><summary>Findings not attached to a line (outside the diff)</summary>',
       '',
       ...s.unpositioned.map(
-        (f) => `- **${f.severity.toUpperCase()}** \`${f.file}\` — ${f.title}: ${f.detail}`,
+        (f) =>
+          `- **${f.severity.toUpperCase()}** \`${clean(f.file)}\` — ${clean(f.title)}: ${clean(f.detail)}`,
       ),
       '',
       '</details>',
@@ -283,6 +305,8 @@ export interface GitHubSinkOptions {
   blockingSeverity: Severity;
   model: string;
   requestChanges: boolean;
+  /** Passes that errored — forces a non-approving, "incomplete" verdict. */
+  failedPasses: string[];
 }
 
 function note(msg: string): void {
@@ -346,7 +370,10 @@ export class GitHubSink implements Sink {
     const prev = this.fetchSummary(pr);
     const prevState = parsePrevState(prev?.body ?? null);
     const run = prevState.run + 1;
+    const failedPasses = this.opts.failedPasses;
     const verdict = computeVerdict(findings, this.opts.blockingSeverity);
+    // An incomplete review cannot vouch for the PR.
+    if (failedPasses.length) verdict.approve = false;
 
     const body = renderSummary({
       model: this.opts.model,
@@ -359,12 +386,13 @@ export class GitHubSink implements Sink {
       verdict,
       blockingSeverity: this.opts.blockingSeverity,
       unpositioned,
+      failedPasses,
     });
     this.upsertSummary(repoPath, pr.number, prev?.id ?? null, body);
 
     const nextVerdict = verdict.approve ? 'approve' : 'block';
     if (prevState.verdict !== nextVerdict) {
-      this.submitVerdict(pr, verdict);
+      this.submitVerdict(pr, verdict, failedPasses);
     } else {
       note(`github: verdict unchanged (${nextVerdict}) — no new review submitted`);
     }
@@ -413,9 +441,10 @@ export class GitHubSink implements Sink {
 
   private fetchSummary(pr: PrContext): { id: number; body: string } | null {
     try {
+      // ghApiList follows pagination, so this sees every comment on the PR.
       const comments = ghApiList<{ id: number; body: string }>(
         this.gh,
-        `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments?per_page=100`,
+        `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`,
       );
       return comments.find((c) => c.body.includes(SUMMARY_MARKER)) ?? null;
     } catch {
@@ -450,11 +479,15 @@ export class GitHubSink implements Sink {
   }
 
   private setResolved(threadId: string, resolved: boolean): void {
-    const mutation = resolved
-      ? 'mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
-      : 'mutation($id:ID!){unresolveReviewThread(input:{threadId:$id}){thread{isResolved}}}';
+    const field = resolved ? 'resolveReviewThread' : 'unresolveReviewThread';
     try {
-      ghGraphql(this.gh, mutation, { id: threadId });
+      const res = ghGraphql<{ data?: Record<string, { thread?: { isResolved?: boolean } }> }>(
+        this.gh,
+        `mutation($id:ID!){${field}(input:{threadId:$id}){thread{isResolved}}}`,
+        { id: threadId },
+      );
+      const got = res.data?.[field]?.thread?.isResolved;
+      if (got !== resolved) note(`github: ${field} did not take for thread ${threadId}`);
     } catch (err) {
       note(`github: could not ${resolved ? 'resolve' : 'reopen'} thread (${firstLine(err)})`);
     }
@@ -469,7 +502,7 @@ export class GitHubSink implements Sink {
     }
   }
 
-  private submitVerdict(pr: PrContext, verdict: Verdict): void {
+  private submitVerdict(pr: PrContext, verdict: Verdict, failedPasses: string[]): void {
     const repo = `${pr.owner}/${pr.repo}`;
     const num = String(pr.number);
     if (verdict.approve) {
@@ -482,8 +515,12 @@ export class GitHubSink implements Sink {
       }
       return;
     }
-    const body = `❌ **fde-review**: ${verdict.blocking.length} blocking finding(s) at or above \`${this.opts.blockingSeverity}\`. Approval withheld until resolved.`;
-    const event = this.opts.requestChanges ? '--request-changes' : '--comment';
+    const body = failedPasses.length
+      ? `⚠️ **fde-review**: review incomplete — the ${failedPasses.join(' and ')} pass did not finish. Approval withheld; re-run the workflow.`
+      : `❌ **fde-review**: ${verdict.blocking.length} blocking finding(s) at or above \`${this.opts.blockingSeverity}\`. Approval withheld until resolved.`;
+    // "incomplete" is a soft state — always a comment, never REQUEST_CHANGES.
+    const event =
+      this.opts.requestChanges && !failedPasses.length ? '--request-changes' : '--comment';
     if (!this.tryReview([event, '--body', body], repo, num)) {
       this.comment(pr, body);
     }

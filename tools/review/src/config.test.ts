@@ -21,6 +21,7 @@ const MODEL_ENV = [
   'REVIEW_MIN_SEVERITY',
   'REVIEW_BLOCKING_SEVERITY',
   'REVIEW_FAIL_ON',
+  'GITHUB_ACTIONS',
 ];
 let saved: Record<string, string | undefined>;
 
@@ -43,6 +44,16 @@ describe('loadConfig precedence', () => {
     expect(cfg.minSeverity).toBe('nit');
     expect(cfg.blockingSeverity).toBe('high');
     expect(cfg.failOn).toBeNull();
+  });
+
+  it('ignores a .fde-review.json that disables passes when GITHUB_ACTIONS=true', () => {
+    const disabling = '{"passes":{"review":false,"security":false}}';
+    expect(loadConfig({}, fixtureRoot(disabling)).passes).toEqual({
+      review: false,
+      security: false,
+    });
+    process.env.GITHUB_ACTIONS = 'true';
+    expect(loadConfig({}, fixtureRoot(disabling)).passes).toEqual({ review: true, security: true });
   });
 
   it('reads blockingSeverity from env and file', () => {

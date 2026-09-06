@@ -33,6 +33,23 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /** Retry-once semantics: 4xx other than 429 are permanent; everything else is transient. */
 class PermanentError extends Error {}
 
+/**
+ * Build the request body. DeepSeek's flash/pro models reason by default and spend
+ * 150s+ / ~20k tokens on a review-sized prompt; `thinking: disabled` cuts that to
+ * ~20s with no quality loss for this task. Unknown to other providers but they
+ * ignore unknown fields.
+ */
+export function requestBody(messages: ChatMessage[], cfg: Config): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: cfg.model,
+    messages,
+    temperature: 0,
+    response_format: { type: 'json_object' },
+  };
+  if (/deepseek/i.test(cfg.model)) body.thinking = { type: 'disabled' };
+  return body;
+}
+
 async function attempt(messages: ChatMessage[], cfg: Config): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
@@ -44,12 +61,7 @@ async function attempt(messages: ChatMessage[], cfg: Config): Promise<string> {
         'content-type': 'application/json',
         ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
       },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages,
-        temperature: 0,
-        response_format: { type: 'json_object' },
-      }),
+      body: JSON.stringify(requestBody(messages, cfg)),
     });
     if (!res.ok) {
       const msg = `${cfg.model} @ ${cfg.baseUrl} -> HTTP ${res.status} ${res.statusText}`;

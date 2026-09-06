@@ -16,6 +16,8 @@ export interface Finding {
 export interface Config {
   /** Git ref (or SHA) the diff is taken against. */
   baseRef: string | null;
+  /** Head of the diff (default HEAD). CI sets this to a fetched-but-not-checked-out sha. */
+  headRef: string | null;
   baseUrl: string;
   model: string;
   apiKey: string | null;

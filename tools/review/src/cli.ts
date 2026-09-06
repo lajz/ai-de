@@ -13,6 +13,7 @@ Usage: pnpm review [options]
 
 Options:
   --base <ref>          Diff against this ref (default: origin/HEAD, else origin/main, else master)
+  --head <ref>          Head of the diff (default: HEAD; CI uses a fetched PR-head sha)
   --min <severity>      Lowest severity to print: high|medium|low|nit (default: nit)
   --review-only         Skip the security pass
   --security-only       Skip the general review pass
@@ -52,6 +53,9 @@ export function parseArgs(argv: string[]): Args {
         break;
       case '--base':
         overrides.baseRef = argv[++i] ?? null;
+        break;
+      case '--head':
+        overrides.headRef = argv[++i] ?? null;
         break;
       case '--min': {
         const v = argv[++i];
@@ -121,11 +125,13 @@ async function main(): Promise<void> {
 
   note(`reviewing ${ctx.changedFiles.length} file(s) with ${cfg.model} …`);
   const findings: Finding[] = [];
+  const failedPasses: string[] = [];
   for (const name of passes) {
     try {
       findings.push(...(await runPass(name, diff, cfg)));
     } catch (err) {
       note(`${name} pass failed: ${(err as Error).message} — skipping`);
+      failedPasses.push(name);
     }
   }
 
@@ -139,6 +145,7 @@ async function main(): Promise<void> {
       blockingSeverity: cfg.blockingSeverity,
       model: cfg.model,
       requestChanges,
+      failedPasses,
     }).emit(findings, ctx);
   } else {
     await new TerminalSink(cfg.minSeverity).emit(findings, ctx);

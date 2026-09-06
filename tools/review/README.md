@@ -81,13 +81,39 @@ one repo secret, `REVIEW_API_KEY` (the DeepSeek key). Each run:
    a table of open findings (🆕 vs 📌), counts of resolved/reopened, the run
    number, and the verdict.
 3. **Submits a verdict — only when it changes.** No blocking finding →
-   `gh pr review --approve`. Otherwise a `--comment` (or `--request-changes` with
-   `--request-changes`). Approval by the PR author is impossible, so a local run as
-   yourself falls back to an `✅` comment; in CI the token is
-   `github-actions[bot]`, which can approve.
+   `gh pr review --approve`. A blocking finding → a `--comment` (or
+   `--request-changes` with `--request-changes`). A pass that errored →
+   `⚠️ review incomplete`, approval withheld. Approval by the PR author is
+   impossible, so a local run as yourself falls back to an `✅` comment; in CI the
+   token is `github-actions[bot]`, which can approve once
+   _Settings → Actions → General → "Allow GitHub Actions to … approve pull
+   requests"_ is on.
 
 Findings the model reports outside the PR diff can't be attached to a line — they
 go in a collapsed section of the summary instead.
+
+### Trust model
+
+The reviewer gates a PR using the PR's own diff, which is attacker-controlled
+input. A few things keep the verdict meaningful:
+
+- **The workflow runs from the base ref, not the PR head.** It checks out
+  `base.sha`, fetches `head.sha` as data, and runs
+  `pnpm review --base <base> --head <head>`. So `tools/review/**`, `prompts/**`,
+  `.fde-review.json`, and the lockfile are all trusted — a PR can't edit its own
+  reviewer or prompts. (Only same-repo, non-draft PRs run at all, since
+  `REVIEW_API_KEY` is in scope.)
+- **`loadConfig` ignores `.fde-review.json`'s `passes` when `GITHUB_ACTIONS=true`**
+  — belt and braces; both passes always run in CI.
+- **An incomplete review never approves** — if a pass errors (timeout, API
+  outage), the verdict is `⚠️ incomplete`, not `✅`.
+- Model output is still untrusted text: every field is run through `clean()`
+  before it goes in a comment (HTML-comment delimiters defanged so a finding
+  can't forge a marker; `|` escaped in cells).
+
+**Auto-approve remains advisory** — a prompt-injection payload in a diff could
+still suppress findings. The deterministic gate (`ci.yml`: lint/build/test) is the
+real merge gate.
 
 ### Bot identity
 

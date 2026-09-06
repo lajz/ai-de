@@ -16,15 +16,24 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Skip drafts and PRs from forks (secrets are unavailable to fork PRs anyway).
+    # Same-repo, non-draft PRs only: this job has REVIEW_API_KEY in scope. Fork PRs
+    # get no secrets from `pull_request` anyway.
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      # Check out the BASE ref, not the PR head: the reviewer's own code, prompts,
+      # config, and lockfile must be trusted, or a PR could edit .fde-review.json /
+      # prompts to disable its own review and coast to an approval. The PR head is
+      # fetched as data only and never executed.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+
+      - run: git fetch --no-tags origin "$HEAD_SHA"
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
       - uses: pnpm/action-setup@v4
 
@@ -35,9 +44,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm review -- --sink github --base "$BASE_SHA"
+      - run: pnpm review -- --sink github --base "$BASE_SHA" --head "$HEAD_SHA"
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
           # Swap github.token for a bot-account PAT (secrets.REVIEW_BOT_TOKEN) to
           # post as a named identity and satisfy "require approvals" protection.
