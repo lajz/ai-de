@@ -86,7 +86,16 @@ export async function approveBreakGlass(
         revokedAt: breakGlassGrants.revokedAt,
       })
       .from(breakGlassGrants)
-      .where(eq(breakGlassGrants.id, params.grantId))
+      // RLS (via this `withTenant` transaction) already confines this to
+      // `params.tenantId`; the explicit predicate is defense-in-depth so a
+      // grant id from another tenant fails closed here even if RLS session
+      // state were ever misconfigured.
+      .where(
+        and(
+          eq(breakGlassGrants.id, params.grantId),
+          eq(breakGlassGrants.tenantId, params.tenantId),
+        ),
+      )
       .limit(1)
       // lock against a concurrent approve/revoke of the same grant
       .for('update');
@@ -100,7 +109,13 @@ export async function approveBreakGlass(
     const updated = await tx
       .update(breakGlassGrants)
       .set({ approvedBy: params.approvedBy, approvedAt: sql`now()`, expiresAt })
-      .where(and(eq(breakGlassGrants.id, params.grantId), isNull(breakGlassGrants.approvedAt)))
+      .where(
+        and(
+          eq(breakGlassGrants.id, params.grantId),
+          eq(breakGlassGrants.tenantId, params.tenantId),
+          isNull(breakGlassGrants.approvedAt),
+        ),
+      )
       .returning({ id: breakGlassGrants.id });
 
     if (updated.length === 0) return;
@@ -126,7 +141,9 @@ export interface AssertBreakGlassParams {
  * Throws `BreakGlassRequiredError` unless an approved, unrevoked, unexpired
  * grant exists for this engagement. `tx` must already be tenant-scoped (call
  * from inside `withTenant`/`withEngagement`) so RLS confines the check to the
- * caller's tenant. Call this at the top of any content-access path.
+ * caller's tenant; `tenantId` is also asserted explicitly as defense-in-depth,
+ * so a mismatched tenant/engagement pair fails closed even if RLS session
+ * state were ever misconfigured.
  */
 export async function assertBreakGlass(
   tx: DbTransaction,
@@ -137,6 +154,7 @@ export async function assertBreakGlass(
     .from(breakGlassGrants)
     .where(
       and(
+        eq(breakGlassGrants.tenantId, params.tenantId),
         eq(breakGlassGrants.engagementId, params.engagementId),
         isNotNull(breakGlassGrants.approvedAt),
         isNull(breakGlassGrants.revokedAt),
@@ -163,7 +181,13 @@ export async function revokeBreakGlass(
     const updated = await tx
       .update(breakGlassGrants)
       .set({ revokedAt: sql`now()` })
-      .where(and(eq(breakGlassGrants.id, params.grantId), isNull(breakGlassGrants.revokedAt)))
+      .where(
+        and(
+          eq(breakGlassGrants.id, params.grantId),
+          eq(breakGlassGrants.tenantId, params.tenantId),
+          isNull(breakGlassGrants.revokedAt),
+        ),
+      )
       .returning({ id: breakGlassGrants.id, engagementId: breakGlassGrants.engagementId });
 
     const revoked = updated[0];
