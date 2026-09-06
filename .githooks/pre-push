@@ -13,11 +13,16 @@
 #   AI_REVIEW_ALWAYS=1 git push   run step 2 even when a PR is open
 set -euo pipefail
 
-# If every pushed ref is a deletion, there is nothing to check.
+# stdin is "<local ref> <local sha> <remote ref> <remote sha>" per pushed ref.
+# Skip if every pushed ref is a deletion; remember a branch name for the PR check.
 only_deletions=true
-while read -r _local_ref local_sha _remote_ref _remote_sha; do
+pushed_branch=""
+while read -r local_ref local_sha _remote_ref _remote_sha; do
   if [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
     only_deletions=false
+    case "$local_ref" in
+      refs/heads/*) pushed_branch="${local_ref#refs/heads/}" ;;
+    esac
   fi
 done
 if [ "$only_deletions" = true ]; then
@@ -42,8 +47,15 @@ else
 fi
 
 branch_has_open_pr() {
-  command -v gh >/dev/null 2>&1 &&
-    [ "$(gh pr view --json state --jq .state 2>/dev/null)" = "OPEN" ]
+  command -v gh >/dev/null 2>&1 || return 1
+  # Check the branch actually being pushed, not just the checked-out one.
+  local state
+  if [ -n "$pushed_branch" ]; then
+    state=$(gh pr view "$pushed_branch" --json state --jq .state 2>/dev/null)
+  else
+    state=$(gh pr view --json state --jq .state 2>/dev/null)
+  fi
+  [ "$state" = "OPEN" ]
 }
 
 if [ "${SKIP_AI_REVIEW:-}" = "1" ]; then

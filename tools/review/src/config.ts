@@ -36,7 +36,7 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function loadDotEnv(root: string): void {
+export function loadDotEnv(root: string): void {
   const path = join(root, '.env');
   // `.env` is often a symlink onto a slower volume (shared across git worktrees);
   // a transient read failure right after heavy git I/O shouldn't lose the key.

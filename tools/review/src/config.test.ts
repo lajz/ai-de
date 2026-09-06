@@ -2,9 +2,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { canCallModel, loadConfig } from './config.js';
+import { canCallModel, loadConfig, loadDotEnv } from './config.js';
 import type { Config } from './types.js';
 
 function fixtureRoot(fileContent?: string): string {
@@ -84,6 +84,34 @@ describe('loadConfig precedence', () => {
   it('ignores an invalid minSeverity', () => {
     const cfg = loadConfig({}, fixtureRoot('{"minSeverity":"bogus"}'));
     expect(cfg.minSeverity).toBe('nit');
+  });
+});
+
+describe('loadDotEnv retry', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('retries a transient read failure and then applies the file', () => {
+    const root = fixtureRoot();
+    writeFileSync(join(root, '.env'), 'REVIEW_MODEL=recovered\n');
+    const real = process.loadEnvFile.bind(process);
+    const spy = vi
+      .spyOn(process, 'loadEnvFile')
+      .mockImplementationOnce(() => {
+        throw Object.assign(new Error('resource temporarily unavailable'), { code: 'EAGAIN' });
+      })
+      .mockImplementation((p) => real(p as string));
+
+    loadDotEnv(root);
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(process.env.REVIEW_MODEL).toBe('recovered');
+  });
+
+  it('stops immediately when the file genuinely does not exist', () => {
+    const spy = vi.spyOn(process, 'loadEnvFile').mockImplementation(() => {
+      throw Object.assign(new Error('no such file'), { code: 'ENOENT' });
+    });
+    loadDotEnv(fixtureRoot());
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 
