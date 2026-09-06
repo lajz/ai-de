@@ -114,6 +114,7 @@ describe('planActions', () => {
     threadId: `T_${key}`,
     isResolved: false,
     rootCommentId: 1,
+    noted: false,
     ...over,
   });
   const resolved = (key: string, over: Partial<ThreadInfo> = {}): ThreadInfo =>

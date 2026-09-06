@@ -75,14 +75,16 @@ pnpm review -- --help
 one repo secret, `REVIEW_API_KEY` (the DeepSeek key). Each run:
 
 1. **Reconciles comments by identity.** Every finding gets a stable key
-   (`sha1(pass + file + slug(title))`, embedded as `<!-- fde-review:key=… -->`),
-   so it survives line shifts and edits.
+   (`sha1(pass + file + slug(title))`, embedded as
+   `<!-- fde-review:key=… pass=… -->`), so it survives line shifts and edits.
    - new finding → a new inline review comment
    - finding gone → its thread is **resolved** with a reply
-     `✅ Resolved — no longer flagged as of <sha>`
-   - a previously-resolved finding reappears → thread **reopened** with
-     `⚠️ Reopened …`
+     `✅ Resolved — no longer flagged as of <sha>`. If the token can't resolve
+     threads (plain `github.token` can't — see below), it leaves one
+     `✅ No longer flagged … resolve when you're satisfied` note instead.
+   - a previously-resolved finding reappears → thread **reopened** with `⚠️`
    - finding still there → left alone
+   - a pass that **errored** → none of its threads are resolved (silence isn't a fix)
 2. **Updates one summary comment** (marker `<!-- fde-review:summary -->`) in place:
    a table of open findings (🆕 vs 📌), counts of resolved/reopened, the run
    number, and the verdict.
@@ -124,8 +126,14 @@ real merge gate.
 ### Bot identity
 
 The workflow uses `${{ github.token }}` → comments and the approval come from
-**`github-actions[bot]`**, zero setup. That approval does **not** count toward a
-"require approvals" branch-protection rule. To get a named identity and/or an
-approval that counts, create a machine account, add it as a collaborator, mint a
-fine-grained PAT (Pull requests: read/write), store it as `REVIEW_BOT_TOKEN`, and
-the workflow picks it up automatically (`secrets.REVIEW_BOT_TOKEN || github.token`).
+**`github-actions[bot]`**, zero setup. Its limits:
+
+- it **cannot resolve review threads** (`Resource not accessible by integration`)
+  — the reviewer degrades to a note and you resolve them by hand;
+- its approval does **not** count toward a "require approvals" branch-protection
+  rule.
+
+Set `REVIEW_BOT_TOKEN` (a fine-grained PAT, _Pull requests: read/write_ on the
+repo — your own account, or a machine account for a distinct identity + an
+approval that counts) as a repo secret and the workflow picks it up
+(`secrets.REVIEW_BOT_TOKEN || github.token`). Then auto-resolve works.
