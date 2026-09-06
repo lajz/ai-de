@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 
 import { canCallModel, loadConfig } from './config.js';
 import { collectDiff } from './diff.js';
+import { GitHubSink } from './github.js';
 import { runPass } from './passes.js';
 import { TerminalSink } from './report.js';
 import { SEVERITIES, type Config, type Finding, type Severity } from './types.js';
@@ -11,11 +12,13 @@ const HELP = `fde-review — advisory AI review of the current branch vs its bas
 Usage: pnpm review [options]
 
 Options:
-  --base <ref>        Diff against this ref (default: origin/HEAD, else origin/main, else master)
-  --min <severity>    Lowest severity to print: high|medium|low|nit (default: nit)
-  --review-only       Skip the security pass
-  --security-only     Skip the general review pass
-  --sink <name>       Output target: terminal (default). "github" lands with the Action.
+  --base <ref>          Diff against this ref (default: origin/HEAD, else origin/main, else master)
+  --min <severity>      Lowest severity to print: high|medium|low|nit (default: nit)
+  --review-only         Skip the security pass
+  --security-only       Skip the general review pass
+  --sink <name>         terminal (default) or github (inline PR comments via gh)
+  --fail-on <severity>  Exit non-zero if a finding at or above this severity exists
+  --request-changes     github sink: submit REQUEST_CHANGES (not just a comment) when blocked
   --help
 
 Model config comes from .env / environment:
@@ -23,17 +26,24 @@ Model config comes from .env / environment:
   REVIEW_MODEL (default deepseek-v4-flash). Use REVIEW_MODEL=claude to shell out
   to the Claude CLI, or point REVIEW_BASE_URL at a local Ollama.
 
-Always exits 0 — this never blocks a push.`;
+github sink: needs the gh CLI authed (or GH_TOKEN / REVIEW_GH_TOKEN set) and an
+open PR for the branch. Posts findings as inline review comments, resolves them
+on re-review with a note, and approves the PR when no finding is at or above
+blockingSeverity (default high; see .fde-review.json).
+
+Exits 0 unless --fail-on matches.`;
 
 interface Args {
   overrides: Partial<Config>;
   sink: string;
+  requestChanges: boolean;
   help: boolean;
 }
 
 export function parseArgs(argv: string[]): Args {
   const overrides: Partial<Config> = {};
   let sink = 'terminal';
+  let requestChanges = false;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -48,6 +58,11 @@ export function parseArgs(argv: string[]): Args {
         if (SEVERITIES.includes(v as Severity)) overrides.minSeverity = v as Severity;
         break;
       }
+      case '--fail-on': {
+        const v = argv[++i];
+        if (SEVERITIES.includes(v as Severity)) overrides.failOn = v as Severity;
+        break;
+      }
       case '--review-only':
         overrides.passes = { review: true, security: false };
         break;
@@ -57,6 +72,9 @@ export function parseArgs(argv: string[]): Args {
       case '--sink':
         sink = argv[++i] ?? 'terminal';
         break;
+      case '--request-changes':
+        requestChanges = true;
+        break;
       case '--help':
       case '-h':
         help = true;
@@ -65,7 +83,7 @@ export function parseArgs(argv: string[]): Args {
         process.stderr.write(`fde-review: ignoring unknown argument "${arg}"\n`);
     }
   }
-  return { overrides, sink, help };
+  return { overrides, sink, requestChanges, help };
 }
 
 function note(msg: string): void {
@@ -73,14 +91,14 @@ function note(msg: string): void {
 }
 
 async function main(): Promise<void> {
-  const { overrides, sink, help } = parseArgs(process.argv.slice(2));
+  const { overrides, sink, requestChanges, help } = parseArgs(process.argv.slice(2));
   if (help) {
     process.stdout.write(HELP + '\n');
     return;
   }
 
-  if (sink !== 'terminal') {
-    note(`sink "${sink}" is not available yet — falling back to terminal`);
+  if (sink !== 'terminal' && sink !== 'github') {
+    note(`unknown sink "${sink}" — falling back to terminal`);
   }
 
   const cfg = loadConfig(overrides);
@@ -111,7 +129,29 @@ async function main(): Promise<void> {
     }
   }
 
-  await new TerminalSink(cfg.minSeverity).emit(findings, ctx);
+  if (sink === 'github') {
+    await new GitHubSink({
+      token:
+        process.env.REVIEW_GH_TOKEN ??
+        process.env.GH_TOKEN ??
+        process.env.GITHUB_TOKEN ??
+        undefined,
+      blockingSeverity: cfg.blockingSeverity,
+      model: cfg.model,
+      requestChanges,
+    }).emit(findings, ctx);
+  } else {
+    await new TerminalSink(cfg.minSeverity).emit(findings, ctx);
+  }
+
+  if (cfg.failOn) {
+    const threshold = SEVERITIES.indexOf(cfg.failOn);
+    const hit = findings.filter((f) => SEVERITIES.indexOf(f.severity) <= threshold);
+    if (hit.length) {
+      note(`--fail-on ${cfg.failOn}: ${hit.length} finding(s) at or above threshold`);
+      process.exitCode = 1;
+    }
+  }
 }
 
 const invokedDirectly =

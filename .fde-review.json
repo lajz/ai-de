@@ -4,5 +4,6 @@
   "minSeverity": "nit",
   "maxDiffBytes": 400000,
   "timeoutMs": 90000,
-  "passes": { "review": true, "security": true }
+  "passes": { "review": true, "security": true },
+  "blockingSeverity": "high"
 }

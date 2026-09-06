@@ -12,6 +12,8 @@ const DEFAULTS: Omit<Config, 'apiKey'> = {
   minSeverity: 'nit',
   timeoutMs: 90_000,
   passes: { review: true, security: true },
+  blockingSeverity: 'high',
+  failOn: null,
 };
 
 export function repoRoot(): string {
@@ -63,6 +65,15 @@ export function loadConfig(overrides: Partial<Config> = {}, root = repoRoot()): 
     timeoutMs:
       overrides.timeoutMs ?? numeric(env.REVIEW_TIMEOUT_MS) ?? file.timeoutMs ?? DEFAULTS.timeoutMs,
     passes: { ...DEFAULTS.passes, ...file.passes, ...overrides.passes },
+    blockingSeverity: asSeverity(
+      overrides.blockingSeverity ?? env.REVIEW_BLOCKING_SEVERITY ?? file.blockingSeverity,
+      DEFAULTS.blockingSeverity,
+    ),
+    failOn:
+      overrides.failOn ??
+      (env.REVIEW_FAIL_ON ? asSeverity(env.REVIEW_FAIL_ON, 'high') : null) ??
+      file.failOn ??
+      DEFAULTS.failOn,
   };
   return merged;
 }

@@ -1,0 +1,45 @@
+name: AI review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Needs to comment on, resolve threads in, and approve the PR.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # Skip drafts and PRs from forks (secrets are unavailable to fork PRs anyway).
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm review -- --sink github --base "$BASE_SHA"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
+          # Swap github.token for a bot-account PAT (secrets.REVIEW_BOT_TOKEN) to
+          # post as a named identity and satisfy "require approvals" protection.
+          REVIEW_GH_TOKEN: ${{ secrets.REVIEW_BOT_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.REVIEW_BOT_TOKEN || github.token }}

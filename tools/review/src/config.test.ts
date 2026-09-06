@@ -19,6 +19,8 @@ const MODEL_ENV = [
   'REVIEW_MODEL',
   'REVIEW_BASE',
   'REVIEW_MIN_SEVERITY',
+  'REVIEW_BLOCKING_SEVERITY',
+  'REVIEW_FAIL_ON',
 ];
 let saved: Record<string, string | undefined>;
 
@@ -39,6 +41,15 @@ describe('loadConfig precedence', () => {
     expect(cfg.baseUrl).toBe('https://api.deepseek.com');
     expect(cfg.model).toBe('deepseek-v4-flash');
     expect(cfg.minSeverity).toBe('nit');
+    expect(cfg.blockingSeverity).toBe('high');
+    expect(cfg.failOn).toBeNull();
+  });
+
+  it('reads blockingSeverity from env and file', () => {
+    process.env.REVIEW_BLOCKING_SEVERITY = 'medium';
+    expect(loadConfig({}, fixtureRoot()).blockingSeverity).toBe('medium');
+    delete process.env.REVIEW_BLOCKING_SEVERITY;
+    expect(loadConfig({}, fixtureRoot('{"blockingSeverity":"low"}')).blockingSeverity).toBe('low');
   });
 
   it('lets .fde-review.json override defaults', () => {

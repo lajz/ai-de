@@ -27,6 +27,10 @@ export interface Config {
   timeoutMs: number;
   /** Passes to run. */
   passes: { review: boolean; security: boolean };
+  /** Findings at or above this severity block PR approval (github sink). */
+  blockingSeverity: Severity;
+  /** If set, exit non-zero when a finding at or above this severity is present. */
+  failOn: Severity | null;
 }
 
 export interface ReviewContext {
