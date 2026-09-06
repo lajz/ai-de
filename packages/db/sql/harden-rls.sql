@@ -11,7 +11,8 @@ declare
   t text;
   tenant_tables text[] := array[
     'users','engagements','sources','acl_snapshots','entities','relationships',
-    'facts','evidence','extraction_runs','embeddings','identities','access_log'
+    'facts','evidence','extraction_runs','embeddings','identities','access_log',
+    'break_glass_grants'
   ];
 begin
   foreach t in array tenant_tables loop

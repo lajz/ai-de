@@ -11,6 +11,7 @@ export default defineConfig({
       '@fde/core': pkg('core'),
       '@fde/crypto': pkg('crypto'),
       '@fde/db': pkg('db'),
+      '@fde/audit': pkg('audit'),
     },
   },
   test: {

@@ -17,3 +17,4 @@ export type ExtractionRunId = Brand<string, 'ExtractionRunId'>;
 export type EmbeddingId = Brand<string, 'EmbeddingId'>;
 export type IdentityId = Brand<string, 'IdentityId'>;
 export type AccessLogId = Brand<string, 'AccessLogId'>;
+export type BreakGlassGrantId = Brand<string, 'BreakGlassGrantId'>;

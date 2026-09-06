@@ -4,6 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/crypto" },
     { "path": "packages/db" },
+    { "path": "packages/audit" },
     { "path": "tools/review" },
     { "path": "apps/workers" }
   ]

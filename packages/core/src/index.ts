@@ -1,3 +1,4 @@
+export * from './audit.js';
 export * from './branded.js';
 export * from './crypto.js';
 export * from './ids.js';

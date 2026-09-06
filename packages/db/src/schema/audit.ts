@@ -1,4 +1,4 @@
-import { index, jsonb, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import { createdAt, enumFrom, pk, tenantIsolation } from '../columns/_helpers.js';
 import { engagements, tenants } from './tenancy.js';
@@ -30,5 +30,37 @@ export const accessLog = pgTable(
   (t) => [
     tenantIsolation('access_log', t.tenantId),
     index('access_log_engagement_idx').on(t.engagementId, t.createdAt),
+  ],
+);
+
+/**
+ * A time-boxed, second-person-approved grant of standing-access-free content
+ * access for one engagement. `@fde/audit` is the only writer; every state
+ * change (request/approve/revoke) also lands an `access_log` row in the same
+ * transaction. `ttlMinutes` is captured at request time and applied to compute
+ * `expires_at` at approval, since the requester and approver are separate calls.
+ */
+export const breakGlassGrants = pgTable(
+  'break_glass_grants',
+  {
+    id: pk(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    engagementId: uuid('engagement_id')
+      .notNull()
+      .references(() => engagements.id, { onDelete: 'cascade' }),
+    requestedBy: text('requested_by').notNull(),
+    approvedBy: text('approved_by'),
+    reason: text('reason').notNull(),
+    ttlMinutes: integer('ttl_minutes').notNull().default(60),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    tenantIsolation('break_glass_grants', t.tenantId),
+    index('break_glass_grants_engagement_idx').on(t.engagementId),
   ],
 );
