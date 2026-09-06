@@ -32,11 +32,16 @@ function readJsonConfig(root: string): Partial<Config> {
 }
 
 function loadDotEnv(root: string): void {
-  try {
-    // Node >=20.12: populates process.env for keys it does not already have.
-    process.loadEnvFile(join(root, '.env'));
-  } catch {
-    /* no .env — fine */
+  const path = join(root, '.env');
+  // `.env` is often a symlink onto a slower volume (shared across git worktrees);
+  // a transient read failure right after heavy git I/O shouldn't lose the key.
+  for (let i = 0; i < 3; i++) {
+    try {
+      process.loadEnvFile(path); // Node >=20.12; only sets keys not already present
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // genuinely absent
+    }
   }
 }
 
