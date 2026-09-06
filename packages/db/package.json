@@ -1,0 +1,38 @@
+{
+  "name": "@fde/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "drizzle",
+    "sql"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "db:generate": "tsc -b && drizzle-kit generate",
+    "db:studio": "tsc -b && drizzle-kit studio",
+    "db:bootstrap": "psql \"${DATABASE_URL:?set DATABASE_URL}\" -f sql/bootstrap.sql",
+    "db:harden": "psql \"${DATABASE_URL:?set DATABASE_URL}\" -f sql/harden-rls.sql"
+  },
+  "dependencies": {
+    "@fde/core": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "postgres": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "drizzle-kit": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
