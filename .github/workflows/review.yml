@@ -49,7 +49,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
-          # Swap github.token for a bot-account PAT (secrets.REVIEW_BOT_TOKEN) to
-          # post as a named identity and satisfy "require approvals" protection.
+          # github.token works for comments + approval, but CANNOT resolve review
+          # threads ("Resource not accessible by integration") — the reviewer just
+          # leaves a note there instead. Set a fine-grained PAT as REVIEW_BOT_TOKEN
+          # (Pull requests: read/write) to get real auto-resolve, a named identity,
+          # and an approval that counts toward "require approvals".
           REVIEW_GH_TOKEN: ${{ secrets.REVIEW_BOT_TOKEN || github.token }}
           GH_TOKEN: ${{ secrets.REVIEW_BOT_TOKEN || github.token }}

@@ -114,6 +114,7 @@ describe('planActions', () => {
     threadId: `T_${key}`,
     isResolved: false,
     rootCommentId: 1,
+    noted: false,
     ...over,
   });
   const resolved = (key: string, over: Partial<ThreadInfo> = {}): ThreadInfo =>
@@ -230,7 +231,8 @@ describe('renderSummary', () => {
     base: 'abcdef1234567',
     headSha: '1234567abcdef',
     run: 2,
-    resolvedThisRun: 1,
+    resolvedThisRun: 0,
+    reopenedThisRun: 0,
     blockingSeverity: 'high' as const,
     unpositioned: [],
     failedPasses: [],
