@@ -13,8 +13,11 @@ const cfg = (over: Partial<Config> = {}): Config =>
     ...over,
   }) as Config;
 
-const okResponse = (content: string) =>
-  ({ ok: true, json: async () => ({ choices: [{ message: { content } }] }) }) as Response;
+const okResponse = (content: string, finish = 'stop') =>
+  ({
+    ok: true,
+    json: async () => ({ choices: [{ message: { content }, finish_reason: finish }] }),
+  }) as Response;
 
 describe('chatUrl', () => {
   it('appends /v1/chat/completions to a bare host', () => {
@@ -83,6 +86,19 @@ describe('complete — retry', () => {
 
     await expect(complete([{ role: 'user', content: 'x' }], cfg({ retries: 1 }))).rejects.toThrow(
       /network down/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries an intermittent length-truncation, then accepts a clean response', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(okResponse('{"findings":[{"sev', 'length'))
+      .mockResolvedValueOnce(okResponse('{"findings":[]}', 'stop'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(complete([{ role: 'user', content: 'x' }], cfg())).resolves.toBe(
+      '{"findings":[]}',
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

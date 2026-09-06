@@ -9,8 +9,9 @@ import { SEVERITIES, type Finding, type ReviewContext, type Severity, type Sink 
 // ---------------------------------------------------------------------------
 
 const SUMMARY_MARKER = '<!-- fde-review:summary -->';
-const KEY_RE = /<!--\s*fde-review:key=([a-f0-9]{10})\s*-->/;
-const STATE_RE = /<!--\s*fde-review:state\s+run=(\d+)\s+verdict=(approve|block)\s*-->/i;
+const MARKER_RE = /<!--\s*fde-review:key=([a-f0-9]{10})(?:\s+pass=([a-z]+))?\s*-->/;
+const STATE_RE =
+  /<!--\s*fde-review:state\s+run=(\d+)\s+verdict=(approve|block)(?:\s+submitted=([01]))?\s*-->/i;
 
 const SEV_EMOJI: Record<Severity, string> = { high: '🔴', medium: '🟠', low: '🟡', nit: '⚪' };
 const rank = (s: Severity): number => SEVERITIES.indexOf(s);
@@ -40,12 +41,23 @@ export function findingKey(f: Finding): string {
   return createHash('sha1').update(`${f.pass} :: ${f.file} :: ${slug}`).digest('hex').slice(0, 10);
 }
 
-export function markerFor(key: string): string {
-  return `<!-- fde-review:key=${key} -->`;
+export function markerFor(key: string, pass: string): string {
+  return `<!-- fde-review:key=${key} pass=${pass.replace(/[^a-z]/gi, '')} -->`;
+}
+
+export interface Marker {
+  key: string;
+  /** null for comments written before pass= was added to the marker */
+  pass: string | null;
+}
+
+export function parseMarker(body: string): Marker | null {
+  const m = body.match(MARKER_RE);
+  return m ? { key: m[1]!, pass: m[2] ?? null } : null;
 }
 
 export function keyFromBody(body: string): string | null {
-  return body.match(KEY_RE)?.[1] ?? null;
+  return parseMarker(body)?.key ?? null;
 }
 
 export function commentBody(f: Finding, key: string): string {
@@ -55,12 +67,15 @@ export function commentBody(f: Finding, key: string): string {
     clean(f.detail),
   ];
   if (f.suggestion) parts.push('', `_Suggested fix:_ ${clean(f.suggestion)}`);
-  parts.push('', markerFor(key));
+  parts.push('', markerFor(key, f.pass));
   return parts.join('\n');
 }
 
 export interface ThreadInfo {
   key: string;
+  pass: string | null;
+  path: string | null;
+  line: number | null;
   threadId: string;
   isResolved: boolean;
   rootCommentId: number;
@@ -73,24 +88,51 @@ export interface ActionPlan {
   stillOpen: { finding: Finding; thread: ThreadInfo }[];
 }
 
+export interface PlanOptions {
+  /** Passes that errored — their threads must not be resolved (we have no data). */
+  failedPasses?: string[];
+  /** Suppress a keyless new finding within this many lines of an open thread on the same file. */
+  positionalWindow?: number;
+}
+
 /** Diff the current findings against the review threads fde-review already owns. */
-export function planActions(findings: Finding[], threads: ThreadInfo[]): ActionPlan {
+export function planActions(
+  findings: Finding[],
+  threads: ThreadInfo[],
+  opts: PlanOptions = {},
+): ActionPlan {
+  const failed = new Set(opts.failedPasses ?? []);
+  const window = opts.positionalWindow ?? 3;
   const current = new Map(findings.map((f) => [findingKey(f), f]));
   const mine = new Map(threads.map((t) => [t.key, t]));
+  const openThreads = threads.filter((t) => !t.isResolved);
 
   const toCreate: Finding[] = [];
   const toReopen: ThreadInfo[] = [];
   const stillOpen: { finding: Finding; thread: ThreadInfo }[] = [];
   for (const [key, finding] of current) {
     const thread = mine.get(key);
-    if (!thread) toCreate.push(finding);
-    else if (thread.isResolved) toReopen.push(thread);
-    else stillOpen.push({ finding, thread });
+    if (thread) {
+      if (thread.isResolved) toReopen.push(thread);
+      else stillOpen.push({ finding, thread });
+      continue;
+    }
+    // Backstop against a re-worded finding at the same spot — an existing open
+    // thread, or another new finding already queued this run.
+    const line = finding.line;
+    const nearby = (path: string | null, other: number | null): boolean =>
+      line != null && other != null && path === finding.file && Math.abs(other - line) <= window;
+    if (openThreads.some((t) => nearby(t.path, t.line))) continue;
+    if (toCreate.some((c) => nearby(c.file, c.line))) continue;
+    toCreate.push(finding);
   }
 
   const toResolve: ThreadInfo[] = [];
   for (const [key, thread] of mine) {
-    if (!current.has(key) && !thread.isResolved) toResolve.push(thread);
+    if (thread.isResolved || current.has(key)) continue;
+    // A failed pass produced no findings; its silence is not evidence of a fix.
+    if (thread.pass ? failed.has(thread.pass) : failed.size > 0) continue;
+    toResolve.push(thread);
   }
 
   return { toCreate, toResolve, toReopen, stillOpen };
@@ -106,13 +148,21 @@ export function computeVerdict(findings: Finding[], blockingSeverity: Severity):
   return { blocking, approve: blocking.length === 0 };
 }
 
-export function parsePrevState(summaryBody: string | null): {
+export interface PrevState {
   run: number;
   verdict: 'approve' | 'block' | null;
-} {
+  /** Whether a formal `gh pr review` was submitted last time (vs only a comment). */
+  submitted: boolean;
+}
+
+export function parsePrevState(summaryBody: string | null): PrevState {
   const m = summaryBody?.match(STATE_RE);
-  if (!m) return { run: 0, verdict: null };
-  return { run: Number(m[1]), verdict: m[2]!.toLowerCase() as 'approve' | 'block' };
+  if (!m) return { run: 0, verdict: null, submitted: false };
+  return {
+    run: Number(m[1]),
+    verdict: m[2]!.toLowerCase() as 'approve' | 'block',
+    submitted: m[3] === '1',
+  };
 }
 
 const short = (sha: string): string => sha.slice(0, 7);
@@ -130,19 +180,22 @@ export interface SummaryInput {
   unpositioned: Finding[];
   /** Passes that errored out — the review is incomplete and must not approve. */
   failedPasses: string[];
+  /** Whether a formal `gh pr review` was submitted this run — recorded in the state marker. */
+  submitted: boolean;
 }
 
 export function renderSummary(s: SummaryInput): string {
   const rows: string[] = [];
   const newKeys = new Set(s.plan.toCreate.map(findingKey));
-  const sorted = [...s.findings].sort(
-    (a, b) => rank(a.severity) - rank(b.severity) || a.file.localeCompare(b.file),
-  );
+  const unpositioned = new Set(s.unpositioned);
+  // The table lists line-anchored findings; the rest go in the details block below.
+  const sorted = [...s.findings]
+    .filter((f) => !unpositioned.has(f))
+    .sort((a, b) => rank(a.severity) - rank(b.severity) || a.file.localeCompare(b.file));
   for (const f of sorted) {
-    const loc = f.line ? `\`${cell(f.file)}:${f.line}\`` : `\`${cell(f.file)}\``;
     const tag = newKeys.has(findingKey(f)) ? '🆕' : '📌';
     rows.push(
-      `| ${tag} | ${f.severity.toUpperCase()} | ${cell(f.pass)} | ${loc} | ${cell(f.title)} |`,
+      `| ${tag} | ${f.severity.toUpperCase()} | ${cell(f.pass)} | \`${cell(f.file)}:${f.line}\` | ${cell(f.title)} |`,
     );
   }
 
@@ -168,7 +221,7 @@ export function renderSummary(s: SummaryInput): string {
       ...rows,
       '',
     );
-  } else {
+  } else if (!s.unpositioned.length) {
     out.push('_No open findings._', '');
   }
 
@@ -198,7 +251,7 @@ export function renderSummary(s: SummaryInput): string {
   out.push(
     `<sub>Comments, resolutions, and the verdict on this PR are managed by \`fde-review\`. Re-runs on each push.</sub>`,
     '',
-    `<!-- fde-review:state run=${s.run} verdict=${s.verdict.approve ? 'approve' : 'block'} -->`,
+    `<!-- fde-review:state run=${s.run} verdict=${s.verdict.approve ? 'approve' : 'block'} submitted=${s.submitted ? 1 : 0} -->`,
     SUMMARY_MARKER,
   );
   return out.join('\n');
@@ -276,6 +329,9 @@ interface ReviewThreadsResponse {
           nodes: {
             id: string;
             isResolved: boolean;
+            path: string | null;
+            line: number | null;
+            originalLine: number | null;
             comments: { nodes: { databaseId: number; body: string }[] };
           }[];
         };
@@ -290,7 +346,7 @@ query($owner:String!,$repo:String!,$num:Int!,$cursor:String){
     pullRequest(number:$num){
       reviewThreads(first:100,after:$cursor){
         pageInfo{ hasNextPage endCursor }
-        nodes{ id isResolved comments(first:1){ nodes{ databaseId body } } }
+        nodes{ id isResolved path line originalLine comments(first:1){ nodes{ databaseId body } } }
       }
     }
   }
@@ -331,7 +387,7 @@ export class GitHubSink implements Sink {
     }
 
     const { threads, ok } = this.fetchOwnThreads(pr);
-    const plan = planActions(findings, threads);
+    const plan = planActions(findings, threads, { failedPasses: this.opts.failedPasses });
     const repoPath = `repos/${pr.owner}/${pr.repo}`;
 
     const unpositioned: Finding[] = [];
@@ -375,6 +431,18 @@ export class GitHubSink implements Sink {
     // An incomplete review cannot vouch for the PR.
     if (failedPasses.length) verdict.approve = false;
 
+    // Submit the review BEFORE writing the summary, and record whether the formal
+    // `gh pr review` actually went through — so a transient failure retries next
+    // run instead of being masked by an unchanged verdict.
+    const nextVerdict = verdict.approve ? 'approve' : 'block';
+    const verdictChanged = prevState.verdict !== nextVerdict;
+    let submitted = prevState.submitted;
+    if (verdictChanged || !prevState.submitted) {
+      submitted = this.submitVerdict(pr, verdict, failedPasses, { comment: verdictChanged });
+    } else {
+      note(`github: verdict unchanged (${nextVerdict}) — no new review submitted`);
+    }
+
     const body = renderSummary({
       model: this.opts.model,
       base: gitShaOf(ctx.base) ?? ctx.base,
@@ -387,15 +455,9 @@ export class GitHubSink implements Sink {
       blockingSeverity: this.opts.blockingSeverity,
       unpositioned,
       failedPasses,
+      submitted,
     });
     this.upsertSummary(repoPath, pr.number, prev?.id ?? null, body);
-
-    const nextVerdict = verdict.approve ? 'approve' : 'block';
-    if (prevState.verdict !== nextVerdict) {
-      this.submitVerdict(pr, verdict, failedPasses);
-    } else {
-      note(`github: verdict unchanged (${nextVerdict}) — no new review submitted`);
-    }
 
     note(
       `github: ${plan.toCreate.length - unpositioned.length} new comment(s), ` +
@@ -419,10 +481,13 @@ export class GitHubSink implements Sink {
         for (const node of page.nodes) {
           const root = node.comments.nodes[0];
           if (!root) continue;
-          const key = keyFromBody(root.body);
-          if (key) {
+          const marker = parseMarker(root.body);
+          if (marker) {
             out.push({
-              key,
+              key: marker.key,
+              pass: marker.pass,
+              path: node.path,
+              line: node.line ?? node.originalLine,
               threadId: node.id,
               isResolved: node.isResolved,
               rootCommentId: root.databaseId,
@@ -502,18 +567,25 @@ export class GitHubSink implements Sink {
     }
   }
 
-  private submitVerdict(pr: PrContext, verdict: Verdict, failedPasses: string[]): void {
+  /** Returns whether a formal `gh pr review` went through. */
+  private submitVerdict(
+    pr: PrContext,
+    verdict: Verdict,
+    failedPasses: string[],
+    opts: { comment: boolean },
+  ): boolean {
     const repo = `${pr.owner}/${pr.repo}`;
     const num = String(pr.number);
     if (verdict.approve) {
       const body = '✅ **fde-review**: no blocking findings.';
-      if (!this.tryReview(['--approve', '--body', body], repo, num)) {
+      if (this.tryReview(['--approve', '--body', body], repo, num)) return true;
+      if (opts.comment) {
         this.comment(
           pr,
-          `${body}\n\n_Formal approval unavailable to this token — the PR author can't approve their own PR, and \`github-actions[bot]\` needs "Allow GitHub Actions to ... approve pull requests" (Settings → Actions → General) or a \`REVIEW_BOT_TOKEN\`._`,
+          `${body}\n\n_Formal approval unavailable to this token — the PR author can't approve their own PR, and \`github-actions[bot]\` needs "Allow GitHub Actions to … approve pull requests" (Settings → Actions → General) or a \`REVIEW_BOT_TOKEN\`._`,
         );
       }
-      return;
+      return false;
     }
     const body = failedPasses.length
       ? `⚠️ **fde-review**: review incomplete — the ${failedPasses.join(' and ')} pass did not finish. Approval withheld; re-run the workflow.`
@@ -521,9 +593,9 @@ export class GitHubSink implements Sink {
     // "incomplete" is a soft state — always a comment, never REQUEST_CHANGES.
     const event =
       this.opts.requestChanges && !failedPasses.length ? '--request-changes' : '--comment';
-    if (!this.tryReview([event, '--body', body], repo, num)) {
-      this.comment(pr, body);
-    }
+    if (this.tryReview([event, '--body', body], repo, num)) return true;
+    if (opts.comment) this.comment(pr, body);
+    return false;
   }
 
   private tryReview(reviewArgs: string[], repo: string, num: string): boolean {

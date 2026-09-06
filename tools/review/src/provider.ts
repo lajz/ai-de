@@ -44,6 +44,7 @@ export function requestBody(messages: ChatMessage[], cfg: Config): Record<string
     model: cfg.model,
     messages,
     temperature: 0,
+    max_tokens: 16000,
     response_format: { type: 'json_object' },
   };
   if (/deepseek/i.test(cfg.model)) body.thinking = { type: 'disabled' };
@@ -69,9 +70,16 @@ async function attempt(messages: ChatMessage[], cfg: Config): Promise<string> {
         ? new PermanentError(msg)
         : new Error(msg);
     }
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const content = data.choices?.[0]?.message?.content;
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: string }; finish_reason?: string }[];
+    };
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content;
     if (!content) throw new Error('empty completion from model');
+    if (choice?.finish_reason === 'length') {
+      // Truncation is intermittent on DeepSeek under load — retryable, not permanent.
+      throw new Error('model response hit the token limit before finishing');
+    }
     return content;
   } finally {
     clearTimeout(timer);
