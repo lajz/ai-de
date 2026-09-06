@@ -6,12 +6,16 @@ import { SEVERITIES, type Config, type Severity } from './types.js';
 
 const DEFAULTS: Omit<Config, 'apiKey'> = {
   baseRef: null,
+  headRef: null,
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-v4-flash',
   maxDiffBytes: 400_000,
   minSeverity: 'nit',
-  timeoutMs: 90_000,
+  timeoutMs: 120_000,
+  retries: 2,
   passes: { review: true, security: true },
+  blockingSeverity: 'high',
+  failOn: null,
 };
 
 export function repoRoot(): string {
@@ -28,11 +32,16 @@ function readJsonConfig(root: string): Partial<Config> {
 }
 
 function loadDotEnv(root: string): void {
-  try {
-    // Node >=20.12: populates process.env for keys it does not already have.
-    process.loadEnvFile(join(root, '.env'));
-  } catch {
-    /* no .env — fine */
+  const path = join(root, '.env');
+  // `.env` is often a symlink onto a slower volume (shared across git worktrees);
+  // a transient read failure right after heavy git I/O shouldn't lose the key.
+  for (let i = 0; i < 3; i++) {
+    try {
+      process.loadEnvFile(path); // Node >=20.12; only sets keys not already present
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // genuinely absent
+    }
   }
 }
 
@@ -46,8 +55,15 @@ export function loadConfig(overrides: Partial<Config> = {}, root = repoRoot()): 
   const file = readJsonConfig(root);
   const env = process.env;
 
+  // In CI the working tree is the PR being gated, so its committed .fde-review.json
+  // must not be able to switch review passes off and coast to an approval. (The
+  // other knobs can't weaken the gate: blockingSeverity only goes stricter than
+  // its `high` default, minSeverity is display-only.)
+  const ci = env.GITHUB_ACTIONS === 'true';
+
   const merged: Config = {
     baseRef: overrides.baseRef ?? env.REVIEW_BASE ?? file.baseRef ?? DEFAULTS.baseRef,
+    headRef: overrides.headRef ?? env.REVIEW_HEAD ?? DEFAULTS.headRef,
     baseUrl: overrides.baseUrl ?? env.REVIEW_BASE_URL ?? file.baseUrl ?? DEFAULTS.baseUrl,
     model: overrides.model ?? env.REVIEW_MODEL ?? file.model ?? DEFAULTS.model,
     apiKey: overrides.apiKey ?? env.REVIEW_API_KEY ?? null,
@@ -62,7 +78,19 @@ export function loadConfig(overrides: Partial<Config> = {}, root = repoRoot()): 
     ),
     timeoutMs:
       overrides.timeoutMs ?? numeric(env.REVIEW_TIMEOUT_MS) ?? file.timeoutMs ?? DEFAULTS.timeoutMs,
-    passes: { ...DEFAULTS.passes, ...file.passes, ...overrides.passes },
+    retries: overrides.retries ?? numeric(env.REVIEW_RETRIES) ?? file.retries ?? DEFAULTS.retries,
+    passes: ci
+      ? { review: true, security: true }
+      : { ...DEFAULTS.passes, ...file.passes, ...overrides.passes },
+    blockingSeverity: asSeverity(
+      overrides.blockingSeverity ?? env.REVIEW_BLOCKING_SEVERITY ?? file.blockingSeverity,
+      DEFAULTS.blockingSeverity,
+    ),
+    failOn:
+      overrides.failOn ??
+      (env.REVIEW_FAIL_ON ? asSeverity(env.REVIEW_FAIL_ON, 'high') : null) ??
+      file.failOn ??
+      DEFAULTS.failOn,
   };
   return merged;
 }

@@ -16,6 +16,8 @@ export interface Finding {
 export interface Config {
   /** Git ref (or SHA) the diff is taken against. */
   baseRef: string | null;
+  /** Head of the diff (default HEAD). CI sets this to a fetched-but-not-checked-out sha. */
+  headRef: string | null;
   baseUrl: string;
   model: string;
   apiKey: string | null;
@@ -25,8 +27,14 @@ export interface Config {
   minSeverity: Severity;
   /** Per-request timeout in milliseconds. */
   timeoutMs: number;
+  /** Extra attempts after the first on a transient failure (timeout, network, 5xx, 429). */
+  retries: number;
   /** Passes to run. */
   passes: { review: boolean; security: boolean };
+  /** Findings at or above this severity block PR approval (github sink). */
+  blockingSeverity: Severity;
+  /** If set, exit non-zero when a finding at or above this severity is present. */
+  failOn: Severity | null;
 }
 
 export interface ReviewContext {

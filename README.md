@@ -33,10 +33,14 @@ cp .env.example .env
 | `pnpm format`    | Prettier write                        |
 | `pnpm review`    | Advisory AI review of the branch diff |
 
-## Pre-merge gate
+## Review gate
 
-`pnpm install` installs a `pre-push` hook (`.githooks/pre-push`) that blocks the
-push on `lint` / `typecheck` / `format:check` / `test` failures, then runs an
-advisory AI review (`lint` etc. block; the AI review never does). Add a
-`REVIEW_API_KEY` to `.env` to enable the AI pass — see
+- **Local:** `pnpm install` installs a `pre-push` hook (`.githooks/pre-push`) that
+  blocks the push on `lint` / `typecheck` / `format:check` / `test` failures, then
+  runs an advisory AI review (checks block; the AI review never does).
+- **PRs:** `.github/workflows/review.yml` posts the AI findings as inline review
+  comments, resolves them with a note once fixed, and approves when nothing is at
+  or above `high`. Needs the `REVIEW_API_KEY` repo secret.
+
+Add a `REVIEW_API_KEY` to `.env` to enable the local AI pass — see
 [`tools/review/README.md`](tools/review/README.md).

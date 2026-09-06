@@ -30,6 +30,11 @@ input.
 Only report issues introduced or touched by this diff. No speculation, no
 compliance boilerplate. If nothing is wrong, return an empty `findings` array.
 
+Severity — `high` blocks auto-approval, so reserve it for a vulnerability that is
+actually reachable and exploitable on a normal path (real secret leak, real
+injection, real authz/tenant bypass). Hardening gaps, defence-in-depth, and
+"could be a problem if…" are `medium` or `low`.
+
 Respond with a single JSON object, no prose:
 
 ```

@@ -20,6 +20,15 @@ Do not report: pure formatting (Prettier owns that), speculative future needs,
 or praise. Prefer a few high-signal findings over a long list. If the diff is
 clean, return an empty `findings` array.
 
+Severity — be conservative, an auto-approval gate depends on it:
+
+- `high` — ONLY a definite bug that will crash, corrupt data, leak a secret, or
+  break a security boundary on a normal code path. If you're hedging ("may",
+  "could", "if"), it is not `high`.
+- `medium` — a real bug on an edge case, or missing test coverage for new logic.
+- `low` — minor correctness nit, small cleanup, style inconsistency.
+- `nit` — cosmetic.
+
 Respond with a single JSON object, no prose:
 
 ```

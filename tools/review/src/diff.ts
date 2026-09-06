@@ -91,7 +91,12 @@ export function collectDiff(cfg: Config): CollectedDiff | null {
   const base = resolveBase(cfg.baseRef);
   if (!base) return null;
 
-  const range = ['--merge-base', base, 'HEAD'];
+  // `headRef` lets CI diff a commit that is fetched but not checked out, so the
+  // tool + prompts + config can run from a trusted ref while the PR head is data.
+  const head = cfg.headRef ?? 'HEAD';
+  if (!refExists(head)) return null;
+
+  const range = ['--merge-base', base, head];
   const names = git(['diff', ...range, '--name-only', '--', '.', ...EXCLUDES])
     .split('\n')
     .map((s) => s.trim())
@@ -106,7 +111,7 @@ export function collectDiff(cfg: Config): CollectedDiff | null {
     diff,
     ctx: {
       base,
-      head: git(['rev-parse', '--short', 'HEAD']).trim(),
+      head: git(['rev-parse', '--short', head]).trim(),
       changedFiles: names,
       truncatedFiles,
     },
