@@ -11,6 +11,11 @@ A pay-per-token **review gate** for a solo project. Two surfaces, same core
   fixed, and the PR is **approved when nothing is at or above `blockingSeverity`**
   (default `high`).
 
+The AI pass runs in **one place per push**: the local hook does it until the
+branch has an open PR, then it steps aside and the Action owns it (`git push`
+with `AI_REVIEW_ALWAYS=1` forces the local pass anyway). The deterministic checks
+run both locally (hook) and in CI (`ci.yml`).
+
 ## Setup
 
 ```bash
@@ -57,11 +62,12 @@ pnpm review -- --help
 
 ## Escape hatches
 
-| Command                       | Effect                        |
-| ----------------------------- | ----------------------------- |
-| `git push --no-verify`        | skip the hook entirely        |
-| `SKIP_REVIEW_GATE=1 git push` | skip the deterministic checks |
-| `SKIP_AI_REVIEW=1 git push`   | skip the AI review            |
+| Command                       | Effect                                       |
+| ----------------------------- | -------------------------------------------- |
+| `git push --no-verify`        | skip the hook entirely                       |
+| `SKIP_REVIEW_GATE=1 git push` | skip the deterministic checks                |
+| `SKIP_AI_REVIEW=1 git push`   | skip the AI review                           |
+| `AI_REVIEW_ALWAYS=1 git push` | run the local AI review even with an open PR |
 
 ## GitHub Action (`--sink github`)
 

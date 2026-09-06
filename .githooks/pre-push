@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 #
-# Pre-merge gate for a solo project (see tools/review/README.md).
+# Pre-push gate for a solo project (see tools/review/README.md).
 #   1. Deterministic checks — lint / typecheck / format / test. These BLOCK the push.
-#   2. Advisory AI review — prints findings, never blocks.
+#   2. Advisory AI review — prints findings, never blocks. SKIPPED when the branch
+#      already has an open PR, because .github/workflows/review.yml runs it there
+#      (and posts to the PR) — no point paying for it twice.
 #
 # Escape hatches:
 #   git push --no-verify        skip this hook entirely
 #   SKIP_REVIEW_GATE=1 git push  skip step 1
 #   SKIP_AI_REVIEW=1 git push     skip step 2
+#   AI_REVIEW_ALWAYS=1 git push   run step 2 even when a PR is open
 set -euo pipefail
 
 # If every pushed ref is a deletion, there is nothing to check.
@@ -38,7 +41,16 @@ else
   pnpm test
 fi
 
-if [ "${SKIP_AI_REVIEW:-}" != "1" ]; then
+branch_has_open_pr() {
+  command -v gh >/dev/null 2>&1 &&
+    [ "$(gh pr view --json state --jq .state 2>/dev/null)" = "OPEN" ]
+}
+
+if [ "${SKIP_AI_REVIEW:-}" = "1" ]; then
+  :
+elif [ "${AI_REVIEW_ALWAYS:-}" != "1" ] && branch_has_open_pr; then
+  echo "pre-push: open PR for this branch — AI review runs in GitHub Actions, skipping the local pass"
+else
   echo "pre-push: AI review (advisory)"
   pnpm review || true
 fi
