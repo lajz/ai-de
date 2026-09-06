@@ -43,6 +43,33 @@ export function normalize(raw: RawFinding[], pass: string): Finding[] {
     .filter((f) => f.detail.length > 0);
 }
 
+const rank = (s: Severity): number => SEVERITIES.indexOf(s);
+
+const slug = (title: string): string =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+/**
+ * Collapse the near-duplicate findings the model sometimes emits — the same issue
+ * described twice, or once per pass. Two findings merge only when they clearly
+ * name the same thing: same file + same line, or same file + same title. The more
+ * severe one wins; distinct findings on adjacent lines are kept.
+ */
+export function dedupeFindings(findings: Finding[]): Finding[] {
+  const kept: Finding[] = [];
+  for (const f of [...findings].sort((a, b) => rank(a.severity) - rank(b.severity))) {
+    const dup = kept.some(
+      (k) =>
+        k.file === f.file &&
+        ((f.line != null && k.line === f.line) || slug(k.title) === slug(f.title)),
+    );
+    if (!dup) kept.push(f);
+  }
+  return kept;
+}
+
 /** Run one review pass (prompt file name without extension) over the diff. */
 export async function runPass(name: string, diff: string, cfg: Config): Promise<Finding[]> {
   const system = readFileSync(join(PROMPT_DIR, `${name}.md`), 'utf8');

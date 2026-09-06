@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { canCallModel, loadConfig } from './config.js';
 import { collectDiff } from './diff.js';
 import { GitHubSink } from './github.js';
-import { runPass } from './passes.js';
+import { dedupeFindings, runPass } from './passes.js';
 import { TerminalSink } from './report.js';
 import { SEVERITIES, type Config, type Finding, type Severity } from './types.js';
 
@@ -124,16 +124,17 @@ async function main(): Promise<void> {
   if (cfg.passes.security) passes.push('security');
 
   note(`reviewing ${ctx.changedFiles.length} file(s) with ${cfg.model} …`);
-  const findings: Finding[] = [];
+  const raw: Finding[] = [];
   const failedPasses: string[] = [];
   for (const name of passes) {
     try {
-      findings.push(...(await runPass(name, diff, cfg)));
+      raw.push(...(await runPass(name, diff, cfg)));
     } catch (err) {
       note(`${name} pass failed: ${(err as Error).message} — skipping`);
       failedPasses.push(name);
     }
   }
+  const findings = dedupeFindings(raw);
 
   if (sink === 'github') {
     await new GitHubSink({
