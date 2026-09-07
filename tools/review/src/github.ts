@@ -2,7 +2,15 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-import { SEVERITIES, type Finding, type ReviewContext, type Severity, type Sink } from './types.js';
+import {
+  SEVERITIES,
+  type Finding,
+  type PriorFinding,
+  type Retraction,
+  type ReviewContext,
+  type Severity,
+  type Sink,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-tested; no I/O)
@@ -60,6 +68,21 @@ export function keyFromBody(body: string): string | null {
   return parseMarker(body)?.key ?? null;
 }
 
+const HEADER_RE = /\*\*[A-Z]+ · [a-z]+\*\* — (.+?)\s*$/m;
+
+/** The detail paragraph of a root finding comment (between the header and the fix/marker). */
+export function detailFromBody(body: string): string {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => HEADER_RE.test(l));
+  if (start === -1) return '';
+  const rest: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    if (/^_Suggested fix:_|<!--\s*fde-review/.test(l)) break;
+    if (l.trim()) rest.push(l.trim());
+  }
+  return rest.join(' ').slice(0, 500);
+}
+
 export function commentBody(f: Finding, key: string): string {
   const parts = [
     `${SEV_EMOJI[f.severity]} **${f.severity.toUpperCase()} · ${clean(f.pass)}** — ${clean(f.title)}`,
@@ -71,16 +94,40 @@ export function commentBody(f: Finding, key: string): string {
   return parts.join('\n');
 }
 
+/** The title back out of a root finding comment (the "— <title>" on the header line). */
+export function titleFromBody(body: string): string {
+  return body.match(HEADER_RE)?.[1]?.trim() ?? 'finding';
+}
+
 export interface ThreadInfo {
   key: string;
   pass: string | null;
   path: string | null;
   line: number | null;
+  title: string;
+  detail: string;
   threadId: string;
   isResolved: boolean;
   rootCommentId: number;
   /** We already left a "no longer flagged, resolve manually" note on this thread. */
   noted: boolean;
+  /** A human replied "/fp" / "false positive" — an explicit dismissal. */
+  dismissReply: boolean;
+  /** A person resolved the thread (not fde-review closing out a fix). */
+  humanResolved: boolean;
+  /** We already acknowledged a dismissal. */
+  acked: boolean;
+  /** fde-review withdrew this finding on a re-review — never reopen it. */
+  retracted: boolean;
+}
+
+/**
+ * A finding is dismissed when a human explicitly waved it off, or resolved its
+ * thread while the reviewer is still reporting it (i.e. they're overriding, not
+ * just tidying up after a fix). `stillReported` = the finding is in this run.
+ */
+export function isDismissed(thread: ThreadInfo, stillReported: boolean): boolean {
+  return thread.dismissReply || (thread.humanResolved && stillReported);
 }
 
 export interface ActionPlan {
@@ -175,6 +222,10 @@ export interface SummaryInput {
   headSha: string;
   run: number;
   findings: Finding[];
+  /** Findings a human waved off — shown separately, excluded from the verdict. */
+  dismissed: Finding[];
+  /** Findings the reviewer withdrew on re-review. */
+  withdrawn: Finding[];
   plan: ActionPlan;
   /** Threads actually resolved / reopened this run (API confirmed). */
   resolvedThisRun: number;
@@ -251,9 +302,31 @@ export function renderSummary(s: SummaryInput): string {
       '',
     );
   }
+  const loc = (f: Finding): string =>
+    f.line ? `\`${clean(f.file)}:${f.line}\`` : `\`${clean(f.file)}\``;
+  if (s.dismissed.length) {
+    out.push(
+      `<details><summary>🚫 Dismissed as false positives (${s.dismissed.length})</summary>`,
+      '',
+      ...s.dismissed.map((f) => `- **${f.severity.toUpperCase()}** ${loc(f)} — ${clean(f.title)}`),
+      '',
+      '</details>',
+      '',
+    );
+  }
+  if (s.withdrawn.length) {
+    out.push(
+      `<details><summary>↩️ Withdrawn on re-review (${s.withdrawn.length})</summary>`,
+      '',
+      ...s.withdrawn.map((f) => `- ${loc(f)} — ${clean(f.title)}: ${clean(f.detail)}`),
+      '',
+      '</details>',
+      '',
+    );
+  }
 
   out.push(
-    `<sub>Comments, resolutions, and the verdict on this PR are managed by \`fde-review\`. Re-runs on each push.</sub>`,
+    `<sub>Comments, resolutions, and the verdict on this PR are managed by \`fde-review\`. Re-runs on each push. Disagree with a finding? Resolve its thread or reply \`/fp\`.</sub>`,
     '',
     `<!-- fde-review:state run=${s.run} verdict=${s.verdict.approve ? 'approve' : 'block'} submitted=${s.submitted ? 1 : 0} -->`,
     SUMMARY_MARKER,
@@ -362,6 +435,31 @@ interface ReviewThreadsResponse {
 }
 
 const NOTED_MARKER = '<!-- fde-review:noted -->';
+const RESOLVED_MARKER = '<!-- fde-review:resolved -->';
+const ACKED_MARKER = '<!-- fde-review:acked -->';
+const RETRACTED_MARKER = '<!-- fde-review:retracted -->';
+const BOT_REPLY_MARKER = '<!-- fde-review:bot -->';
+
+/** A comment fde-review wrote carries a marker (newer) or matches its known text (older). */
+const isOurComment = (body: string): boolean =>
+  /<!--\s*fde-review/i.test(body) || /✅ (Resolved|No longer flagged) —/.test(body);
+
+/** A human reply that waves a finding off. Only matched on comments we did not write. */
+const DISMISS_RE =
+  /(^|\s)\/(fp|dismiss)\b|false[ -]?positive|not a (real |genuine )?(bug|issue|problem|concern)|working as intended|by design/i;
+
+/** Did a human reply explicitly wave this finding off? */
+export function hasDismissReply(commentBodies: string[]): boolean {
+  return commentBodies.some((b) => !isOurComment(b) && DISMISS_RE.test(b));
+}
+
+/** Was this thread resolved by a person rather than by fde-review closing out a fix? */
+export function humanResolved(threadIsResolved: boolean, commentBodies: string[]): boolean {
+  if (!threadIsResolved) return false;
+  return !commentBodies.some(
+    (b) => b.includes(RESOLVED_MARKER) || /✅ (Resolved|No longer flagged) —/.test(b),
+  );
+}
 
 const THREADS_QUERY = `
 query($owner:String!,$repo:String!,$num:Int!,$cursor:String){
@@ -369,7 +467,7 @@ query($owner:String!,$repo:String!,$num:Int!,$cursor:String){
     pullRequest(number:$num){
       reviewThreads(first:100,after:$cursor){
         pageInfo{ hasNextPage endCursor }
-        nodes{ id isResolved path line originalLine comments(first:20){ nodes{ databaseId body } } }
+        nodes{ id isResolved path line originalLine comments(first:30){ nodes{ databaseId body } } }
       }
     }
   }
@@ -394,24 +492,111 @@ function note(msg: string): void {
 
 export class GitHubSink implements Sink {
   private readonly gh: Gh;
+  private cache?: { pr: PrContext; threads: ThreadInfo[]; ok: boolean };
 
   constructor(private readonly opts: GitHubSinkOptions) {
     this.gh = makeGh(opts.token);
   }
 
-  async emit(findings: Finding[], ctx: ReviewContext): Promise<void> {
+  private load(): { pr: PrContext; threads: ThreadInfo[]; ok: boolean } | null {
+    if (this.cache) return this.cache;
     let pr: PrContext;
     try {
       pr = resolvePrContext(this.gh);
     } catch (err) {
       const why = /ENOENT/.test(String(err)) ? 'gh CLI not found' : 'no open PR for this branch';
       note(`${why} — skipping github sink`);
-      return;
+      return null;
+    }
+    this.cache = { pr, ...this.fetchOwnThreads(pr) };
+    return this.cache;
+  }
+
+  /** Open findings from earlier commits, for a pass to reconsider (`--sink github`). */
+  priorFindings(): PriorFinding[] {
+    const loaded = this.load();
+    if (!loaded?.ok) return [];
+    return loaded.threads
+      .filter((t) => !t.isResolved && !t.humanResolved && !t.dismissReply && !t.retracted)
+      .map((t) => ({
+        key: t.key,
+        pass: t.pass ?? 'review',
+        file: t.path ?? '(unknown)',
+        line: t.line,
+        title: t.title,
+        detail: t.detail,
+      }));
+  }
+
+  async emit(
+    findings: Finding[],
+    ctx: ReviewContext,
+    retractions: Retraction[] = [],
+  ): Promise<void> {
+    const loaded = this.load();
+    if (!loaded) return;
+    const { pr, threads, ok } = loaded;
+    const repoPath = `repos/${pr.owner}/${pr.repo}`;
+    const sha = short(pr.headSha);
+
+    // The reviewer withdrew some of its own earlier findings — post the reason,
+    // resolve the thread, and never bring it back.
+    const retractByKey = new Map(retractions.map((r) => [r.key, r.reason]));
+    const withdrawn: Finding[] = [];
+    const withdrawnKeys = new Set<string>();
+    for (const thread of threads) {
+      const reason = retractByKey.get(thread.key);
+      if (!reason || thread.retracted) continue;
+      withdrawnKeys.add(thread.key);
+      this.reply(
+        repoPath,
+        pr.number,
+        thread.rootCommentId,
+        `↩️ **Withdrawn on re-review** — ${clean(reason)} ${RETRACTED_MARKER}`,
+      );
+      if (!thread.isResolved) this.setResolved(thread.threadId, true);
+      withdrawn.push({
+        severity: 'low',
+        file: thread.path ?? '(unknown)',
+        line: thread.line,
+        title: thread.title,
+        detail: reason,
+        suggestion: '',
+        pass: thread.pass ?? 'review',
+      });
     }
 
-    const { threads, ok } = this.fetchOwnThreads(pr);
-    const plan = planActions(findings, threads, { failedPasses: this.opts.failedPasses });
-    const repoPath = `repos/${pr.owner}/${pr.repo}`;
+    // Findings a human has waved off ("/fp", "false positive", or resolving the
+    // thread while we're still reporting it) don't count toward the verdict, get
+    // a "🚫 Dismissed" line in the summary, and aren't re-raised.
+    const reportedKeys = new Set(findings.map(findingKey));
+    const dismissedThreads = threads.filter(
+      (t) => !withdrawnKeys.has(t.key) && isDismissed(t, reportedKeys.has(t.key)),
+    );
+    const dismissedKeys = new Set(dismissedThreads.map((t) => t.key));
+    // A finding withdrawn on an earlier run stays withdrawn.
+    const priorRetracted = new Set(threads.filter((t) => t.retracted).map((t) => t.key));
+    const excluded = new Set([...dismissedKeys, ...withdrawnKeys, ...priorRetracted]);
+    const live = findings.filter((f) => !excluded.has(findingKey(f)));
+    const dismissed = findings.filter((f) => dismissedKeys.has(findingKey(f)));
+
+    for (const thread of dismissedThreads) {
+      if (!thread.acked && (!thread.isResolved || thread.dismissReply)) {
+        this.reply(
+          repoPath,
+          pr.number,
+          thread.rootCommentId,
+          `Acknowledged — treating this as a false positive: dropped from the verdict, won't re-raise it. ${ACKED_MARKER}`,
+        );
+        if (!thread.isResolved) this.setResolved(thread.threadId, true); // best effort
+      }
+    }
+
+    const plan = planActions(
+      live,
+      threads.filter((t) => !excluded.has(t.key)),
+      { failedPasses: this.opts.failedPasses },
+    );
 
     const unpositioned: Finding[] = [];
     if (ok) {
@@ -427,7 +612,6 @@ export class GitHubSink implements Sink {
       unpositioned.push(...plan.toCreate);
     }
 
-    const sha = short(pr.headSha);
     let resolvedCount = 0;
     for (const thread of plan.toResolve) {
       if (this.setResolved(thread.threadId, true)) {
@@ -436,7 +620,7 @@ export class GitHubSink implements Sink {
           repoPath,
           pr.number,
           thread.rootCommentId,
-          `✅ Resolved — no longer flagged as of \`${sha}\`.`,
+          `✅ Resolved — no longer flagged as of \`${sha}\`. ${RESOLVED_MARKER}`,
         );
       } else if (!thread.noted) {
         // Token can't resolve threads (plain GITHUB_TOKEN can't) — leave one note.
@@ -465,7 +649,7 @@ export class GitHubSink implements Sink {
     const prevState = parsePrevState(prev?.body ?? null);
     const run = prevState.run + 1;
     const failedPasses = this.opts.failedPasses;
-    const verdict = computeVerdict(findings, this.opts.blockingSeverity);
+    const verdict = computeVerdict(live, this.opts.blockingSeverity);
     // An incomplete review cannot vouch for the PR.
     if (failedPasses.length) verdict.approve = false;
 
@@ -486,7 +670,9 @@ export class GitHubSink implements Sink {
       base: gitShaOf(ctx.base) ?? ctx.base,
       headSha: pr.headSha,
       run,
-      findings,
+      findings: live,
+      dismissed,
+      withdrawn,
       plan,
       resolvedThisRun: resolvedCount,
       reopenedThisRun: reopenedCount,
@@ -501,7 +687,8 @@ export class GitHubSink implements Sink {
     note(
       `github: ${plan.toCreate.length - unpositioned.length} new comment(s), ` +
         `${unpositioned.length} unpositioned, ${resolvedCount} resolved, ` +
-        `${reopenedCount} reopened, ${plan.stillOpen.length} still open`,
+        `${reopenedCount} reopened, ${plan.stillOpen.length} still open, ` +
+        `${dismissed.length} dismissed, ${withdrawn.length} withdrawn`,
     );
   }
 
@@ -522,15 +709,22 @@ export class GitHubSink implements Sink {
           if (!root) continue;
           const marker = parseMarker(root.body);
           if (marker) {
+            const bodies = node.comments.nodes.map((c) => c.body);
             out.push({
               key: marker.key,
               pass: marker.pass,
               path: node.path,
               line: node.line ?? node.originalLine,
+              title: titleFromBody(root.body),
+              detail: detailFromBody(root.body),
               threadId: node.id,
               isResolved: node.isResolved,
               rootCommentId: root.databaseId,
-              noted: node.comments.nodes.some((c) => c.body.includes(NOTED_MARKER)),
+              noted: bodies.some((b) => b.includes(NOTED_MARKER)),
+              dismissReply: hasDismissReply(bodies),
+              humanResolved: humanResolved(node.isResolved, bodies),
+              acked: bodies.some((b) => b.includes(ACKED_MARKER)),
+              retracted: bodies.some((b) => b.includes(RETRACTED_MARKER)),
             });
           }
         }
@@ -574,9 +768,12 @@ export class GitHubSink implements Sink {
   }
 
   private reply(repoPath: string, prNumber: number, rootCommentId: number, body: string): void {
+    // Every reply carries a marker so a later dismissal scan can tell our
+    // comments from a human's.
+    const tagged = /<!--\s*fde-review/i.test(body) ? body : `${body} ${BOT_REPLY_MARKER}`;
     try {
       ghApi(this.gh, 'POST', `${repoPath}/pulls/${prNumber}/comments/${rootCommentId}/replies`, {
-        body,
+        body: tagged,
       });
     } catch (err) {
       note(`github: could not reply on thread ${rootCommentId} (${firstLine(err)})`);

@@ -100,6 +100,25 @@ one repo secret, `REVIEW_API_KEY` (the DeepSeek key). Each run:
 Findings the model reports outside the PR diff can't be attached to a line — they
 go in a collapsed section of the summary instead.
 
+### Disagreeing with a finding
+
+The model is wrong sometimes. To wave one off, either:
+
+- **resolve its thread**, or
+- **reply `/fp`** (or `/dismiss`, or anything containing "false positive" /
+  "working as intended" / "by design").
+
+The reviewer then acknowledges once, drops that finding from the verdict (so a
+false `high` stops blocking approval), moves it to a **🚫 Dismissed** section of
+the summary, and never re-raises it — the dismissal is keyed to the finding, so a
+genuinely new issue at the same spot still gets flagged. Change your mind by
+un-resolving the thread.
+
+**The reviewer also self-corrects.** On each re-review it's handed its own still-open
+findings and asked to re-check them; any it no longer stands behind it withdraws
+with a `↩️ Withdrawn on re-review — <reason>` reply, resolves the thread, and
+lists it under **↩️ Withdrawn** in the summary.
+
 ### Trust model
 
 The reviewer gates a PR using the PR's own diff, which is attacker-controlled

@@ -44,6 +44,22 @@ export interface ReviewContext {
   truncatedFiles: string[];
 }
 
+/** An open finding from an earlier commit, handed to a pass so it can reconsider it. */
+export interface PriorFinding {
+  key: string;
+  pass: string;
+  file: string;
+  line: number | null;
+  title: string;
+  detail: string;
+}
+
+/** A pass retracting one of its own earlier findings as a false positive. */
+export interface Retraction {
+  key: string;
+  reason: string;
+}
+
 export interface Sink {
-  emit(findings: Finding[], ctx: ReviewContext): Promise<void>;
+  emit(findings: Finding[], ctx: ReviewContext, retractions?: Retraction[]): Promise<void>;
 }

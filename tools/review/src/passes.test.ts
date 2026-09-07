@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { dedupeFindings, normalize } from './passes.js';
-import type { Finding } from './types.js';
+import { dedupeFindings, normalize, runPass } from './passes.js';
+import type { Config, Finding, PriorFinding } from './types.js';
 
 const mk = (o: Partial<Finding>): Finding => ({
   severity: 'low',
@@ -85,5 +85,60 @@ describe('dedupeFindings', () => {
       mk({ line: null, title: 'Workflow leaks secrets!' }),
     ]);
     expect(out).toHaveLength(1);
+  });
+});
+
+describe('runPass — retractions', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const cfg = {
+    model: 'deepseek-v4-flash',
+    baseUrl: 'https://api.deepseek.com',
+    apiKey: 'sk-x',
+    timeoutMs: 1000,
+    retries: 0,
+  } as Config;
+
+  const respond = (obj: unknown) =>
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(obj) }, finish_reason: 'stop' }],
+      }),
+    } as Response);
+
+  it('maps a retraction number back to the prior finding key', async () => {
+    const prior: PriorFinding[] = [
+      { key: 'aaaaaaaaaa', pass: 'review', file: 'a.ts', line: 5, title: 'X', detail: 'd' },
+      { key: 'bbbbbbbbbb', pass: 'review', file: 'b.ts', line: 9, title: 'Y', detail: 'd' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      respond({ findings: [], retractions: [{ n: 2, reason: 'guarded at the caller' }] }),
+    );
+    const res = await runPass('review', 'diff', cfg, prior);
+    expect(res.retractions).toEqual([{ key: 'bbbbbbbbbb', reason: 'guarded at the caller' }]);
+  });
+
+  it('ignores a retraction with a bad number or empty reason', async () => {
+    const prior: PriorFinding[] = [
+      { key: 'aaaaaaaaaa', pass: 'review', file: 'a.ts', line: 5, title: 'X', detail: 'd' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      respond({
+        findings: [],
+        retractions: [
+          { n: 9, reason: 'x' },
+          { n: 1, reason: '' },
+        ],
+      }),
+    );
+    expect((await runPass('review', 'd', cfg, prior)).retractions).toEqual([]);
+  });
+
+  it('returns no retractions when none were given', async () => {
+    vi.stubGlobal('fetch', respond({ findings: [] }));
+    expect((await runPass('review', 'd', cfg)).retractions).toEqual([]);
   });
 });

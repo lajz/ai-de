@@ -5,7 +5,7 @@ import { collectDiff } from './diff.js';
 import { GitHubSink } from './github.js';
 import { dedupeFindings, runPass } from './passes.js';
 import { TerminalSink } from './report.js';
-import { SEVERITIES, type Config, type Finding, type Severity } from './types.js';
+import { SEVERITIES, type Config, type Finding, type Retraction, type Severity } from './types.js';
 
 const HELP = `fde-review — advisory AI review of the current branch vs its base
 
@@ -124,12 +124,40 @@ async function main(): Promise<void> {
   if (cfg.passes.review) passes.push('review');
   if (cfg.passes.security) passes.push('security');
 
+  const failedPasses: string[] = [];
+  const github =
+    sink === 'github'
+      ? new GitHubSink({
+          token:
+            process.env.REVIEW_GH_TOKEN ??
+            process.env.REVIEW_BOT_TOKEN ??
+            process.env.GH_TOKEN ??
+            process.env.GITHUB_TOKEN ??
+            undefined,
+          blockingSeverity: cfg.blockingSeverity,
+          model: cfg.model,
+          requestChanges,
+          failedPasses,
+        })
+      : null;
+
+  // On a re-review, hand each pass its own still-open findings so it can retract
+  // any it no longer stands behind.
+  const prior = github?.priorFindings() ?? [];
+
   note(`reviewing ${ctx.changedFiles.length} file(s) with ${cfg.model} …`);
   const raw: Finding[] = [];
-  const failedPasses: string[] = [];
+  const retractions: Retraction[] = [];
   for (const name of passes) {
     try {
-      raw.push(...(await runPass(name, diff, cfg)));
+      const res = await runPass(
+        name,
+        diff,
+        cfg,
+        prior.filter((p) => p.pass === name),
+      );
+      raw.push(...res.findings);
+      retractions.push(...res.retractions);
     } catch (err) {
       note(`${name} pass failed: ${(err as Error).message} — skipping`);
       failedPasses.push(name);
@@ -137,19 +165,8 @@ async function main(): Promise<void> {
   }
   const findings = dedupeFindings(raw);
 
-  if (sink === 'github') {
-    await new GitHubSink({
-      token:
-        process.env.REVIEW_GH_TOKEN ??
-        process.env.REVIEW_BOT_TOKEN ??
-        process.env.GH_TOKEN ??
-        process.env.GITHUB_TOKEN ??
-        undefined,
-      blockingSeverity: cfg.blockingSeverity,
-      model: cfg.model,
-      requestChanges,
-      failedPasses,
-    }).emit(findings, ctx);
+  if (github) {
+    await github.emit(findings, ctx, retractions);
   } else {
     await new TerminalSink(cfg.minSeverity).emit(findings, ctx);
   }

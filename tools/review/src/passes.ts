@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { complete, extractJson } from './provider.js';
-import { SEVERITIES, type Config, type Finding, type Severity } from './types.js';
+import {
+  SEVERITIES,
+  type Config,
+  type Finding,
+  type PriorFinding,
+  type Retraction,
+  type Severity,
+} from './types.js';
 
 const PROMPT_DIR = join(import.meta.dirname, '..', 'prompts');
 
@@ -70,16 +77,59 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
   return kept;
 }
 
+export interface PassResult {
+  findings: Finding[];
+  retractions: Retraction[];
+}
+
+function priorBlock(prior: PriorFinding[]): string {
+  const list = prior
+    .map(
+      (p, i) => `[${i + 1}] ${p.file}${p.line ? `:${p.line}` : ''} — ${p.title}\n    ${p.detail}`,
+    )
+    .join('\n');
+  return (
+    `\n\n=== Findings YOU raised on an earlier commit of this PR, still open ===\n${list}\n\n` +
+    `Re-check each against the current code. Put in "retractions" any that are ` +
+    `wrong — a false positive, based on a misreading, or already handled elsewhere ` +
+    `(including if your own note above already concludes it's fine / "no issue"). ` +
+    `Each entry: {"n": <number above>, "reason": "<one sentence>"}. Don't retract ` +
+    `a real issue just because it's minor or you'd phrase it differently.`
+  );
+}
+
 /** Run one review pass (prompt file name without extension) over the diff. */
-export async function runPass(name: string, diff: string, cfg: Config): Promise<Finding[]> {
+export async function runPass(
+  name: string,
+  diff: string,
+  cfg: Config,
+  prior: PriorFinding[] = [],
+): Promise<PassResult> {
   const system = readFileSync(join(PROMPT_DIR, `${name}.md`), 'utf8');
+  const user =
+    `Here is the unified diff to review:\n\n${diff}` + (prior.length ? priorBlock(prior) : '');
   const content = await complete(
     [
       { role: 'system', content: system },
-      { role: 'user', content: `Here is the unified diff to review:\n\n${diff}` },
+      { role: 'user', content: user },
     ],
     cfg,
   );
-  const parsed = extractJson<{ findings?: RawFinding[] }>(content);
-  return normalize(Array.isArray(parsed.findings) ? parsed.findings : [], name);
+  const parsed = extractJson<{
+    findings?: RawFinding[];
+    retractions?: { n?: unknown; reason?: unknown }[];
+  }>(content);
+
+  const retractions: Retraction[] = [];
+  for (const r of Array.isArray(parsed.retractions) ? parsed.retractions : []) {
+    const n = typeof r.n === 'number' ? r.n : Number(r.n);
+    const target = Number.isInteger(n) ? prior[n - 1] : undefined;
+    const reason = str(r.reason);
+    if (target && reason) retractions.push({ key: target.key, reason });
+  }
+
+  return {
+    findings: normalize(Array.isArray(parsed.findings) ? parsed.findings : [], name),
+    retractions,
+  };
 }
