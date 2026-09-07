@@ -70,6 +70,19 @@ export function keyFromBody(body: string): string | null {
 
 const HEADER_RE = /\*\*[A-Z]+ · [a-z]+\*\* — (.+?)\s*$/m;
 
+/** The detail paragraph of a root finding comment (between the header and the fix/marker). */
+export function detailFromBody(body: string): string {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => HEADER_RE.test(l));
+  if (start === -1) return '';
+  const rest: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    if (/^_Suggested fix:_|<!--\s*fde-review/.test(l)) break;
+    if (l.trim()) rest.push(l.trim());
+  }
+  return rest.join(' ').slice(0, 500);
+}
+
 export function commentBody(f: Finding, key: string): string {
   const parts = [
     `${SEV_EMOJI[f.severity]} **${f.severity.toUpperCase()} · ${clean(f.pass)}** — ${clean(f.title)}`,
@@ -92,6 +105,7 @@ export interface ThreadInfo {
   path: string | null;
   line: number | null;
   title: string;
+  detail: string;
   threadId: string;
   isResolved: boolean;
   rootCommentId: number;
@@ -510,6 +524,7 @@ export class GitHubSink implements Sink {
         file: t.path ?? '(unknown)',
         line: t.line,
         title: t.title,
+        detail: t.detail,
       }));
   }
 
@@ -701,6 +716,7 @@ export class GitHubSink implements Sink {
               path: node.path,
               line: node.line ?? node.originalLine,
               title: titleFromBody(root.body),
+              detail: detailFromBody(root.body),
               threadId: node.id,
               isResolved: node.isResolved,
               rootCommentId: root.databaseId,

@@ -109,8 +109,8 @@ describe('runPass — retractions', () => {
 
   it('maps a retraction number back to the prior finding key', async () => {
     const prior: PriorFinding[] = [
-      { key: 'aaaaaaaaaa', pass: 'review', file: 'a.ts', line: 5, title: 'X' },
-      { key: 'bbbbbbbbbb', pass: 'review', file: 'b.ts', line: 9, title: 'Y' },
+      { key: 'aaaaaaaaaa', pass: 'review', file: 'a.ts', line: 5, title: 'X', detail: 'd' },
+      { key: 'bbbbbbbbbb', pass: 'review', file: 'b.ts', line: 9, title: 'Y', detail: 'd' },
     ];
     vi.stubGlobal(
       'fetch',
@@ -122,7 +122,7 @@ describe('runPass — retractions', () => {
 
   it('ignores a retraction with a bad number or empty reason', async () => {
     const prior: PriorFinding[] = [
-      { key: 'aaaaaaaaaa', pass: 'review', file: 'a.ts', line: 5, title: 'X' },
+      { key: 'aaaaaaaaaa', pass: 'review', file: 'a.ts', line: 5, title: 'X', detail: 'd' },
     ];
     vi.stubGlobal(
       'fetch',

@@ -84,14 +84,17 @@ export interface PassResult {
 
 function priorBlock(prior: PriorFinding[]): string {
   const list = prior
-    .map((p, i) => `[${i + 1}] ${p.file}${p.line ? `:${p.line}` : ''} — ${p.title}`)
+    .map(
+      (p, i) => `[${i + 1}] ${p.file}${p.line ? `:${p.line}` : ''} — ${p.title}\n    ${p.detail}`,
+    )
     .join('\n');
   return (
-    `\n\n--- Findings you raised on an EARLIER commit of this PR, still open ---\n${list}\n\n` +
-    `Re-check each against the current diff. If one is genuinely a false positive ` +
-    `or already resolved, add it to a "retractions" array as ` +
-    `{"n": <the number>, "reason": "<one sentence>"}. Only retract what is actually ` +
-    `wrong — not something you merely wouldn't raise now.`
+    `\n\n=== Findings YOU raised on an earlier commit of this PR, still open ===\n${list}\n\n` +
+    `Re-check each against the current code. Put in "retractions" any that are ` +
+    `wrong — a false positive, based on a misreading, or already handled elsewhere ` +
+    `(including if your own note above already concludes it's fine / "no issue"). ` +
+    `Each entry: {"n": <number above>, "reason": "<one sentence>"}. Don't retract ` +
+    `a real issue just because it's minor or you'd phrase it differently.`
   );
 }
 

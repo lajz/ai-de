@@ -51,6 +51,7 @@ export interface PriorFinding {
   file: string;
   line: number | null;
   title: string;
+  detail: string;
 }
 
 /** A pass retracting one of its own earlier findings as a false positive. */
