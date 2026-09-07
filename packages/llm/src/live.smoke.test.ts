@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 
-import { extractionJsonSchema, extractionResultSchema, wrapTranscript } from './prompts/index.js';
-import { createProviderFromEnv, loadLlmEnv } from './providers/from-env.js';
-import { createRouter } from './router.js';
-import type { UsageRecord } from './types.js';
+import {
+  type UsageRecord,
+  createProviderFromEnv,
+  createRouter,
+  extractionJsonSchema,
+  extractionResultSchema,
+  loadLlmEnv,
+  wrapTranscript,
+} from './index.js';
 
 // Pull the worktree `.env` in before the skip check reads the key.
 loadLlmEnv();
@@ -12,7 +16,7 @@ loadLlmEnv();
 /**
  * Live smoke against whichever provider the environment points at:
  *   LLM_PROVIDER=anthropic         + ANTHROPIC_API_KEY
- *   LLM_PROVIDER=openai-compatible + LLM_BASE_URL / LLM_API_KEY / LLM_MODEL  (DeepSeek, Ollama)
+ *   LLM_PROVIDER=openai-compatible + LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
  * Skipped unless LLM_API_KEY is set.
  */
 describe.skipIf(!process.env.LLM_API_KEY)('@fde/llm live smoke', () => {
@@ -32,22 +36,18 @@ describe.skipIf(!process.env.LLM_API_KEY)('@fde/llm live smoke', () => {
     expect(records).toHaveLength(1);
   }, 60_000);
 
-  it('extracts a fact from a tiny transcript against the real schema', async () => {
+  it('extracts a decision from a tiny transcript against the real schema', async () => {
     const router = createRouter({ provider: createProviderFromEnv() });
-    const transcript = wrapTranscript(
-      'Alice: I think we should go with Postgres for the main datastore.\n' +
-        "Bob: Agreed, let's lock that in.",
-    );
     const { value } = await router.extract(extractionResultSchema, {
       tier: 'bulk',
       prompt: { name: 'extraction' },
-      messages: transcript,
+      messages: wrapTranscript(
+        'Alice: I think we should go with Postgres for the main datastore.\nBob: Agreed, locking that in.',
+      ),
       jsonSchema: extractionJsonSchema,
       schemaName: 'record_extraction',
       maxTokens: 2000,
     });
-    expect(value.facts.length).toBeGreaterThan(0);
     expect(value.facts.some((f) => f.type === 'decision')).toBe(true);
-    z.array(z.string()).parse(value.facts.map((f) => f.summary));
   }, 90_000);
 });

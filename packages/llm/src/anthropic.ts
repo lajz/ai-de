@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-import { DataRetentionError, StructuredOutputError } from '../errors.js';
-import type { Tier } from '../types.js';
+import { DataRetentionError, StructuredOutputError } from './errors.js';
 import {
   EMPTY_USAGE,
   type LlmProvider,
@@ -10,7 +9,8 @@ import {
   type ProviderExtractRequest,
   type ProviderExtractResult,
   type ProviderTokenUsage,
-} from './types.js';
+} from './provider.js';
+import type { Tier } from './types.js';
 
 /** Above this `maxTokens` the provider streams and coalesces (`.finalMessage()`) to dodge HTTP timeouts. */
 const STREAM_THRESHOLD_TOKENS = 16_000;

@@ -1,17 +1,19 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
-import { LlmError } from '../errors.js';
 import { AnthropicProvider } from './anthropic.js';
+import { LlmError } from './errors.js';
 import { OpenAiCompatibleProvider } from './openai-compatible.js';
-import type { LlmProvider } from './types.js';
+import type { LlmProvider } from './provider.js';
 
 export type ProviderKind = 'anthropic' | 'openai-compatible';
 
 /**
- * Load the repo-root `.env` into `process.env` (keys not already set). In Orca
- * worktrees `.env` is a per-worktree symlink onto a shared, sometimes-slow
- * volume — retry a transient read the way `tools/review` does.
+ * Load the repo-root `.env` into `process.env` (keys not already set). Loads the
+ * whole file, like `tools/review`'s `loadDotEnv` — it's a local dev/CI
+ * convenience, not part of any deployed path (containers get their env injected).
+ * In Orca worktrees `.env` is a per-worktree symlink onto a shared, sometimes
+ * slow volume — retry a transient read.
  */
 export function loadLlmEnv(root = repoRoot()): void {
   if (!root) return;
@@ -23,11 +25,9 @@ export function loadLlmEnv(root = repoRoot()): void {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // genuinely absent
       if (i === 3) {
-        // Exists but unreadable after retries — surface the misconfig (path only,
-        // never contents) rather than silently running with a stale environment.
-        console.warn(
-          `@fde/llm: could not read ${path} after 4 attempts: ${(err as Error).message}`,
-        );
+        // Exists but unreadable after retries — surface it (path only, never
+        // contents) rather than running silently on a stale environment.
+        console.warn(`@fde/llm: could not read ${path}: ${(err as Error).message}`);
         return;
       }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
@@ -48,8 +48,8 @@ function repoRoot(): string | null {
  *
  * - `LLM_PROVIDER=anthropic` (default) → `AnthropicProvider` (`ANTHROPIC_API_KEY`,
  *   optional `ANTHROPIC_BASE_URL`).
- * - `LLM_PROVIDER=openai-compatible` → `OpenAiCompatibleProvider`
- *   (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, optional `LLM_BULK_MODEL`).
+ * - `LLM_PROVIDER=openai-compatible` → `OpenAiCompatibleProvider` (`LLM_BASE_URL`,
+ *   `LLM_API_KEY`, `LLM_MODEL`, optional `LLM_BULK_MODEL`).
  */
 export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): LlmProvider {
   loadLlmEnv();
@@ -61,14 +61,11 @@ export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): Llm
       baseURL: env.ANTHROPIC_BASE_URL,
     });
   }
-
   if (kind === 'openai-compatible') {
     const baseUrl = env.LLM_BASE_URL;
     const model = env.LLM_MODEL;
     if (!baseUrl || !model) {
-      throw new LlmError(
-        'LLM_PROVIDER=openai-compatible requires LLM_BASE_URL and LLM_MODEL (and usually LLM_API_KEY)',
-      );
+      throw new LlmError('LLM_PROVIDER=openai-compatible requires LLM_BASE_URL and LLM_MODEL');
     }
     return new OpenAiCompatibleProvider({
       baseUrl,
@@ -77,8 +74,5 @@ export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): Llm
       bulkModel: env.LLM_BULK_MODEL,
     });
   }
-
-  throw new LlmError(
-    `unknown LLM_PROVIDER "${kind}" (expected "anthropic" or "openai-compatible")`,
-  );
+  throw new LlmError(`unknown LLM_PROVIDER "${kind}"`);
 }

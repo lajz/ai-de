@@ -1,10 +1,10 @@
 import type { z } from 'zod';
 
+import { createProviderFromEnv } from './env.js';
 import { DataRetentionError, StructuredOutputError } from './errors.js';
-import { getPrompt } from './prompts/registry.js';
 import { computeChatCostUsd } from './pricing.js';
-import { createProviderFromEnv } from './providers/from-env.js';
-import type { LlmProvider, ProviderTokenUsage } from './providers/types.js';
+import type { LlmProvider, ProviderTokenUsage } from './provider.js';
+import { getPrompt } from './prompts.js';
 import type { ChatMessage, Effort, ThinkingMode, Tier, UsageRecord, UsageSink } from './types.js';
 
 export interface PromptRef {
@@ -17,7 +17,7 @@ export interface CompleteRequest {
   tier?: Tier;
   /** Explicit provider-native model id, overriding `tier`. */
   model?: string;
-  /** Registry prompt to use as the system prompt; sets `promptVersion` on the `UsageRecord`. */
+  /** Registry prompt for the system prompt; sets `promptVersion` on the `UsageRecord`. */
   prompt?: PromptRef;
   /** Ad-hoc system prompt (used only when `prompt` is absent). */
   system?: string;
@@ -30,20 +30,10 @@ export interface CompleteRequest {
   signal?: AbortSignal;
 }
 
-export interface CompleteResult {
-  text: string;
-  usage: UsageRecord;
-}
-
 export interface ExtractRequest extends Omit<CompleteRequest, 'stream'> {
   /** JSON Schema for the object the model must return. Defaults to a permissive object schema. */
   jsonSchema?: Record<string, unknown>;
   schemaName?: string;
-}
-
-export interface ExtractResult<T> {
-  value: T;
-  usage: UsageRecord;
 }
 
 export interface RouterConfig {
@@ -58,44 +48,39 @@ export interface RouterConfig {
 export interface Router {
   readonly provider: LlmProvider;
   readonly zeroDataRetention: boolean;
-  complete(request: CompleteRequest): Promise<CompleteResult>;
-  extract<T>(schema: z.ZodType<T>, request: ExtractRequest): Promise<ExtractResult<T>>;
+  complete(request: CompleteRequest): Promise<{ text: string; usage: UsageRecord }>;
+  extract<T>(
+    schema: z.ZodType<T>,
+    request: ExtractRequest,
+  ): Promise<{ value: T; usage: UsageRecord }>;
   /** Throw unless the active provider carries a ZDR guarantee. Regulated engagements call this. */
   assertZeroDataRetention(): void;
 }
-
-const DEFAULT_MAX_TOKENS = 16_000;
 
 export function createRouter(config: RouterConfig = {}): Router {
   const provider = config.provider ?? createProviderFromEnv();
   const now = config.now ?? Date.now;
   const defaultTier = config.defaultTier ?? 'default';
-  const defaultMaxTokens = config.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
+  const defaultMaxTokens = config.defaultMaxTokens ?? 16_000;
 
-  function resolve(request: CompleteRequest | ExtractRequest): {
-    tier: Tier;
-    model: string;
-    system: string | undefined;
-    promptVersion: string | null;
-    messages: ChatMessage[];
-  } {
+  function resolve(request: CompleteRequest | ExtractRequest) {
     const tier = request.tier ?? defaultTier;
     const model = request.model ?? provider.modelForTier(tier);
-    let system = request.system;
-    let promptVersion: string | null = null;
-    if (request.prompt) {
-      const resolved = getPrompt(request.prompt.name, request.prompt.version);
-      system = resolved.system;
-      promptVersion = resolved.version;
-    }
+    const prompt = request.prompt ? getPrompt(request.prompt.name, request.prompt.version) : null;
     const messages: ChatMessage[] =
       typeof request.messages === 'string'
         ? [{ role: 'user', content: request.messages }]
         : request.messages;
-    return { tier, model, system, promptVersion, messages };
+    return {
+      tier,
+      model,
+      system: prompt?.system ?? request.system,
+      promptVersion: prompt?.version ?? null,
+      messages,
+    };
   }
 
-  function toUsageRecord(
+  function record(
     model: string,
     tier: Tier,
     promptVersion: string | null,
@@ -118,16 +103,13 @@ export function createRouter(config: RouterConfig = {}): Router {
     };
   }
 
-  async function emit(record: UsageRecord): Promise<void> {
-    if (config.onUsage) await config.onUsage(record);
-  }
+  const emit = (r: UsageRecord) => Promise.resolve(config.onUsage?.(r));
 
   return {
     provider,
     get zeroDataRetention() {
       return provider.zeroDataRetention;
     },
-
     assertZeroDataRetention() {
       if (!provider.zeroDataRetention) throw new DataRetentionError();
     },
@@ -145,7 +127,7 @@ export function createRouter(config: RouterConfig = {}): Router {
         stream: request.stream,
         signal: request.signal,
       });
-      const usage = toUsageRecord(model, tier, promptVersion, result.usage, now() - start);
+      const usage = record(model, tier, promptVersion, result.usage, now() - start);
       await emit(usage);
       return { text: result.text, usage };
     },
@@ -164,7 +146,9 @@ export function createRouter(config: RouterConfig = {}): Router {
         jsonSchema: request.jsonSchema ?? { type: 'object', additionalProperties: true },
         schemaName: request.schemaName ?? 'record_result',
       });
-      const usage = toUsageRecord(model, tier, promptVersion, result.usage, now() - start);
+      // Emit before validating: the call was made and billed regardless of
+      // whether the model's output parses, and the sink must see that cost.
+      const usage = record(model, tier, promptVersion, result.usage, now() - start);
       await emit(usage);
 
       const parsed = schema.safeParse(result.value);

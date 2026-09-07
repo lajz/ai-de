@@ -29,7 +29,7 @@ export const MODEL_RATES: Record<string, ModelRate> = {
     cacheWritePerMTok: 2.5,
     cacheReadPerMTok: 0.2,
   },
-  // --- dev/CI only (OpenAiCompatibleProvider); estimates ---
+  // dev/CI only (OpenAiCompatibleProvider); estimates
   'deepseek-v4-flash': {
     inputPerMTok: 0.28,
     outputPerMTok: 0.42,
