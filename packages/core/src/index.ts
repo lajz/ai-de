@@ -5,6 +5,7 @@ export * from './ids.js';
 export * from './region.js';
 export * from './retention.js';
 export * from './engagement.js';
+export * from './capture.js';
 export * from './provenance.js';
 export * from './entities.js';
 export * from './facts.js';

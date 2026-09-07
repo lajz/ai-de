@@ -1,5 +1,5 @@
 {
-  "id": "95e634ae-0be2-424f-bb4b-fd33fe8ddfa7",
+  "id": "0f932d6a-28d7-4d7e-90bc-6cee40967c4a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -674,6 +674,180 @@
           ],
           "using": "\"sources\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "\"sources\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.capture_sessions": {
+      "name": "capture_sessions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "engagement_id": {
+          "name": "engagement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bot_id": {
+          "name": "bot_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meeting_url": {
+          "name": "meeting_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "join_at": {
+          "name": "join_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "capture_session_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'scheduled'"
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_raw_after": {
+          "name": "purge_raw_after",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_reason": {
+          "name": "failure_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retention_policy": {
+          "name": "retention_policy",
+          "type": "retention_policy",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "capture_sessions_engagement_idx": {
+          "name": "capture_sessions_engagement_idx",
+          "columns": [
+            {
+              "expression": "engagement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "capture_sessions_tenant_id_tenants_id_fk": {
+          "name": "capture_sessions_tenant_id_tenants_id_fk",
+          "tableFrom": "capture_sessions",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "capture_sessions_engagement_id_engagements_id_fk": {
+          "name": "capture_sessions_engagement_id_engagements_id_fk",
+          "tableFrom": "capture_sessions",
+          "tableTo": "engagements",
+          "columnsFrom": [
+            "engagement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "capture_sessions_source_fk": {
+          "name": "capture_sessions_source_fk",
+          "tableFrom": "capture_sessions",
+          "tableTo": "sources",
+          "columnsFrom": [
+            "engagement_id",
+            "source_id"
+          ],
+          "columnsTo": [
+            "engagement_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "capture_sessions_bot_id_uq": {
+          "name": "capture_sessions_bot_id_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "bot_id"
+          ]
+        }
+      },
+      "policies": {
+        "capture_sessions_tenant_isolation": {
+          "name": "capture_sessions_tenant_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_rw"
+          ],
+          "using": "\"capture_sessions\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid",
+          "withCheck": "\"capture_sessions\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid"
         }
       },
       "checkConstraints": {},
@@ -2142,6 +2316,17 @@
         "doc",
         "issue",
         "comment"
+      ]
+    },
+    "public.capture_session_status": {
+      "name": "capture_session_status",
+      "schema": "public",
+      "values": [
+        "scheduled",
+        "recording",
+        "capturing",
+        "captured",
+        "failed"
       ]
     },
     "public.entity_type": {

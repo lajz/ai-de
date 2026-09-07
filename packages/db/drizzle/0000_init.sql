@@ -4,6 +4,7 @@ CREATE TYPE "public"."retention_policy" AS ENUM('reference-only', 'derived-ephem
 CREATE TYPE "public"."user_status" AS ENUM('active', 'disabled');--> statement-breakpoint
 CREATE TYPE "public"."acl_refresh_state" AS ENUM('fresh', 'stale', 'refreshing', 'error');--> statement-breakpoint
 CREATE TYPE "public"."source_kind" AS ENUM('transcript', 'message', 'doc', 'issue', 'comment');--> statement-breakpoint
+CREATE TYPE "public"."capture_session_status" AS ENUM('scheduled', 'recording', 'capturing', 'captured', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."entity_type" AS ENUM('person', 'organization', 'work_item', 'document', 'meeting');--> statement-breakpoint
 CREATE TYPE "public"."graph_node_kind" AS ENUM('entity', 'fact');--> statement-breakpoint
 CREATE TYPE "public"."predicate" AS ENUM('owns', 'accountable_for', 'informed_of', 'implemented_by', 'blocks', 'supersedes', 'relates_to', 'member_of', 'stakeholder_in');--> statement-breakpoint
@@ -85,6 +86,24 @@ CREATE TABLE "sources" (
 );
 --> statement-breakpoint
 ALTER TABLE "sources" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "capture_sessions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" uuid NOT NULL,
+	"engagement_id" uuid NOT NULL,
+	"bot_id" text,
+	"meeting_url" text NOT NULL,
+	"join_at" timestamp with time zone NOT NULL,
+	"status" "capture_session_status" DEFAULT 'scheduled' NOT NULL,
+	"source_id" uuid,
+	"purge_raw_after" timestamp with time zone,
+	"failure_reason" text,
+	"retention_policy" "retention_policy" NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "capture_sessions_bot_id_uq" UNIQUE("bot_id")
+);
+--> statement-breakpoint
+ALTER TABLE "capture_sessions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE TABLE "entities" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
@@ -220,6 +239,9 @@ ALTER TABLE "acl_snapshots" ADD CONSTRAINT "acl_snapshots_engagement_id_engageme
 ALTER TABLE "sources" ADD CONSTRAINT "sources_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sources" ADD CONSTRAINT "sources_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sources" ADD CONSTRAINT "sources_acl_snapshot_fk" FOREIGN KEY ("engagement_id","acl_snapshot_id") REFERENCES "public"."acl_snapshots"("engagement_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "capture_sessions" ADD CONSTRAINT "capture_sessions_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "capture_sessions" ADD CONSTRAINT "capture_sessions_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "capture_sessions" ADD CONSTRAINT "capture_sessions_source_fk" FOREIGN KEY ("engagement_id","source_id") REFERENCES "public"."sources"("engagement_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "entities" ADD CONSTRAINT "entities_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "entities" ADD CONSTRAINT "entities_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "relationships" ADD CONSTRAINT "relationships_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -248,6 +270,7 @@ CREATE UNIQUE INDEX "engagements_tenant_customer_uq" ON "engagements" USING btre
 CREATE UNIQUE INDEX "users_tenant_email_uq" ON "users" USING btree ("tenant_id","email");--> statement-breakpoint
 CREATE UNIQUE INDEX "sources_dedupe_uq" ON "sources" USING btree ("engagement_id","connector","external_id","content_hash");--> statement-breakpoint
 CREATE INDEX "sources_engagement_occurred_idx" ON "sources" USING btree ("engagement_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "capture_sessions_engagement_idx" ON "capture_sessions" USING btree ("engagement_id");--> statement-breakpoint
 CREATE INDEX "entities_engagement_type_idx" ON "entities" USING btree ("engagement_id","type");--> statement-breakpoint
 CREATE INDEX "relationships_from_idx" ON "relationships" USING btree ("from_kind","from_id","predicate");--> statement-breakpoint
 CREATE INDEX "relationships_to_idx" ON "relationships" USING btree ("to_kind","to_id","predicate");--> statement-breakpoint
@@ -265,6 +288,7 @@ CREATE POLICY "tenants_self_isolation" ON "tenants" AS PERMISSIVE FOR ALL TO "ap
 CREATE POLICY "users_tenant_isolation" ON "users" AS PERMISSIVE FOR ALL TO "app_rw" USING ("users"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("users"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "acl_snapshots_tenant_isolation" ON "acl_snapshots" AS PERMISSIVE FOR ALL TO "app_rw" USING ("acl_snapshots"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("acl_snapshots"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "sources_tenant_isolation" ON "sources" AS PERMISSIVE FOR ALL TO "app_rw" USING ("sources"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("sources"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
+CREATE POLICY "capture_sessions_tenant_isolation" ON "capture_sessions" AS PERMISSIVE FOR ALL TO "app_rw" USING ("capture_sessions"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("capture_sessions"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "entities_tenant_isolation" ON "entities" AS PERMISSIVE FOR ALL TO "app_rw" USING ("entities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("entities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "relationships_tenant_isolation" ON "relationships" AS PERMISSIVE FOR ALL TO "app_rw" USING ("relationships"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("relationships"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "evidence_tenant_isolation" ON "evidence" AS PERMISSIVE FOR ALL TO "app_rw" USING ("evidence"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("evidence"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint

@@ -6,6 +6,7 @@ import { createDbClient } from '@fde/db';
 import { Worker } from '@temporalio/worker';
 
 import { createActivities } from './activities/index.js';
+import { loadRecallClient } from './capture/index.js';
 import { connectWorkerConnection, loadTemporalConnectionConfig } from './connection.js';
 import { DEFAULT_TASK_QUEUE } from './task-queue.js';
 
@@ -41,7 +42,8 @@ export async function runWorker(): Promise<void> {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to run the worker');
   const dbHandle = createDbClient({ url: process.env.DATABASE_URL });
   const keyProvider = loadKeyProvider(process.env);
-  const activities = createActivities({ db: dbHandle.db, keyProvider });
+  const recallClient = loadRecallClient(process.env);
+  const activities = createActivities({ db: dbHandle.db, keyProvider, recallClient });
 
   const worker = await Worker.create({
     connection,
