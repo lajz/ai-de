@@ -1,7 +1,7 @@
 packages:
   - 'packages/*'
   - 'tools/*'
-  # - "apps/*"   # added when the first app lands (M1)
+  - 'apps/*'
 
 # esbuild needs its postinstall to fetch the platform binary; tsx / vitest /
 # drizzle-kit all depend on it.
@@ -9,7 +9,11 @@ onlyBuiltDependencies:
   - esbuild
 
 allowBuilds:
+  # @swc/core: native binary for @temporalio/worker's workflow-code bundler.
+  # protobufjs: postinstall generates its JS from .proto, needed by @temporalio/*.
+  '@swc/core': true
   esbuild: true
+  protobufjs: true
 
 catalog:
   '@types/node': ^22.10.5
@@ -19,3 +23,9 @@ catalog:
   drizzle-orm: ^0.38.3
   drizzle-kit: ^0.30.1
   postgres: ^3.4.5
+  '@temporalio/client': ^1.23.0
+  '@temporalio/worker': ^1.23.0
+  '@temporalio/workflow': ^1.23.0
+  '@temporalio/activity': ^1.23.0
+  '@temporalio/testing': ^1.23.0
+  '@temporalio/common': ^1.23.0

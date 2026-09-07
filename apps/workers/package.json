@@ -1,0 +1,30 @@
+{
+  "name": "@fde/workers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/worker.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@fde/core": "workspace:*",
+    "@fde/crypto": "workspace:*",
+    "@fde/db": "workspace:*",
+    "@temporalio/activity": "catalog:",
+    "@temporalio/client": "catalog:",
+    "@temporalio/common": "catalog:",
+    "@temporalio/worker": "catalog:",
+    "@temporalio/workflow": "catalog:"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "catalog:",
+    "@types/node": "catalog:",
+    "drizzle-orm": "catalog:",
+    "tsx": "^4.19.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
