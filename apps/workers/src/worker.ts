@@ -19,10 +19,18 @@ import { DEFAULT_TASK_QUEUE } from './task-queue.js';
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const workflowsPath = join(packageRoot, 'src/workflows/index.ts');
 
-function loadKeyProvider(env: NodeJS.ProcessEnv): KeyProvider {
+export function loadKeyProvider(env: NodeJS.ProcessEnv): KeyProvider {
   // Local dev without AWS creds: FDE_FAKE_KMS=true swaps in the in-memory
-  // FakeKeyProvider (see @fde/crypto) — never set this outside dev/test.
-  if (env.FDE_FAKE_KMS === 'true') return new FakeKeyProvider();
+  // FakeKeyProvider (see @fde/crypto), which is not real encryption — never
+  // set this outside dev/test. Refused outright when NODE_ENV=production, so
+  // a stray FDE_FAKE_KMS=true in a prod env file can't silently turn every
+  // engagement's crypto-shred guarantee into a no-op.
+  if (env.FDE_FAKE_KMS === 'true') {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('FDE_FAKE_KMS=true is not allowed when NODE_ENV=production');
+    }
+    return new FakeKeyProvider();
+  }
   return new KmsKeyProvider(env.AWS_REGION ? { region: env.AWS_REGION } : {});
 }
 

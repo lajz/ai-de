@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { EngagementId, TenantId } from '@fde/core';
 import { FakeKeyProvider } from '@fde/crypto';
-import { createDbClient, engagements, tenants, type Database } from '@fde/db';
+import { createDbClient, engagements, tenants, withTenant, type Database } from '@fde/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -41,7 +41,12 @@ describe.skipIf(!url)('withEngagementActivity', () => {
   });
 
   afterAll(async () => {
-    await handle.db.delete(engagements).where(eq(engagements.tenantId, tenantId));
+    // Cleanup goes through withTenant (RLS-scoped, app_rw role) — only the
+    // seed above needs the superuser connection, to create the tenant row
+    // that RLS itself depends on.
+    await withTenant(handle.db, tenantId, (tx) =>
+      tx.delete(engagements).where(eq(engagements.tenantId, tenantId)),
+    );
     await handle.close();
   });
 
