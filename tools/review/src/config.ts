@@ -11,7 +11,10 @@ const DEFAULTS: Omit<Config, 'apiKey'> = {
   model: 'deepseek-v4-flash',
   maxDiffBytes: 400_000,
   minSeverity: 'nit',
-  timeoutMs: 120_000,
+  // Long enough for a near-max_tokens response on a large diff; a 2-minute cap
+  // was tripping the abort controller before the model finished, not because
+  // the model was stuck — the same non-transient failure retries can't fix.
+  timeoutMs: 300_000,
   retries: 2,
   passes: { review: true, security: true },
   blockingSeverity: 'high',
