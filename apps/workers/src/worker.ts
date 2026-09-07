@@ -62,10 +62,10 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   runWorker().catch((err: unknown) => {
-    // message + stack only — never the raw error object, which for a
-    // connection failure can carry the resolved TemporalConnectionConfig
-    // (address, namespace) in its properties.
-    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    // message only — never the raw error object (or its stack, which can
+    // quote the failing call's arguments) — a connection failure can carry
+    // the resolved TemporalConnectionConfig (address, namespace) in either.
+    const message = err instanceof Error ? err.message : String(err);
     console.error(`worker exited with an error: ${message}`);
     process.exitCode = 1;
   });

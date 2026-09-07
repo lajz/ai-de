@@ -11,9 +11,11 @@ export interface DescribeEngagementInput {
 
 export interface DescribeEngagementResult {
   engagementId: EngagementId;
-  /** proves the cipher was live and usable inside the activity; never the plaintext itself */
+  /** an encrypt/decrypt round-trip of a fixed constant actually succeeded; never the plaintext itself */
   cipherReady: boolean;
 }
+
+const CANARY = 'fde-workers:describe-engagement-canary';
 
 export interface DescribeEngagementDeps {
   db: Database;
@@ -35,7 +37,11 @@ export function createDescribeEngagementActivity(deps: DescribeEngagementDeps) {
     input: DescribeEngagementInput,
   ): Promise<DescribeEngagementResult> {
     return withEngagementActivity(deps.db, deps.keyProvider, input, async (ctx) => {
-      return { engagementId: ctx.engagementId, cipherReady: true };
+      // Proves the cipher is actually usable, not just constructed — encrypts
+      // and decrypts a fixed constant, never anything from `ctx.tx`.
+      const ciphertext = await ctx.cipher.encryptString('describe-engagement.canary', CANARY);
+      const plaintext = await ctx.cipher.decryptString('describe-engagement.canary', ciphertext);
+      return { engagementId: ctx.engagementId, cipherReady: plaintext === CANARY };
     });
   };
 }

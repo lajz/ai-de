@@ -20,6 +20,10 @@ describe.skipIf(!url)('withEngagementActivity', () => {
 
   beforeAll(async () => {
     handle = createDbClient({ url: url!, max: 1 });
+    // Seed on a superuser connection (DATABASE_URL points at `postgres`), which
+    // bypasses RLS — same as packages/db/src/engagement.test.ts. The thing
+    // under test, withEngagementActivity, still goes through withTenant/
+    // withEngagement (and therefore RLS) below.
     await handle.db.insert(tenants).values({ id: tenantId, name: 'T', cmkKeyRef: 'fake:cmk' });
     const { wrappedDek } = await provider.generateDek({
       tenantId,
