@@ -135,8 +135,9 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const detail = await res.text().catch(() => res.statusText);
-        throw new ProviderRequestError(res.status, detail.slice(0, 200));
+        // Status only — an error body can echo the prompt (transcript) content,
+        // which must never reach a log line on this platform.
+        throw new ProviderRequestError(res.status, res.statusText || 'request failed');
       }
       const data = (await res.json()) as ChatCompletionResponse;
       if (data.choices?.[0]?.finish_reason === 'length') {

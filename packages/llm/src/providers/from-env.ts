@@ -21,7 +21,15 @@ export function loadLlmEnv(root = repoRoot()): void {
       process.loadEnvFile(path); // Node >=20.12; only sets keys not already present
       return;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // genuinely absent
+      if (i === 3) {
+        // Exists but unreadable after retries — surface the misconfig (path only,
+        // never contents) rather than silently running with a stale environment.
+        console.warn(
+          `@fde/llm: could not read ${path} after 4 attempts: ${(err as Error).message}`,
+        );
+        return;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
     }
   }

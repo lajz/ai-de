@@ -54,8 +54,9 @@ export class VoyageEmbeddingClient implements EmbeddingClient {
       }),
     });
     if (!res.ok) {
-      const detail = await res.text().catch(() => res.statusText);
-      throw new EmbeddingRequestError(res.status, detail.slice(0, 200));
+      // Status only — the response body can echo the (sensitive) input text, and
+      // this platform never lets content reach a log line.
+      throw new EmbeddingRequestError(res.status, res.statusText || 'request failed');
     }
     const data = (await res.json()) as VoyageResponse;
     const rows = data.data;
