@@ -114,6 +114,11 @@ the summary, and never re-raises it — the dismissal is keyed to the finding, s
 genuinely new issue at the same spot still gets flagged. Change your mind by
 un-resolving the thread.
 
+**The reviewer also self-corrects.** On each re-review it's handed its own still-open
+findings and asked to re-check them; any it no longer stands behind it withdraws
+with a `↩️ Withdrawn on re-review — <reason>` reply, resolves the thread, and
+lists it under **↩️ Withdrawn** in the summary.
+
 ### Trust model
 
 The reviewer gates a PR using the PR's own diff, which is attacker-controlled

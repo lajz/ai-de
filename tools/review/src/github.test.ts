@@ -14,6 +14,7 @@ import {
   parsePrevState,
   planActions,
   renderSummary,
+  titleFromBody,
   type ThreadInfo,
 } from './github.js';
 import type { Finding } from './types.js';
@@ -69,6 +70,20 @@ describe('clean — untrusted model output', () => {
   });
 });
 
+describe('titleFromBody', () => {
+  it('pulls the title back out of a finding comment header', () => {
+    const body = commentBody(
+      f({ severity: 'high', pass: 'security', title: 'Bare db.select()' }),
+      'k000000001',
+    );
+    expect(titleFromBody(body)).toBe('Bare db.select()');
+  });
+
+  it('falls back for an unrecognised body', () => {
+    expect(titleFromBody('just a human note')).toBe('finding');
+  });
+});
+
 describe('marker round-trip', () => {
   it('recovers the key and pass markerFor embeds', () => {
     const key = findingKey(f({}));
@@ -98,6 +113,7 @@ describe('dismissal detection', () => {
     pass: 'review',
     path: 'a.ts',
     line: 1,
+    title: 't',
     threadId: 'T',
     isResolved: false,
     rootCommentId: 1,
@@ -105,6 +121,7 @@ describe('dismissal detection', () => {
     dismissReply: false,
     humanResolved: false,
     acked: false,
+    retracted: false,
     ...over,
   });
 
@@ -159,6 +176,7 @@ describe('planActions', () => {
     pass: 'review',
     path: 'src/x.ts',
     line: 10,
+    title: 't',
     threadId: `T_${key}`,
     isResolved: false,
     rootCommentId: 1,
@@ -166,6 +184,7 @@ describe('planActions', () => {
     dismissReply: false,
     humanResolved: false,
     acked: false,
+    retracted: false,
     ...over,
   });
   const resolved = (key: string, over: Partial<ThreadInfo> = {}): ThreadInfo =>
@@ -287,6 +306,7 @@ describe('renderSummary', () => {
     blockingSeverity: 'high' as const,
     unpositioned: [],
     dismissed: [],
+    withdrawn: [],
     failedPasses: [],
     submitted: true,
   };

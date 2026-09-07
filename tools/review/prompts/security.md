@@ -48,6 +48,12 @@ Respond with a single JSON object, no prose:
       "detail": "<the vulnerability and its impact, 1-3 sentences>",
       "suggestion": "<concrete fix, or empty string>"
     }
+  ],
+  "retractions": [
+    { "n": "<number of an earlier finding you were given>", "reason": "<why it does not hold>" }
   ]
 }
 ```
+
+Include `retractions` only when you were given a list of earlier findings and one
+of them is genuinely wrong; otherwise omit it or leave it `[]`.
