@@ -16,4 +16,15 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // NestJS DI resolves constructor dependencies from `emitDecoratorMetadata`,
+    // which needs a *value* import for every type referenced in a decorated
+    // constructor position. `consistent-type-imports` (without type-aware
+    // linting, which this config doesn't run) can't see that and would rewrite
+    // those to `import type`, breaking DI at runtime.
+    files: ['apps/api/**/*.ts'],
+    rules: {
+      '@typescript-eslint/consistent-type-imports': 'off',
+    },
+  },
 );
