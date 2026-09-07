@@ -38,10 +38,14 @@ export function createDescribeEngagementActivity(deps: DescribeEngagementDeps) {
   ): Promise<DescribeEngagementResult> {
     return withEngagementActivity(deps.db, deps.keyProvider, input, async (ctx) => {
       // Proves the cipher is actually usable, not just constructed — encrypts
-      // and decrypts a fixed constant, never anything from `ctx.tx`.
+      // and decrypts a fixed constant, never anything from `ctx.tx`. Only the
+      // pass/fail boolean crosses back out of this activity; the decrypted
+      // value is compared and discarded in the same expression, never bound
+      // to a variable or logged.
       const ciphertext = await ctx.cipher.encryptString('describe-engagement.canary', CANARY);
-      const plaintext = await ctx.cipher.decryptString('describe-engagement.canary', ciphertext);
-      return { engagementId: ctx.engagementId, cipherReady: plaintext === CANARY };
+      const cipherReady =
+        (await ctx.cipher.decryptString('describe-engagement.canary', ciphertext)) === CANARY;
+      return { engagementId: ctx.engagementId, cipherReady };
     });
   };
 }
