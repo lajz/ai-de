@@ -3,7 +3,7 @@
   "model": "deepseek-v4-flash",
   "minSeverity": "nit",
   "maxDiffBytes": 400000,
-  "timeoutMs": 120000,
+  "timeoutMs": 300000,
   "retries": 2,
   "passes": { "review": true, "security": true },
   "blockingSeverity": "high"
