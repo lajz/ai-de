@@ -5,6 +5,8 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import type { SsoAuthResult, WorkOsEvent, WorkOsPort } from './workos.types.js';
 
 const DEFAULT_FAKE_SECRET = 'fake-workos-webhook-secret';
+/** reject signed payloads older/newer than this — replay protection, matches WorkOS's default */
+const TOLERANCE_MS = 5 * 60 * 1000;
 
 /**
  * In-memory WorkOS stand-in for dev + tests — no network, no `WORKOS_API_KEY`.
@@ -58,6 +60,11 @@ export class FakeWorkOsService implements WorkOsPort {
     const provided = parts.v1;
     if (!timestamp || !provided)
       throw new UnauthorizedException('malformed WorkOS signature header');
+
+    const ageMs = Date.now() - Number(timestamp);
+    if (!Number.isFinite(ageMs) || Math.abs(ageMs) > TOLERANCE_MS) {
+      throw new UnauthorizedException('WorkOS webhook timestamp outside the tolerance window');
+    }
 
     const expected = createHmac('sha256', this.webhookSecret)
       .update(`${timestamp}.${rawBody}`)

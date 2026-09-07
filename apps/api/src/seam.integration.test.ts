@@ -89,11 +89,24 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
     }
   });
 
+  /** Runs the full SSO dance (login → state cookie → callback) and returns the session token. */
   async function login(code: string, workosUserId: string, org: string): Promise<string> {
     loginCode(workos, code, workosUserId, org);
-    const res = await request(app.getHttpServer()).get(`/auth/callback?code=${code}`);
+    const start = await request(app.getHttpServer()).get('/auth/login');
+    const state = new URL(start.headers.location).searchParams.get('state')!;
+    const stateCookie = (start.headers['set-cookie'] as unknown as string[])
+      .find((c) => c.startsWith('fde_oauth_state='))!
+      .split(';')[0]!;
+
+    const res = await request(app.getHttpServer())
+      .get(`/auth/callback?code=${code}&state=${state}`)
+      .set('Cookie', stateCookie);
     expect(res.status).toBe(200);
-    return res.body.token as string;
+
+    const sessionCookie = (res.headers['set-cookie'] as unknown as string[]).find((c) =>
+      c.startsWith('fde_session='),
+    )!;
+    return sessionCookie.slice('fde_session='.length).split(';')[0]!;
   }
 
   it('SSO callback upserts the user and /me reads it back through the tenant tx', async () => {

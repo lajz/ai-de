@@ -60,7 +60,7 @@ describe('TenantContextGuard', () => {
       workosUserId: 'wos_1',
       email: 'a@example.com',
     });
-    const req: Partial<AuthedRequest> = { headers: { authorization: `Bearer ${session.id}` } };
+    const req: Partial<AuthedRequest> = { headers: { authorization: `Bearer ${session.token}` } };
 
     expect(guard.canActivate(execContext(routes.secured, req))).toBe(true);
     expect(req.fdeSession).toBe(session);
@@ -75,7 +75,7 @@ describe('TenantContextGuard', () => {
       email: 'a@example.com',
     });
     sessions.revokeByWorkosUser('wos_1');
-    const req = { headers: { authorization: `Bearer ${session.id}` } };
+    const req = { headers: { authorization: `Bearer ${session.token}` } };
     expect(() => guard.canActivate(execContext(routes.secured, req))).toThrow(
       UnauthorizedException,
     );

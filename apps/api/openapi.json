@@ -266,10 +266,6 @@
       "CallbackResponse": {
         "type": "object",
         "properties": {
-          "token": {
-            "type": "string",
-            "description": "opaque session token — also set as the fde_session cookie"
-          },
           "userId": {
             "type": "string"
           },
@@ -280,7 +276,7 @@
             "type": "string"
           }
         },
-        "required": ["token", "userId", "tenantId", "email"]
+        "required": ["userId", "tenantId", "email"]
       }
     }
   }

@@ -78,6 +78,10 @@ export class TenantContextInterceptor implements NestInterceptor {
     try {
       if (engagementId) {
         const id = engagementId as EngagementId;
+        // `withEngagement` → `withTenant` sets `app.tenant_id`, so its own
+        // `SELECT … WHERE engagements.id = id` runs under RLS: another tenant's
+        // engagement id simply resolves to no row → "not found" → 404 below.
+        // (Proven in seam.integration.test.ts: tenant A → engagement B → 404.)
         return await withEngagement(
           this.db,
           this.keyProvider,

@@ -21,48 +21,40 @@ function fullName(u: WorkOsUser): string | null {
 export class UsersService {
   constructor(@Inject(DB) private readonly db: Database) {}
 
-  /** Upsert on SSO login. Matches on `workos_user_id`, else on `(tenant, email)`. */
+  /**
+   * Upsert on SSO login. WorkOS always supplies a stable user id, so the
+   * identity key is `workos_user_id` — matched first (covers an email change in
+   * the IdP). Falling through, `INSERT … ON CONFLICT (tenant_id, email)` handles
+   * the first-login and email-collision cases in one statement, with no
+   * check-then-insert race between two concurrent first logins.
+   */
   async upsertFromSso(tenantId: TenantId, workosUser: WorkOsUser): Promise<UserId> {
+    const name = fullName(workosUser);
+    if (!workosUser.id) throw new Error('WorkOS user has no id');
+
     return withTenant(this.db, tenantId, async (tx) => {
-      const existing = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(
-          and(
-            eq(users.tenantId, tenantId),
-            workosUser.id
-              ? eq(users.workosUserId, workosUser.id)
-              : eq(users.email, workosUser.email),
-          ),
-        )
-        .limit(1);
+      const byWorkosId = await tx
+        .update(users)
+        .set({ email: workosUser.email, name, status: 'active', updatedAt: new Date() })
+        .where(and(eq(users.tenantId, tenantId), eq(users.workosUserId, workosUser.id)))
+        .returning({ id: users.id });
+      if (byWorkosId[0]) return byWorkosId[0].id as UserId;
 
-      const row = existing[0];
-      if (row) {
-        await tx
-          .update(users)
-          .set({
-            email: workosUser.email,
-            name: fullName(workosUser),
-            workosUserId: workosUser.id,
-            status: 'active',
-            updatedAt: new Date(),
-          })
-          .where(eq(users.id, row.id));
-        return row.id as UserId;
-      }
-
-      const inserted = await tx
+      const upserted = await tx
         .insert(users)
         .values({
           tenantId,
           email: workosUser.email,
-          name: fullName(workosUser),
+          name,
           workosUserId: workosUser.id,
           status: 'active',
         })
+        .onConflictDoUpdate({
+          target: [users.tenantId, users.email],
+          set: { name, workosUserId: workosUser.id, status: 'active', updatedAt: new Date() },
+        })
         .returning({ id: users.id });
-      return inserted[0]!.id as UserId;
+      return upserted[0]!.id as UserId;
     });
   }
 

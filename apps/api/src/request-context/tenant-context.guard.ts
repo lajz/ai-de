@@ -35,7 +35,7 @@ export class TenantContextGuard implements CanActivate {
     if (isPublic) return true;
 
     const req = context.switchToHttp().getRequest<AuthedRequest>();
-    const session = this.sessions.resolve(this.sessions.idFromRequest(req));
+    const session = this.sessions.resolve(this.sessions.tokenFromRequest(req));
     if (!session) {
       // covers no session, an unknown id, and an id whose session was revoked
       // by a SCIM deprovision (SessionService.revokeByWorkosUser).

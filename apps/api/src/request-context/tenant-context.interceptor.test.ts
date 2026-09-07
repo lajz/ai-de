@@ -72,7 +72,7 @@ function execContext(handler: () => void, req: Partial<AuthedRequest>): Executio
 }
 
 const session: Session = {
-  id: 's1',
+  token: 's1',
   tenantId,
   userId,
   workosUserId: 'wos_1',

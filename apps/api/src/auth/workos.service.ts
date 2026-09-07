@@ -67,6 +67,8 @@ export class WorkOsService implements WorkOsPort {
         payload: JSON.parse(rawBody) as Record<string, unknown>,
         sigHeader: signatureHeader,
         secret: this.webhookSecret,
+        // reject replays: signature timestamp must be within 5 minutes
+        tolerance: 300,
       });
       return { id: event.id, event: event.event, data: event.data as Record<string, unknown> };
     } catch (err) {

@@ -17,13 +17,20 @@ describe('validateEnv', () => {
   });
 
   it('parses WORKOS_ORG_TENANT_MAP JSON', () => {
-    const env = validateEnv({ ...base, WORKOS_ORG_TENANT_MAP: '{"org_1":"tenant-uuid"}' });
-    expect(env.WORKOS_ORG_TENANT_MAP).toEqual({ org_1: 'tenant-uuid' });
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    const env = validateEnv({ ...base, WORKOS_ORG_TENANT_MAP: `{"org_1":"${tenantId}"}` });
+    expect(env.WORKOS_ORG_TENANT_MAP).toEqual({ org_1: tenantId });
   });
 
   it('rejects a non-JSON WORKOS_ORG_TENANT_MAP', () => {
     expect(() => validateEnv({ ...base, WORKOS_ORG_TENANT_MAP: 'not json' })).toThrow(
       /WORKOS_ORG_TENANT_MAP/,
+    );
+  });
+
+  it('rejects WORKOS_ORG_TENANT_MAP with a non-UUID tenant id', () => {
+    expect(() => validateEnv({ ...base, WORKOS_ORG_TENANT_MAP: '{"org_1":"not-a-uuid"}' })).toThrow(
+      /UUID/,
     );
   });
 

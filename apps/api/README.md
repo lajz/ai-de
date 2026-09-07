@@ -69,10 +69,15 @@ implements it in memory. `AuthModule` binds the live one **only when
 `WORKOS_API_KEY` is set** — otherwise the whole flow (login → callback →
 session, and the webhook receiver) runs on the fake, no WorkOS account needed.
 
-- `GET /auth/login` → redirect to WorkOS AuthKit.
-- `GET /auth/callback?code=…` → exchange code, map WorkOS org → tenant
-  (`WORKOS_ORG_TENANT_MAP`), **upsert the `users` row**, mint a session (cookie +
-  bearer token in the body). A WorkOS org with no tenant mapping → 401.
+- `GET /auth/login` → redirect to WorkOS AuthKit; a random `state` nonce is sent
+  to WorkOS and stored in a short-lived `fde_oauth_state` cookie.
+- `GET /auth/callback?code=…&state=…` → verify `state` against the cookie
+  (CSRF), exchange the code, map WorkOS org → tenant (`WORKOS_ORG_TENANT_MAP`,
+  values validated as UUIDs), **upsert the `users` row** (on `workos_user_id`,
+  then `INSERT … ON CONFLICT (tenant_id, email)`), and set the session as an
+  httpOnly cookie (`secure` under `NODE_ENV=production`). The token is **not** in
+  the response body — read it from `Set-Cookie`. A WorkOS org with no tenant
+  mapping → 401.
 - `POST /webhooks/workos` → verify the signature over the raw body against
   `WORKOS_WEBHOOK_SECRET` (**before** anything else), then apply Directory-Sync
   events. `dsync.user.deleted` / `dsync.user.deactivated` set `users.status =
@@ -80,7 +85,9 @@ session, and the webhook receiver) runs on the fake, no WorkOS account needed.
   immediately.
 
 Session storage is in-memory (skeleton) — a real deployment moves `SessionService`
-to Redis.
+to Redis. The store is keyed by `sha256(token)`, not the raw token. Webhook
+signature verification enforces a 5-minute timestamp window (replay protection)
+on both the live and fake adapters.
 
 ## Routes
 

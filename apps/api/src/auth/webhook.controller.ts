@@ -1,4 +1,12 @@
-import { Controller, Headers, Inject, Post, type RawBodyRequest, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Headers,
+  Inject,
+  Post,
+  type RawBodyRequest,
+  Req,
+} from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import type { Request } from 'express';
 
@@ -25,8 +33,13 @@ export class WebhookController {
     @Req() req: RawBodyRequest<Request>,
     @Headers('workos-signature') signature: string | undefined,
   ): Promise<DirectorySyncOutcome> {
-    const rawBody = req.rawBody?.toString('utf8') ?? '';
-    const event = await this.workos.verifyEvent(rawBody, signature);
+    if (req.rawBody === undefined) {
+      // `main.ts` / the test harness create the app with `rawBody: true`; if the
+      // exact bytes weren't captured we cannot verify the signature — fail, never
+      // fall back to an empty body.
+      throw new BadRequestException('raw request body unavailable — cannot verify signature');
+    }
+    const event = await this.workos.verifyEvent(req.rawBody.toString('utf8'), signature);
     return this.directorySync.apply(event);
   }
 }

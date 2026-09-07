@@ -58,11 +58,19 @@ describe('apps/api e2e (no DB)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /auth/login → 302 to the WorkOS authorization URL', async () => {
-    const res = await request(app.getHttpServer()).get('/auth/login?state=xyz');
+  it('GET /auth/login → 302 to WorkOS, with a state nonce + matching cookie', async () => {
+    const res = await request(app.getHttpServer()).get('/auth/login');
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain('fake-workos.local');
-    expect(res.headers.location).toContain('state=xyz');
+    const state = new URL(res.headers.location).searchParams.get('state');
+    expect(state).toBeTruthy();
+    const setCookie = (res.headers['set-cookie'] as unknown as string[]).join(';');
+    expect(setCookie).toContain(`fde_oauth_state=${state}`);
+  });
+
+  it('GET /auth/callback with a mismatched state → 401', async () => {
+    const res = await request(app.getHttpServer()).get('/auth/callback?code=x&state=wrong');
+    expect(res.status).toBe(401);
   });
 
   describe('POST /webhooks/workos', () => {

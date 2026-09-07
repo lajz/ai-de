@@ -1,11 +1,12 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import type { TenantId, UserId } from '@fde/core';
 
 export interface Session {
-  id: string;
+  /** the opaque bearer token — the cookie value; never used as the store key */
+  token: string;
   tenantId: TenantId;
   userId: UserId;
   workosUserId: string;
@@ -24,60 +25,66 @@ export const SESSION_COOKIE = 'fde_session';
 
 /**
  * In-memory session store. Deliberately simple for the skeleton — a real
- * deployment moves this to Redis (shared across API instances, TTL'd). The
- * contract the rest of the app depends on:
+ * deployment moves this to Redis (shared across API instances, TTL'd).
  *
- *  - `create` mints an opaque 256-bit id; the caller sets it as an httpOnly
- *    cookie and/or hands it back as a bearer token.
- *  - `resolve` returns the session for a live id, or `undefined` once it has
- *    been revoked — which is what "treat the session as revoked" means when a
- *    WorkOS SCIM `dsync.user.deleted` arrives (see `DirectorySyncService`).
+ * The store is keyed by `sha256(token)`, not the token itself: a timing leak on
+ * the `Map` key comparison, or a memory dump, then reveals only a hash — same
+ * reasoning as never storing raw passwords. Tokens are 256-bit random, so
+ * guessing is infeasible regardless.
  */
 @Injectable()
 export class SessionService {
-  private readonly sessions = new Map<string, Session>();
+  private readonly byTokenHash = new Map<string, Session>();
+
+  private static hash(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
   create(input: NewSession): Session {
     const session: Session = {
-      id: randomBytes(32).toString('base64url'),
+      token: randomBytes(32).toString('base64url'),
       createdAt: new Date(),
       ...input,
     };
-    this.sessions.set(session.id, session);
+    this.byTokenHash.set(SessionService.hash(session.token), session);
     return session;
   }
 
-  resolve(id: string | undefined): Session | undefined {
-    if (!id) return undefined;
-    return this.sessions.get(id);
+  resolve(token: string | undefined): Session | undefined {
+    if (!token) return undefined;
+    return this.byTokenHash.get(SessionService.hash(token));
   }
 
   /** Immediately invalidates every session for a WorkOS user. Returns the count. */
   revokeByWorkosUser(workosUserId: string): number {
     let revoked = 0;
-    for (const [id, session] of this.sessions) {
+    for (const [key, session] of this.byTokenHash) {
       if (session.workosUserId === workosUserId) {
-        this.sessions.delete(id);
+        this.byTokenHash.delete(key);
         revoked += 1;
       }
     }
     return revoked;
   }
 
-  /** Pulls the session id from `Authorization: Bearer` or the `fde_session` cookie. */
-  idFromRequest(req: Request): string | undefined {
+  /** Pulls the session token from `Authorization: Bearer` or the `fde_session` cookie. */
+  tokenFromRequest(req: Request): string | undefined {
     const auth = req.headers.authorization;
     if (auth?.startsWith('Bearer ')) return auth.slice('Bearer '.length).trim() || undefined;
-
-    const cookie = req.headers.cookie;
-    if (!cookie) return undefined;
-    for (const pair of cookie.split(';')) {
-      const eq = pair.indexOf('=');
-      if (eq === -1) continue;
-      if (pair.slice(0, eq).trim() === SESSION_COOKIE) {
-        return decodeURIComponent(pair.slice(eq + 1).trim()) || undefined;
-      }
-    }
-    return undefined;
+    return readCookie(req, SESSION_COOKIE);
   }
+}
+
+/** Minimal `Cookie:` header parser — avoids a cookie-parser dependency. */
+export function readCookie(req: Request, name: string): string | undefined {
+  const cookie = req.headers.cookie;
+  if (!cookie) return undefined;
+  for (const pair of cookie.split(';')) {
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    if (pair.slice(0, eq).trim() === name) {
+      return decodeURIComponent(pair.slice(eq + 1).trim()) || undefined;
+    }
+  }
+  return undefined;
 }

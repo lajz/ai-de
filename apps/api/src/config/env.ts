@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * The API's environment contract. `@nestjs/config` runs `validateEnv` at boot
  * (see `config.module.ts`) and the process refuses to start on a missing or
@@ -42,11 +44,18 @@ export const envSchema = z
           ) {
             throw new Error('not a string→string object');
           }
-          return parsed as Record<string, string>;
+          const map = parsed as Record<string, string>;
+          const bad = Object.entries(map).filter(([, tenantId]) => !UUID.test(tenantId));
+          if (bad.length) {
+            throw new Error(
+              `tenant ids must be UUIDs (bad: ${bad.map(([org]) => org).join(', ')})`,
+            );
+          }
+          return map;
         } catch (err) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: `WORKOS_ORG_TENANT_MAP is not valid JSON: ${(err as Error).message}`,
+            message: `WORKOS_ORG_TENANT_MAP invalid: ${(err as Error).message}`,
           });
           return z.NEVER;
         }

@@ -53,7 +53,12 @@ export class DirectorySyncService {
       return { event: event.event, action: 'ignored', reason };
     }
 
+    // `organizationId` comes from a signature-verified payload, so `tenantId` is
+    // authentic; `deprovision` additionally constrains its UPDATE to
+    // `tenant_id = tenantId`, so it can only ever touch the mapped tenant's row.
     const usersDisabled = await this.users.deprovision(tenantId, workosUserId);
+    // Deliberately global: a WorkOS user id identifies one person, so on
+    // deprovision we kill every session they hold, not just the mapped tenant's.
     const sessionsRevoked = this.sessions.revokeByWorkosUser(workosUserId);
     this.logger.log(
       `${event.event}: disabled ${usersDisabled} user(s), revoked ${sessionsRevoked} session(s)`,
