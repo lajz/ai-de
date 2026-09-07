@@ -44,7 +44,10 @@ export function requestBody(messages: ChatMessage[], cfg: Config): Record<string
     model: cfg.model,
     messages,
     temperature: 0,
-    max_tokens: 16000,
+    // A multi-file, several-hundred-line diff can need more than 16k tokens of
+    // findings JSON to cover; hitting the cap mid-response reads as a
+    // (non-transient, retry-proof) truncation failure rather than a clean pass.
+    max_tokens: 32000,
     response_format: { type: 'json_object' },
   };
   if (/deepseek/i.test(cfg.model)) body.thinking = { type: 'disabled' };
