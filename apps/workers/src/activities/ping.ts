@@ -11,6 +11,8 @@ export interface PingActivityResult {
 
 /** Trivial activity proving the worker loop: no ids to resolve, no 🔒 data. */
 export async function pingActivity(input: PingActivityInput): Promise<PingActivityResult> {
-  log.info('ping', { nonce: input.nonce });
+  // Not the nonce itself — it's opaque by contract, but nothing here needs it
+  // to actually be non-sensitive to prove the loop works.
+  log.info('ping activity invoked');
   return { nonce: input.nonce, at: new Date().toISOString() };
 }

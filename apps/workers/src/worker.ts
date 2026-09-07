@@ -61,8 +61,12 @@ const invokedDirectly =
   !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
-  runWorker().catch((err) => {
-    console.error('worker exited with an error:', err);
+  runWorker().catch((err: unknown) => {
+    // message + stack only — never the raw error object, which for a
+    // connection failure can carry the resolved TemporalConnectionConfig
+    // (address, namespace) in its properties.
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    console.error(`worker exited with an error: ${message}`);
     process.exitCode = 1;
   });
 }
