@@ -155,6 +155,16 @@ describe('HttpRecallClient', () => {
     expect(segs[1]!.words[0]).toEqual({ text: 'Yo', start: null, end: null });
   });
 
+  it('getTranscript unwraps { results } / { transcript } and rejects a non-list body', async () => {
+    const wrapped = new HttpRecallClient(
+      opts(stubFetch({ json: { results: [{ speaker: 'A', words: [{ text: 'hi' }] }] } }).impl),
+    );
+    expect((await wrapped.getTranscript('b'))[0]!.speaker).toBe('A');
+
+    const malformed = new HttpRecallClient(opts(stubFetch({ json: { detail: 'oops' } }).impl));
+    await expect(malformed.getTranscript('b')).rejects.toBeInstanceOf(RecallApiError);
+  });
+
   it('raises RecallApiError on a non-2xx response', async () => {
     const client = new HttpRecallClient(
       opts(stubFetch({ status: 404, text: '{"detail":"Not found."}' }).impl),

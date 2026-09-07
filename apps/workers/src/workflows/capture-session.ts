@@ -100,6 +100,11 @@ export async function captureSessionWorkflow(
 
   let ready = false;
   for (let poll = 0; poll < maxPollAttempts; poll++) {
+    // Consume any webhook nudge that arrived during the previous wait *before*
+    // the poll, so a nudge delivered while this poll runs is still seen by the
+    // `condition` below (worst case: one redundant poll, never a missed signal).
+    nudged = false;
+
     const state = await pollCaptureBotActivity({ botId });
     if (state.status === 'done') {
       ready = true;
@@ -116,7 +121,6 @@ export async function captureSessionWorkflow(
       });
     }
     // Wait out the poll interval, waking early if the webhook signal arrives.
-    nudged = false;
     await condition(() => nudged, pollIntervalMs);
   }
 

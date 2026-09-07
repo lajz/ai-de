@@ -128,6 +128,12 @@ export function createCaptureSessionActivities(deps: CaptureSessionActivitiesDep
   ): Promise<StoreTranscriptSourceResult> {
     // The transcript body enters the process here and nowhere else.
     const segments = await deps.recallClient.getTranscript(input.botId);
+    if (segments.length === 0) {
+      // Recall reported the bot `done` but handed back nothing — almost always a
+      // premature read (the transcript is still finalizing). Retryable: the
+      // activity's retry policy re-fetches after a backoff.
+      throw new Error(`transcript for bot ${input.botId} is empty; not yet available`);
+    }
 
     return withEngagementActivity(
       deps.db,

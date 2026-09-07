@@ -174,10 +174,20 @@ export class HttpRecallClient implements RecallClient {
   }
 
   async getTranscript(botId: string): Promise<TranscriptSegment[]> {
-    const entries = await this.request<RecallTranscriptEntry[]>(
-      'GET',
-      `/api/v1/bot/${encodeURIComponent(botId)}/transcript/`,
-    );
-    return normalizeTranscript(Array.isArray(entries) ? entries : []);
+    const path = `/api/v1/bot/${encodeURIComponent(botId)}/transcript/`;
+    const entries = await this.request<unknown>('GET', path);
+    // Some API versions wrap the list; accept the common shapes, but a
+    // non-array, non-wrapped body is a malformed response, not "no transcript".
+    const list = Array.isArray(entries)
+      ? entries
+      : Array.isArray((entries as { results?: unknown })?.results)
+        ? (entries as { results: RecallTranscriptEntry[] }).results
+        : Array.isArray((entries as { transcript?: unknown })?.transcript)
+          ? (entries as { transcript: RecallTranscriptEntry[] }).transcript
+          : null;
+    if (!list) {
+      throw new RecallApiError(200, 'GET', path, 'transcript response was not a list');
+    }
+    return normalizeTranscript(list);
   }
 }
