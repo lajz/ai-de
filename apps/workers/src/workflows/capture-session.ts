@@ -40,6 +40,13 @@ export interface CaptureSessionWorkflowInput {
   /** ISO-8601 — when the bot should join */
   joinAt: string;
   retentionPolicy: RetentionPolicy;
+  /**
+   * Poll-cadence overrides (optional). Defaults: poll every 30s, up to 240
+   * times (~2h ceiling on a meeting). The webhook signal seam makes the
+   * interval a ceiling per wait, not a fixed delay.
+   */
+  pollIntervalSeconds?: number;
+  maxPollAttempts?: number;
 }
 
 export interface CaptureSessionWorkflowResult {
@@ -57,9 +64,9 @@ export interface CaptureSessionWorkflowResult {
  */
 export const transcriptReadySignal = defineSignal('transcriptReady');
 
-const POLL_INTERVAL = '30 seconds';
+const DEFAULT_POLL_INTERVAL_SECONDS = 30;
 /** 240 × 30s ≈ 2h — the ceiling on how long we wait for a meeting to finish. */
-const MAX_POLLS = 240;
+const DEFAULT_MAX_POLL_ATTEMPTS = 240;
 
 /**
  * Schedule a Recall.ai bot for a meeting, wait for the recording to finish, then
@@ -77,6 +84,9 @@ export async function captureSessionWorkflow(
     nudged = true;
   });
 
+  const pollIntervalMs = (input.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS) * 1000;
+  const maxPollAttempts = input.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
+
   const captureSessionId = uuid4();
 
   const { botId } = await scheduleCaptureBotActivity({
@@ -89,7 +99,7 @@ export async function captureSessionWorkflow(
   });
 
   let ready = false;
-  for (let poll = 0; poll < MAX_POLLS; poll++) {
+  for (let poll = 0; poll < maxPollAttempts; poll++) {
     const state = await pollCaptureBotActivity({ botId });
     if (state.status === 'done') {
       ready = true;
@@ -107,7 +117,7 @@ export async function captureSessionWorkflow(
     }
     // Wait out the poll interval, waking early if the webhook signal arrives.
     nudged = false;
-    await condition(() => nudged, POLL_INTERVAL);
+    await condition(() => nudged, pollIntervalMs);
   }
 
   if (!ready) {

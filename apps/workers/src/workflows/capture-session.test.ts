@@ -94,6 +94,7 @@ function workflowInput(
   tenantId: TenantId,
   engagementId: EngagementId,
   retentionPolicy: RetentionPolicy,
+  overrides: Partial<CaptureSessionWorkflowInput> = {},
 ): CaptureSessionWorkflowInput {
   return {
     tenantId,
@@ -101,6 +102,10 @@ function workflowInput(
     meetingUrl: 'https://meet.example/standup',
     joinAt: '2026-09-07T15:00:00.000Z',
     retentionPolicy,
+    // keep the poll loop short so a never-completing bot hits the ceiling fast
+    pollIntervalSeconds: 30,
+    maxPollAttempts: 5,
+    ...overrides,
   };
 }
 
