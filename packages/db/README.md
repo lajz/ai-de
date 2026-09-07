@@ -13,7 +13,7 @@ Drizzle schema, Row-Level-Security policies, the Postgres client, and the
 | `schema/facts.ts`      | `facts`, `evidence`, `extraction_runs`                                   |
 | `schema/embeddings.ts` | `embeddings` (pgvector)                                                  |
 | `schema/identities.ts` | `identities`                                                             |
-| `schema/audit.ts`      | `access_log` (append-only)                                               |
+| `schema/audit.ts`      | `access_log` (append-only), `break_glass_grants`                         |
 | `schema/tables.ts`     | `TENANT_SCOPED_TABLES` registry — keep in sync with `sql/harden-rls.sql` |
 
 ## Row-Level Security

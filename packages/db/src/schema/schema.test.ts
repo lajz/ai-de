@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accessLog,
   aclSnapshots,
+  breakGlassGrants,
   embeddings,
   engagements,
   entities,
@@ -30,6 +31,7 @@ const tenantTables = {
   embeddings,
   identities,
   access_log: accessLog,
+  break_glass_grants: breakGlassGrants,
 };
 
 describe('schema', () => {

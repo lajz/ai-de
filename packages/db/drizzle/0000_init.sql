@@ -198,6 +198,21 @@ CREATE TABLE "access_log" (
 );
 --> statement-breakpoint
 ALTER TABLE "access_log" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "break_glass_grants" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" uuid NOT NULL,
+	"engagement_id" uuid NOT NULL,
+	"requested_by" text NOT NULL,
+	"approved_by" text,
+	"reason" text NOT NULL,
+	"ttl_minutes" integer DEFAULT 60 NOT NULL,
+	"requested_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"approved_at" timestamp with time zone,
+	"expires_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone
+);
+--> statement-breakpoint
+ALTER TABLE "break_glass_grants" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "engagements" ADD CONSTRAINT "engagements_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "acl_snapshots" ADD CONSTRAINT "acl_snapshots_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -227,6 +242,8 @@ ALTER TABLE "identities" ADD CONSTRAINT "identities_tenant_id_tenants_id_fk" FOR
 ALTER TABLE "identities" ADD CONSTRAINT "identities_user_fk" FOREIGN KEY ("tenant_id","user_id") REFERENCES "public"."users"("tenant_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "access_log" ADD CONSTRAINT "access_log_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "access_log" ADD CONSTRAINT "access_log_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "break_glass_grants" ADD CONSTRAINT "break_glass_grants_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "break_glass_grants" ADD CONSTRAINT "break_glass_grants_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "engagements_tenant_customer_uq" ON "engagements" USING btree ("tenant_id","end_customer_name");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_tenant_email_uq" ON "users" USING btree ("tenant_id","email");--> statement-breakpoint
 CREATE UNIQUE INDEX "sources_dedupe_uq" ON "sources" USING btree ("engagement_id","connector","external_id","content_hash");--> statement-breakpoint
@@ -242,6 +259,7 @@ CREATE INDEX "embeddings_source_idx" ON "embeddings" USING btree ("source_id");-
 CREATE INDEX "embeddings_hnsw_idx" ON "embeddings" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
 CREATE UNIQUE INDEX "identities_user_connector_uq" ON "identities" USING btree ("user_id","connector","external_account_id");--> statement-breakpoint
 CREATE INDEX "access_log_engagement_idx" ON "access_log" USING btree ("engagement_id","created_at");--> statement-breakpoint
+CREATE INDEX "break_glass_grants_engagement_idx" ON "break_glass_grants" USING btree ("engagement_id");--> statement-breakpoint
 CREATE POLICY "engagements_tenant_isolation" ON "engagements" AS PERMISSIVE FOR ALL TO "app_rw" USING ("engagements"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("engagements"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "tenants_self_isolation" ON "tenants" AS PERMISSIVE FOR ALL TO "app_rw" USING ("tenants"."id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("tenants"."id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "users_tenant_isolation" ON "users" AS PERMISSIVE FOR ALL TO "app_rw" USING ("users"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("users"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
@@ -254,4 +272,5 @@ CREATE POLICY "extraction_runs_tenant_isolation" ON "extraction_runs" AS PERMISS
 CREATE POLICY "facts_tenant_isolation" ON "facts" AS PERMISSIVE FOR ALL TO "app_rw" USING ("facts"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("facts"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "embeddings_tenant_isolation" ON "embeddings" AS PERMISSIVE FOR ALL TO "app_rw" USING ("embeddings"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("embeddings"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "identities_tenant_isolation" ON "identities" AS PERMISSIVE FOR ALL TO "app_rw" USING ("identities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("identities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
-CREATE POLICY "access_log_tenant_isolation" ON "access_log" AS PERMISSIVE FOR ALL TO "app_rw" USING ("access_log"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("access_log"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY "access_log_tenant_isolation" ON "access_log" AS PERMISSIVE FOR ALL TO "app_rw" USING ("access_log"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("access_log"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
+CREATE POLICY "break_glass_grants_tenant_isolation" ON "break_glass_grants" AS PERMISSIVE FOR ALL TO "app_rw" USING ("break_glass_grants"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("break_glass_grants"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);

@@ -18,6 +18,7 @@ export const TENANT_SCOPED_TABLES = [
   'embeddings',
   'identities',
   'access_log',
+  'break_glass_grants',
 ] as const;
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
