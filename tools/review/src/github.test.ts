@@ -5,6 +5,9 @@ import {
   commentBody,
   computeVerdict,
   findingKey,
+  hasDismissReply,
+  humanResolved,
+  isDismissed,
   keyFromBody,
   markerFor,
   parseMarker,
@@ -88,6 +91,51 @@ describe('marker round-trip', () => {
   });
 });
 
+describe('dismissal detection', () => {
+  const ours = commentBody(f({}), 'aaaaaaaaaa'); // has an fde-review marker
+  const th = (over: Partial<ThreadInfo>): ThreadInfo => ({
+    key: 'k000000001',
+    pass: 'review',
+    path: 'a.ts',
+    line: 1,
+    threadId: 'T',
+    isResolved: false,
+    rootCommentId: 1,
+    noted: false,
+    dismissReply: false,
+    humanResolved: false,
+    acked: false,
+    ...over,
+  });
+
+  it('hasDismissReply spots /fp and phrases, from a human comment only', () => {
+    expect(hasDismissReply([ours, '/fp — RLS is enforced at the caller'])).toBe(true);
+    expect(hasDismissReply([ours, 'This is a false positive, value is already escaped'])).toBe(
+      true,
+    );
+    expect(hasDismissReply([ours, 'working as intended'])).toBe(true);
+    expect(hasDismissReply([ours, "I'll fix this next commit"])).toBe(false);
+    // our own "false positive rate" wording must not count
+    expect(
+      hasDismissReply([ours, 'note: false positive rate is high <!-- fde-review:bot -->']),
+    ).toBe(false);
+  });
+
+  it('humanResolved: true for a bare human resolve, false when fde-review closed it out', () => {
+    expect(humanResolved(true, [ours])).toBe(true);
+    expect(humanResolved(true, [ours, '✅ Resolved — no longer flagged as of `abc`.'])).toBe(false);
+    expect(humanResolved(true, [ours, 'text <!-- fde-review:resolved -->'])).toBe(false);
+    expect(humanResolved(false, [ours])).toBe(false);
+  });
+
+  it('isDismissed = explicit reply, OR human-resolved while still reported', () => {
+    expect(isDismissed(th({ dismissReply: true }), false)).toBe(true);
+    expect(isDismissed(th({ humanResolved: true }), true)).toBe(true); // override
+    expect(isDismissed(th({ humanResolved: true }), false)).toBe(false); // just tidying up
+    expect(isDismissed(th({}), true)).toBe(false);
+  });
+});
+
 describe('commentBody', () => {
   it('includes severity, pass, title, detail, the pass-tagged marker, and the fix', () => {
     const body = commentBody(
@@ -115,6 +163,9 @@ describe('planActions', () => {
     isResolved: false,
     rootCommentId: 1,
     noted: false,
+    dismissReply: false,
+    humanResolved: false,
+    acked: false,
     ...over,
   });
   const resolved = (key: string, over: Partial<ThreadInfo> = {}): ThreadInfo =>
@@ -235,6 +286,7 @@ describe('renderSummary', () => {
     reopenedThisRun: 0,
     blockingSeverity: 'high' as const,
     unpositioned: [],
+    dismissed: [],
     failedPasses: [],
     submitted: true,
   };
@@ -294,5 +346,21 @@ describe('renderSummary', () => {
     expect(out).toContain('review incomplete');
     expect(out).toContain('security pass did not finish');
     expect(out).toContain('verdict=block');
+  });
+
+  it('lists dismissed findings in their own section, not the table', () => {
+    const fp = f({ severity: 'high', title: 'False alarm', line: 9 });
+    const out = renderSummary({
+      ...baseInput,
+      findings: [], // dismissed findings are already filtered out of the live list
+      dismissed: [fp],
+      plan: planActions([], []),
+      verdict: computeVerdict([], 'high'), // verdict computed without the dismissed one
+    });
+    expect(out).toContain('✅ no blocking findings');
+    expect(out).toContain('Dismissed as false positives (1)');
+    expect(out).toContain('False alarm');
+    const tableRows = out.split('\n').filter((l) => l.startsWith('| ') && !l.includes('---'));
+    expect(tableRows.join('\n')).not.toContain('False alarm');
   });
 });
