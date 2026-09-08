@@ -34,13 +34,14 @@ That's it. `git push` now runs the gate.
 Config precedence: built-in defaults < `.fde-review.json` (committed) < environment
 / `.env` < CLI flags. The **key only ever comes from the environment**.
 
-| Env var           | Default                    | Notes                                                   |
-| ----------------- | -------------------------- | ------------------------------------------------------- |
-| `REVIEW_API_KEY`  | —                          | No key ⇒ AI review is skipped (gate still runs).        |
-| `REVIEW_BASE_URL` | `https://api.deepseek.com` | Any OpenAI-compatible endpoint.                         |
-| `REVIEW_MODEL`    | `deepseek-v4-flash`        | `deepseek-v4-pro`, `qwen3-coder:30b`, `claude`.         |
-| `REVIEW_BASE`     | auto                       | Ref to diff against.                                    |
-| `REVIEW_GH_TOKEN` | ambient `gh` auth          | github sink: token for `gh` (falls back to `GH_TOKEN`). |
+| Env var             | Default                    | Notes                                                                                               |
+| ------------------- | -------------------------- | --------------------------------------------------------------------------------------------------- |
+| `REVIEW_API_KEY`    | —                          | No key ⇒ AI review is skipped (gate still runs).                                                    |
+| `REVIEW_BASE_URL`   | `https://api.deepseek.com` | Any OpenAI-compatible endpoint.                                                                     |
+| `REVIEW_MODEL`      | `deepseek-v4-flash`        | `deepseek-v4-pro`, `qwen3-coder:30b`, `claude`.                                                     |
+| `REVIEW_BASE`       | auto                       | Ref to diff against.                                                                                |
+| `REVIEW_MAX_TOKENS` | `64000`                    | Completion-token cap per model call. Raise for a huge PR; lower for a model with a smaller ceiling. |
+| `REVIEW_GH_TOKEN`   | ambient `gh` auth          | github sink: token for `gh` (falls back to `GH_TOKEN`).                                             |
 
 - **DeepSeek V4 Flash** (default): ~1–2¢ per review; ~half that during off-peak
   hours (01:00–04:00 & 06:00–10:00 UTC).

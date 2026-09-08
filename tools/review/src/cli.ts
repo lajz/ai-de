@@ -26,6 +26,8 @@ Model config comes from .env / environment:
   REVIEW_API_KEY, REVIEW_BASE_URL (default https://api.deepseek.com),
   REVIEW_MODEL (default deepseek-v4-flash). Use REVIEW_MODEL=claude to shell out
   to the Claude CLI, or point REVIEW_BASE_URL at a local Ollama.
+  REVIEW_MAX_TOKENS (default 64000) caps completion tokens per call — raise it if
+  a large PR's review keeps hitting the token limit before finishing.
 
 github sink: needs an open PR for the branch and a token — the ambient gh login,
 or REVIEW_GH_TOKEN / REVIEW_BOT_TOKEN / GH_TOKEN. A PAT with "Pull requests:

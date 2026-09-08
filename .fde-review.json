@@ -4,6 +4,7 @@
   "minSeverity": "nit",
   "maxDiffBytes": 400000,
   "timeoutMs": 300000,
+  "maxTokens": 64000,
   "retries": 2,
   "passes": { "review": true, "security": true },
   "blockingSeverity": "high"

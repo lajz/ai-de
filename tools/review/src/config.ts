@@ -15,6 +15,10 @@ const DEFAULTS: Omit<Config, 'apiKey'> = {
   // was tripping the abort controller before the model finished, not because
   // the model was stuck — the same non-transient failure retries can't fix.
   timeoutMs: 300_000,
+  // DeepSeek V4 accepts up to 64k completion tokens; a multi-file diff with many
+  // findings can genuinely need most of it. Overridable via REVIEW_MAX_TOKENS /
+  // .fde-review.json for models with a smaller ceiling.
+  maxTokens: 64_000,
   retries: 2,
   passes: { review: true, security: true },
   blockingSeverity: 'high',
@@ -87,6 +91,8 @@ export function loadConfig(overrides: Partial<Config> = {}, root = repoRoot()): 
     ),
     timeoutMs:
       overrides.timeoutMs ?? numeric(env.REVIEW_TIMEOUT_MS) ?? file.timeoutMs ?? DEFAULTS.timeoutMs,
+    maxTokens:
+      overrides.maxTokens ?? numeric(env.REVIEW_MAX_TOKENS) ?? file.maxTokens ?? DEFAULTS.maxTokens,
     retries: overrides.retries ?? numeric(env.REVIEW_RETRIES) ?? file.retries ?? DEFAULTS.retries,
     passes: ci
       ? { review: true, security: true }

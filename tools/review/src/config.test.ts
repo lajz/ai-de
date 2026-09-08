@@ -21,6 +21,7 @@ const MODEL_ENV = [
   'REVIEW_MIN_SEVERITY',
   'REVIEW_BLOCKING_SEVERITY',
   'REVIEW_FAIL_ON',
+  'REVIEW_MAX_TOKENS',
   'GITHUB_ACTIONS',
 ];
 let saved: Record<string, string | undefined>;
@@ -44,6 +45,13 @@ describe('loadConfig precedence', () => {
     expect(cfg.minSeverity).toBe('nit');
     expect(cfg.blockingSeverity).toBe('high');
     expect(cfg.failOn).toBeNull();
+    expect(cfg.maxTokens).toBe(64_000);
+  });
+
+  it('reads maxTokens from env and file, env winning', () => {
+    expect(loadConfig({}, fixtureRoot('{"maxTokens":48000}')).maxTokens).toBe(48000);
+    process.env.REVIEW_MAX_TOKENS = '90000';
+    expect(loadConfig({}, fixtureRoot('{"maxTokens":48000}')).maxTokens).toBe(90000);
   });
 
   it('ignores a .fde-review.json that disables passes when GITHUB_ACTIONS=true', () => {
