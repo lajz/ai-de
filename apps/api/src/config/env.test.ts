@@ -38,6 +38,31 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, NODE_ENV: 'production' })).toThrow(/WORKOS_API_KEY/);
   });
 
+  it('requires SpiceDB credentials under NODE_ENV=production', () => {
+    expect(() =>
+      validateEnv({
+        ...base,
+        NODE_ENV: 'production',
+        WORKOS_API_KEY: 'k',
+        WORKOS_CLIENT_ID: 'c',
+        WORKOS_WEBHOOK_SECRET: 's',
+      }),
+    ).toThrow(/SPICEDB_ENDPOINT/);
+  });
+
+  it('accepts a complete production environment', () => {
+    const env = validateEnv({
+      ...base,
+      NODE_ENV: 'production',
+      WORKOS_API_KEY: 'k',
+      WORKOS_CLIENT_ID: 'c',
+      WORKOS_WEBHOOK_SECRET: 's',
+      SPICEDB_ENDPOINT: 'spicedb.example:443',
+      SPICEDB_TOKEN: 't',
+    });
+    expect(env.AUTHZ_ENFORCE).toBe('false');
+  });
+
   it('refuses FDE_FAKE_KMS=true under NODE_ENV=production', () => {
     expect(() =>
       validateEnv({

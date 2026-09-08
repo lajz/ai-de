@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@fde/audit": "workspace:*",
+    "@fde/authz": "workspace:*",
     "@fde/core": "workspace:*",
     "@fde/crypto": "workspace:*",
     "@fde/db": "workspace:*",

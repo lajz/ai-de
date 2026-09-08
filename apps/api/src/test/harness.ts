@@ -10,6 +10,10 @@ export interface TestAppOptions {
   db?: unknown;
   /** default true — bind `FakeKeyProvider` via `FDE_FAKE_KMS` */
   fakeKms?: boolean;
+  /** value to bind for the `AuthzClient` token — pass an `InMemoryAuthzClient` to seed relationships */
+  authz?: unknown;
+  /** sets `AUTHZ_ENFORCE` before `AppModule` (→ `@nestjs/config`) evaluates */
+  enforceAuthz?: boolean;
 }
 
 export interface TestApp {
@@ -30,15 +34,20 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   process.env.DATABASE_URL ??= 'postgres://placeholder:placeholder@localhost:5432/placeholder';
   process.env.WORKOS_WEBHOOK_SECRET ??= TEST_WEBHOOK_SECRET;
   if (opts.fakeKms !== false) process.env.FDE_FAKE_KMS = 'true';
+  process.env.AUTHZ_ENFORCE = opts.enforceAuthz ? 'true' : 'false';
 
   const { Test } = await import('@nestjs/testing');
   const { AppModule } = await import('../app.module.js');
   const { DB } = await import('../db/db.module.js');
   const { WORKOS } = await import('../auth/workos.types.js');
+  const { AuthzClient } = await import('@fde/authz');
 
   let builder = Test.createTestingModule({ imports: [AppModule] });
   if (opts.db !== undefined) {
     builder = builder.overrideProvider(DB).useValue(opts.db);
+  }
+  if (opts.authz !== undefined) {
+    builder = builder.overrideProvider(AuthzClient).useValue(opts.authz);
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ rawBody: true });

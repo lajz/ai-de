@@ -1,0 +1,41 @@
+// @fde/authz SpiceDB schema — platform-role model (Zanzibar).
+//
+// Committed for tooling (`zed validate`, editor support) and as the reference
+// copy. The authoritative version the app pushes is the `AUTHZ_SCHEMA` string in
+// src/schema.ts — keep the two in sync (schema.test.ts asserts it).
+//
+// Scope (ROADMAP #10): platform roles only. Per-source ACL mirroring
+// (`slack_channel:C123#member@user:U9`, and a `source_acl` relation on
+// engagement evidence resources) lands in M5 — see the marked block below.
+
+definition user {}
+
+definition tenant {
+	relation admin: user
+	relation member: user
+
+	// A tenant admin administers the tenant and, via the arrow in `engagement`,
+	// inherits `view` on every engagement parented to this tenant.
+	permission administer = admin
+}
+
+definition engagement {
+	relation parent_tenant: tenant
+	relation admin: user
+	relation member: user
+	relation viewer: user
+
+	// M5 — source-ACL mirroring adds here:
+	//   relation source_acl: slack_channel | google_doc | ...
+	// and `view` below gains `+ source_acl->access`, so a fact's evidence is
+	// only visible when the asking user still has access to every backing source.
+	// Adding it is purely additive to this definition.
+
+	permission view = viewer + member + admin + parent_tenant->administer
+	permission contribute = member + admin
+	permission administer = admin
+}
+
+// M5 — source objects (one `definition` per connector kind) are added below,
+// each with a `member` / `access` relation populated from `Connector.resolveAcl`.
+// definition slack_channel { relation member: user; permission access = member }

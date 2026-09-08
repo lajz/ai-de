@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthzModule } from './authz/authz.module.js';
 import { AppConfigModule } from './config/config.module.js';
 import { DbModule } from './db/db.module.js';
 import { EngagementsController } from './engagements/engagements.controller.js';
@@ -16,7 +17,7 @@ import { RequestContextModule } from './request-context/request-context.module.j
  * WorkOS webhook live in `AuthModule` (imported via `RequestContextModule`).
  */
 @Module({
-  imports: [AppConfigModule, DbModule, KeyProviderModule, RequestContextModule],
+  imports: [AppConfigModule, DbModule, KeyProviderModule, AuthzModule, RequestContextModule],
   controllers: [HealthController, MeController, EngagementsController],
 })
 export class AppModule {}
