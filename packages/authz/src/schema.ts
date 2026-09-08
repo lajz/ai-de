@@ -13,7 +13,7 @@
  * a marked spot where M5 adds a `source_acl` relation + `slack_channel` / doc
  * source definitions for per-source ACL mirroring — additive to what's here.
  */
-export const SCHEMA_VERSION = '2026-09-08.1';
+export const SCHEMA_VERSION = '2026-09-08.2';
 
 export const AUTHZ_SCHEMA = `
 definition user {}
@@ -22,6 +22,7 @@ definition tenant {
 	relation admin: user
 	relation member: user
 	permission administer = admin
+	permission belong = admin + member
 }
 
 definition engagement {

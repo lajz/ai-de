@@ -27,8 +27,8 @@ import {
 } from '@fde/core';
 import { listAccess, logAccess } from '@fde/audit';
 import { AuthzClient, ENGAGEMENT_ROLES, type EngagementRole } from '@fde/authz';
-import { engagements, users } from '@fde/db';
-import { and, desc, eq } from 'drizzle-orm';
+import { engagements } from '@fde/db';
+import { desc } from 'drizzle-orm';
 
 import type { Env } from '../config/env.js';
 import { EngagementScope } from '../request-context/metadata.js';
@@ -190,8 +190,10 @@ export class EngagementsController {
   /**
    * Grant a user a platform role on this engagement — the relationship-seeding
    * seam (`@fde/authz` `grantEngagementRole`). Admin-only: the caller must be an
-   * engagement admin or a tenant admin. Always enforced (it mutates authz state)
-   * regardless of `AUTHZ_ENFORCE`. M5 adds source-ACL seeding alongside this.
+   * engagement admin or a tenant admin, and the grantee must already belong to
+   * the tenant (present in SpiceDB via the SSO seam). Always enforced (it
+   * mutates authz state) regardless of `AUTHZ_ENFORCE`. M5 adds source-ACL
+   * seeding alongside this.
    */
   @Post(':id/members')
   @EngagementScope('id')
@@ -201,7 +203,7 @@ export class EngagementsController {
     @Body() body: AddMemberBody,
   ): Promise<AddMemberResponse> {
     const engagement = getEngagementContext();
-    const { tx, userId, tenantId } = getRequestContext();
+    const { userId, tenantId } = getRequestContext();
 
     // Authorize before doing any work or echoing validation detail back.
     const allowed =
@@ -209,29 +211,20 @@ export class EngagementsController {
       (await this.authz.canAdministerTenant(userId, tenantId));
     if (!allowed) throw new ForbiddenException('not authorized to manage engagement members');
 
-    const { userId: rawUserId, role: rawRole } = parseAddMemberBody(body);
+    const { userId: grantee, role } = parseAddMemberBody(body);
 
-    // Confine the grantee to the caller's tenant before seeding a (tenant-blind)
-    // SpiceDB tuple for them. `tx` here is the request transaction the
-    // `@EngagementScope` interceptor opened via `withEngagement` → `withTenant`
-    // (`SET LOCAL app.tenant_id`), so it is RLS-scoped to `tenantId` — the same
-    // `tx` `GET /engagements/:id/audit` reads through, asserted in
-    // `request-context/tenant-context.interceptor.test.ts`. The explicit
-    // `tenant_id` predicate is a redundant second check (as in `@fde/audit`'s
-    // break-glass reads): a WHERE clause Postgres applies regardless of RLS.
-    const [target] = await tx
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.id, rawUserId), eq(users.tenantId, tenantId)))
-      .limit(1);
-    if (!target) throw new BadRequestException('userId is not a member of this tenant');
+    // Confine the grantee to the caller's tenant: only seed an engagement role
+    // for a user who already belongs to this tenant in SpiceDB (the SSO seam
+    // sets `tenant#member` on every login). This keeps the whole check in the
+    // authz store — no cross-tenant tuple is ever written — and avoids a
+    // second, tenant-scoping-sensitive datastore in the path.
+    if (!(await this.authz.isTenantMember(grantee as UserId, tenantId))) {
+      throw new BadRequestException('userId is not a member of this tenant');
+    }
     // TODO(M5): write a `role_granted` access_log row here (needs the action added
     // to `@fde/core` ACCESS_LOG_ACTIONS) so grants show in the tenant audit view.
     await this.authz.linkEngagementToTenant(engagement.id, tenantId);
-    // Provision the grantee's tenant membership too — an admin may add someone
-    // who hasn't logged in yet, so we can't rely on the SSO seam having run.
-    await this.authz.grantTenantRole(target.id as UserId, tenantId, 'member');
-    await this.authz.grantEngagementRole(target.id as UserId, engagement.id, rawRole);
+    await this.authz.grantEngagementRole(grantee as UserId, engagement.id, role);
     return { ok: true };
   }
 }

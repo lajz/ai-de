@@ -10,7 +10,7 @@ marked spots in `schema.zed` / `src/schema.ts` / `src/in-memory.ts`).
 
 ```
 definition user {}
-definition tenant     { relation admin/member: user;  permission administer = admin }
+definition tenant     { relation admin/member: user;  permission administer = admin;  permission belong = admin + member }
 definition engagement {
   relation parent_tenant: tenant
   relation admin/member/viewer: user
@@ -37,9 +37,9 @@ An abstract class: five primitives + typed helpers on top.
 | `writeSchema`         | replace the stored schema                  |
 
 Helpers: `canViewEngagement` / `canContributeToEngagement` /
-`canAdministerEngagement` / `canAdministerTenant`, `listViewableEngagements`,
-`grantEngagementRole` / `revokeEngagementRoles`, `grantTenantRole` /
-`revokeTenantRoles`, `linkEngagementToTenant`.
+`canAdministerEngagement` / `canAdministerTenant` / `isTenantMember`,
+`listViewableEngagements`, `grantEngagementRole` / `revokeEngagementRoles`,
+`grantTenantRole` / `revokeTenantRoles`, `linkEngagementToTenant`.
 
 ### Implementations
 

@@ -69,6 +69,15 @@ export abstract class AuthzClient {
     });
   }
 
+  /** Is the user known to this tenant (admin or member)? The SSO seam sets `member` on login. */
+  isTenantMember(userId: UserId, tenantId: TenantId): Promise<boolean> {
+    return this.check({
+      subject: subj(userId),
+      permission: 'belong',
+      resource: { type: 'tenant', id: tenantId },
+    });
+  }
+
   /** Engagement IDs the user can `view` — direct role or via a tenant-admin grant. */
   async listViewableEngagements(userId: UserId): Promise<EngagementId[]> {
     const ids = await this.lookupResources({

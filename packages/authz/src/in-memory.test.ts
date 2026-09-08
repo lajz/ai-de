@@ -69,6 +69,15 @@ describe('InMemoryAuthzClient permission resolution', () => {
     expect(await az.canViewEngagement(user('u'), eng('e'))).toBe(false);
   });
 
+  it('isTenantMember is true for a tenant member and a tenant admin, false otherwise', async () => {
+    const az = new InMemoryAuthzClient();
+    await az.grantTenantRole(user('m'), ten('t'), 'member');
+    await az.grantTenantRole(user('a'), ten('t'), 'admin');
+    expect(await az.isTenantMember(user('m'), ten('t'))).toBe(true);
+    expect(await az.isTenantMember(user('a'), ten('t'))).toBe(true);
+    expect(await az.isTenantMember(user('stranger'), ten('t'))).toBe(false);
+  });
+
   it('an unrelated user has nothing', async () => {
     const az = new InMemoryAuthzClient();
     await az.grantEngagementRole(user('u'), eng('e'), 'admin');

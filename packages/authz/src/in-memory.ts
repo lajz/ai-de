@@ -28,6 +28,7 @@ type Rule = { rel: string } | { arrow: string; then: string };
 const RULES: Record<string, Record<string, Rule[]>> = {
   tenant: {
     administer: [{ rel: 'admin' }],
+    belong: [{ rel: 'admin' }, { rel: 'member' }],
   },
   engagement: {
     view: [

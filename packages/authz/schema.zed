@@ -17,6 +17,11 @@ definition tenant {
 	// A tenant admin administers the tenant and, via the arrow in `engagement`,
 	// inherits `view` on every engagement parented to this tenant.
 	permission administer = admin
+
+	// True for anyone known to this tenant (admin or member). The SSO seam sets
+	// `member` on every login; `POST /engagements/:id/members` gates on this so a
+	// role is only ever seeded for a user who belongs here.
+	permission belong = admin + member
 }
 
 definition engagement {

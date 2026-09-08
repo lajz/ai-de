@@ -87,11 +87,12 @@ describe('EngagementsController — AUTHZ_ENFORCE on', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('POST :id/members lets a tenant admin grant a role; the grantee can then view', async () => {
+  it('POST :id/members lets a tenant admin grant a role to a tenant member; the grantee can then view', async () => {
     await authz.grantTenantRole(userId, tenantId, 'admin');
     const grantee = randomUUID() as UserId;
+    await authz.grantTenantRole(grantee, tenantId, 'member'); // as the SSO seam would on login
 
-    const res = await run(fakeTx([{ id: grantee }]), engagement, () =>
+    const res = await run(fakeTx([]), engagement, () =>
       controller.addMember(engagementA, { userId: grantee, role: 'member' }),
     );
     expect(res).toEqual({ ok: true });
@@ -117,9 +118,9 @@ describe('EngagementsController — AUTHZ_ENFORCE on', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('POST :id/members → 400 when the grantee is not in the caller tenant (RLS returns no row)', async () => {
+  it('POST :id/members → 400 when the grantee does not belong to the caller tenant', async () => {
     await authz.grantTenantRole(userId, tenantId, 'admin');
-    const outsider = randomUUID() as UserId;
+    const outsider = randomUUID() as UserId; // never seeded as a tenant member
     await expect(
       run(fakeTx([]), engagement, () =>
         controller.addMember(engagementA, { userId: outsider, role: 'viewer' }),
