@@ -95,6 +95,57 @@
         "tags": ["engagements"]
       }
     },
+    "/engagements/{id}/facts": {
+      "get": {
+        "operationId": "EngagementsController_facts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FactResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["engagements"]
+      }
+    },
+    "/engagements/{id}/qa": {
+      "post": {
+        "operationId": "EngagementsController_qa",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QaResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["engagements"]
+      }
+    },
     "/engagements/{id}/members": {
       "post": {
         "operationId": "EngagementsController_addMember",
@@ -286,6 +337,120 @@
           }
         },
         "required": ["rows"]
+      },
+      "EvidenceCitationResponse": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string"
+          },
+          "permalink": {
+            "type": "string",
+            "nullable": true
+          },
+          "quote": {
+            "type": "string",
+            "nullable": true,
+            "description": "decrypted supporting quote"
+          },
+          "charStart": {
+            "type": "number",
+            "nullable": true
+          },
+          "charEnd": {
+            "type": "number",
+            "nullable": true
+          },
+          "relation": {
+            "type": "string",
+            "enum": ["supports", "contradicts"]
+          }
+        },
+        "required": ["sourceId", "permalink", "quote", "charStart", "charEnd", "relation"]
+      },
+      "FactResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["decision", "commitment", "risk", "question", "action_item", "status_change"]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true,
+            "description": "decrypted detail"
+          },
+          "status": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceCitationResponse"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "summary",
+          "body",
+          "status",
+          "confidence",
+          "occurredAt",
+          "createdAt",
+          "citations"
+        ]
+      },
+      "QaCitationResponse": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string"
+          },
+          "permalink": {
+            "type": "string",
+            "nullable": true
+          },
+          "quote": {
+            "type": "string"
+          }
+        },
+        "required": ["sourceId", "permalink", "quote"]
+      },
+      "QaResponse": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QaCitationResponse"
+            }
+          }
+        },
+        "required": ["answer", "citations"]
       },
       "AddMemberResponse": {
         "type": "object",

@@ -1,0 +1,106 @@
+:root {
+  color-scheme: light dark;
+  --border: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font:
+    15px/1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+
+a {
+  color: inherit;
+}
+
+ul {
+  padding-left: 1.1rem;
+}
+
+.engagements li,
+.fact {
+  margin: 0.5rem 0;
+}
+
+.fact {
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.facts {
+  padding-left: 0;
+}
+
+.fact-head {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.fact-summary {
+  font-weight: 600;
+  margin: 0.35rem 0;
+}
+
+.fact-body {
+  margin: 0.35rem 0;
+  opacity: 0.85;
+}
+
+.citations {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.ask form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ask input {
+  flex: 1;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+.ask button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.answer {
+  margin-top: 1rem;
+  border-left: 3px solid var(--border);
+  padding-left: 1rem;
+}
+
+[role='alert'] {
+  color: #b00020;
+}

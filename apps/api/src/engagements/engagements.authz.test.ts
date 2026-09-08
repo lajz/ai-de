@@ -11,7 +11,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../config/env.js';
 import { runWithRequestContext } from '../request-context/request-context.js';
+import type { RetrievalService } from '../retrieval/retrieval.service.js';
 import { EngagementsController } from './engagements.controller.js';
+
+/** These tests exercise list/audit/addMember only — the read path has its own suite. */
+const retrieval = {} as RetrievalService;
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -71,7 +75,7 @@ describe('EngagementsController — AUTHZ_ENFORCE on', () => {
 
   beforeEach(() => {
     authz = new InMemoryAuthzClient();
-    controller = new EngagementsController(authz, config(true));
+    controller = new EngagementsController(authz, retrieval, config(true));
   });
 
   it('GET :id/audit → 200 when the caller is seeded as a viewer', async () => {
@@ -146,7 +150,7 @@ describe('EngagementsController — AUTHZ_ENFORCE on', () => {
 describe('EngagementsController — AUTHZ_ENFORCE off', () => {
   it('GET :id/audit does not consult authz', async () => {
     const authz = new InMemoryAuthzClient();
-    const controller = new EngagementsController(authz, config(false));
+    const controller = new EngagementsController(authz, retrieval, config(false));
     const res = await run(fakeTx([]), engagement, () => controller.audit(engagementA));
     expect(res.rows).toEqual([]);
   });

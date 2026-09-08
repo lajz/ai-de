@@ -147,13 +147,19 @@ export class VoyageEmbeddingClient implements EmbeddingClient {
  * run the extraction pipeline end to end without a Voyage account. A missing key
  * under `NODE_ENV=production` is a misconfiguration, not a silent fallback: the
  * fake produces non-semantic vectors and must never reach a real index.
+ *
+ * `inputType` selects Voyage's asymmetric embedding mode: `'document'` (default)
+ * for stored chunks, `'query'` for a retrieval query (`apps/api` Q&A). The
+ * `FakeEmbeddingClient` ignores it — same text hashes to the same vector either
+ * way, so cosine still ranks deterministically in dev/CI.
  */
 export function createEmbeddingClientFromEnv(
   env: NodeJS.ProcessEnv = process.env,
+  opts: { inputType?: 'document' | 'query' } = {},
 ): EmbeddingClient {
   loadLlmEnv();
   if (env.VOYAGE_API_KEY) {
-    return new VoyageEmbeddingClient({ apiKey: env.VOYAGE_API_KEY });
+    return new VoyageEmbeddingClient({ apiKey: env.VOYAGE_API_KEY, inputType: opts.inputType });
   }
   if (env.NODE_ENV === 'production') {
     throw new Error(
