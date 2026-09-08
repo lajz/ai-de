@@ -13,14 +13,18 @@ Architecture plan: `~/.claude/plans/linked-popping-rose.md`.
 ## Layout
 
 ```
+apps/
+  api/       NestJS — WorkOS auth + the request-scoped tenant/engagement seam
+  workers/   Temporal workers
 packages/
-  core/   canonical domain model, provenance types, the Connector contract
-  db/     Drizzle schema, Row-Level-Security policies, client + tenant helpers
+  core/    canonical domain model, provenance types, the Connector contract
+  crypto/  key hierarchy (tenant CMK / engagement DEK), field-encryption codecs
+  db/      Drizzle schema, Row-Level-Security policies, client + tenant helpers
+  audit/   append-only access-log writer + tenant-facing query API
 ```
 
-Apps (`api`, `web`, `workers`, `mcp`) and the remaining packages (`crypto`,
-`connectors`, `authz`, `llm`, `identity`, `audit`) land with M1 — see the plan's
-build order.
+The remaining apps (`web`, `mcp`) and packages (`connectors`, `authz`, `llm`,
+`identity`) land later in M1 — see the plan's build order.
 
 ## Prerequisites
 

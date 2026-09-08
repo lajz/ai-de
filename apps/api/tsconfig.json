@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // NestJS decorators. We deliberately do NOT enable `emitDecoratorMetadata`:
+    // esbuild (tsx, vitest) can't emit reliable metadata for cross-file type
+    // imports, so every provider here is wired with an explicit `@Inject(TOKEN)`
+    // instead of relying on reflected constructor-param types. `experimentalDecorators`
+    // is still required for the decorators themselves; `verbatimModuleSyntax` is
+    // off because the base config's setting fights the decorator emit.
+    "experimentalDecorators": true,
+    "verbatimModuleSyntax": false
+  },
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/crypto" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/audit" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts", "src/test/**"]
+}
