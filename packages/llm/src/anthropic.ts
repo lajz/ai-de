@@ -108,12 +108,21 @@ export class AnthropicProvider implements LlmProvider {
       ...(request.effort ? { output_config: { effort: request.effort } } : {}),
     };
 
-    const message = await this.client.messages.create(params, { signal: request.signal });
+    // Same timeout guard as `complete`: a large `max_tokens` extraction streams
+    // and coalesces so a slow generation can't trip the HTTP idle timeout.
+    const message =
+      request.maxTokens > STREAM_THRESHOLD_TOKENS
+        ? await this.client.messages.stream(params, { signal: request.signal }).finalMessage()
+        : await this.client.messages.create(params, { signal: request.signal });
     const call = message.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === request.schemaName,
     );
     if (!call) {
-      throw new StructuredOutputError(`model did not call the "${request.schemaName}" tool`);
+      throw new StructuredOutputError(
+        `model did not call the "${request.schemaName}" tool`,
+        undefined,
+        usageOf(message),
+      );
     }
     return { value: call.input, usage: usageOf(message) };
   }

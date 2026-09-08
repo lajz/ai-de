@@ -77,7 +77,17 @@ export class OpenAiCompatibleProvider implements LlmProvider {
 
   async extract(request: ProviderExtractRequest): Promise<ProviderExtractResult> {
     const data = await this.call(request, request.jsonSchema);
-    return { value: extractJsonObject(contentOf(data)), usage: usageOf(data) };
+    const usage = usageOf(data);
+    try {
+      return { value: extractJsonObject(contentOf(data)), usage };
+    } catch (err) {
+      // The call was made and billed — hand the usage to the router so a
+      // model that returned unparseable output is still metered.
+      if (err instanceof StructuredOutputError && !err.usage) {
+        throw new StructuredOutputError(err.message, err.issues, usage);
+      }
+      throw err;
+    }
   }
 
   private async call(
@@ -125,7 +135,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
 
     const data = (await res.json()) as ChatCompletionResponse;
     if (data.choices?.[0]?.finish_reason === 'length') {
-      throw new StructuredOutputError('model response hit the token limit before finishing');
+      throw new StructuredOutputError(
+        'model response hit the token limit before finishing',
+        undefined,
+        usageOf(data),
+      );
     }
     return data;
   }

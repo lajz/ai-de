@@ -14,8 +14,13 @@ export type ProviderKind = 'anthropic' | 'openai-compatible';
  * convenience, not part of any deployed path (containers get their env injected).
  * In Orca worktrees `.env` is a per-worktree symlink onto a shared, sometimes
  * slow volume — retry a transient read.
+ *
+ * No-ops under `NODE_ENV=production`: a deployed process must take its
+ * environment only from what the platform injects, never from a file that
+ * happens to be on disk.
  */
 export function loadLlmEnv(root = repoRoot()): void {
+  if (process.env.NODE_ENV === 'production') return;
   if (!root) return;
   const path = join(root, '.env');
   for (let i = 0; i < 4; i++) {

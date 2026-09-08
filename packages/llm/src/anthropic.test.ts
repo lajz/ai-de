@@ -121,8 +121,37 @@ describe('AnthropicProvider — routing + calls', () => {
     expect(body.tool_choice).toEqual({ type: 'auto', disable_parallel_tool_use: true });
 
     const noCall = stub(async () => message({ content: [{ type: 'text', text: 'nope' }] }));
-    await expect(new AnthropicProvider({ client: noCall.client }).extract(req)).rejects.toThrow(
-      StructuredOutputError,
+    const err = await new AnthropicProvider({ client: noCall.client })
+      .extract(req)
+      .catch((e) => e as StructuredOutputError);
+    expect(err).toBeInstanceOf(StructuredOutputError);
+    // The failed call was still billed — usage rides along for the router to meter.
+    expect(err.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 3,
+      cacheReadInputTokens: 4,
+      cacheCreationInputTokens: 0,
+    });
+  });
+
+  it('extract: streams + coalesces when maxTokens exceeds the threshold', async () => {
+    const finalMessage = vi.fn(async () =>
+      message({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 't1', name: 'record_result', input: { facts: [] } }],
+      }),
     );
+    const s = stub(undefined, () => ({ finalMessage }));
+    const res = await new AnthropicProvider({ client: s.client }).extract({
+      model: 'claude-opus-5',
+      messages: [{ role: 'user', content: 'extract' }],
+      maxTokens: 64_000,
+      thinking: 'adaptive',
+      jsonSchema: { type: 'object' },
+      schemaName: 'record_result',
+    });
+    expect(res.value).toEqual({ facts: [] });
+    expect(s.stream).toHaveBeenCalledOnce();
+    expect(s.create).not.toHaveBeenCalled();
   });
 });

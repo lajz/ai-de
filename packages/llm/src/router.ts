@@ -135,17 +135,28 @@ export function createRouter(config: RouterConfig = {}): Router {
     async extract(schema, request) {
       const { tier, model, system, promptVersion, messages } = resolve(request);
       const start = now();
-      const result = await provider.extract({
-        model,
-        system,
-        messages,
-        maxTokens: request.maxTokens ?? defaultMaxTokens,
-        thinking: request.thinking ?? 'adaptive',
-        effort: request.effort,
-        signal: request.signal,
-        jsonSchema: request.jsonSchema ?? { type: 'object', additionalProperties: true },
-        schemaName: request.schemaName ?? 'record_result',
-      });
+      let result;
+      try {
+        result = await provider.extract({
+          model,
+          system,
+          messages,
+          maxTokens: request.maxTokens ?? defaultMaxTokens,
+          thinking: request.thinking ?? 'adaptive',
+          effort: request.effort,
+          signal: request.signal,
+          jsonSchema: request.jsonSchema ?? { type: 'object', additionalProperties: true },
+          schemaName: request.schemaName ?? 'record_result',
+        });
+      } catch (err) {
+        // A structured-output failure the provider still paid for (no tool call,
+        // truncated response): meter it before propagating, so onUsage never
+        // misses a billed call.
+        if (err instanceof StructuredOutputError && err.usage) {
+          await emit(record(model, tier, promptVersion, err.usage, now() - start));
+        }
+        throw err;
+      }
       // Emit before validating: the call was made and billed regardless of
       // whether the model's output parses, and the sink must see that cost.
       const usage = record(model, tier, promptVersion, result.usage, now() - start);

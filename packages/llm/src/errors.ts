@@ -1,3 +1,5 @@
+import type { ProviderTokenUsage } from './provider.js';
+
 export class LlmError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -38,12 +40,14 @@ export class UnknownModelError extends LlmError {
 /**
  * A structured response failed schema validation, or the model never produced
  * the extraction tool call. `issues` carries the Zod issues for logging — never
- * the offending content.
+ * the offending content. `usage` is set when the failure came back from a real
+ * provider call (which was still billed) so the router can meter it.
  */
 export class StructuredOutputError extends LlmError {
   constructor(
     message: string,
     readonly issues?: unknown,
+    readonly usage?: ProviderTokenUsage,
   ) {
     super(message);
   }

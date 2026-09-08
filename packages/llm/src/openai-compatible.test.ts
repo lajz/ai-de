@@ -114,4 +114,22 @@ describe('OpenAiCompatibleProvider', () => {
     await expect(call(http500)).rejects.toThrow(ProviderRequestError);
     await expect(call(truncated)).rejects.toThrow(StructuredOutputError);
   });
+
+  it('extract: a failure the provider still billed carries usage for the router to meter', async () => {
+    const fetchImpl = vi.fn(async () =>
+      httpJson(chat('not json at all', 'stop', { prompt_tokens: 40, completion_tokens: 5 })),
+    ) as unknown as typeof fetch;
+    const err = await new OpenAiCompatibleProvider({ ...base, fetchImpl })
+      .extract({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content: 'extract' }],
+        maxTokens: 1000,
+        thinking: 'adaptive',
+        jsonSchema: { type: 'object' },
+        schemaName: 'record_result',
+      })
+      .catch((e) => e as StructuredOutputError);
+    expect(err).toBeInstanceOf(StructuredOutputError);
+    expect(err.usage).toMatchObject({ inputTokens: 40, outputTokens: 5 });
+  });
 });

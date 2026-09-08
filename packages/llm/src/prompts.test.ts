@@ -67,6 +67,23 @@ describe('extraction schema', () => {
     expect(bad('risk', 1.5)).toBe(false);
   });
 
+  it('rejects an evidence span whose charEnd is not past its charStart', () => {
+    const withSpan = (charStart: number, charEnd: number) =>
+      extractionResultSchema.safeParse({
+        facts: [
+          {
+            type: 'risk',
+            summary: 'x',
+            confidence: 0.5,
+            evidence: [{ quote: 'q', charStart, charEnd }],
+          },
+        ],
+      }).success;
+    expect(withSpan(10, 20)).toBe(true);
+    expect(withSpan(20, 20)).toBe(false);
+    expect(withSpan(20, 10)).toBe(false);
+  });
+
   it('wrapTranscript fences the chunk in data markers', () => {
     expect(wrapTranscript('hi there')).toBe('<transcript>\nhi there\n</transcript>');
   });

@@ -139,6 +139,33 @@ describe('createRouter — extract validation', () => {
     await expect(bad.extract(schema, { messages: 'x' })).rejects.toThrow(StructuredOutputError);
   });
 
+  it('meters a billed call even when the provider throws StructuredOutputError with usage', async () => {
+    const onUsage = vi.fn();
+    const provider: LlmProvider = {
+      ...fakeProvider(),
+      async extract() {
+        throw new StructuredOutputError('model did not call the tool', undefined, USAGE);
+      },
+    };
+    const router = createRouter({ provider, onUsage });
+    await expect(router.extract(schema, { messages: 'x' })).rejects.toThrow(StructuredOutputError);
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage.mock.calls[0]![0]).toMatchObject({ inputTokens: 1000, outputTokens: 200 });
+  });
+
+  it('does not meter when the provider throws without usage (call never landed)', async () => {
+    const onUsage = vi.fn();
+    const provider: LlmProvider = {
+      ...fakeProvider(),
+      async extract() {
+        throw new StructuredOutputError('no JSON object found in model response');
+      },
+    };
+    const router = createRouter({ provider, onUsage });
+    await expect(router.extract(schema, { messages: 'x' })).rejects.toThrow(StructuredOutputError);
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
   it('passes the caller jsonSchema + schemaName through to the provider', async () => {
     const seen: ProviderExtractRequest[] = [];
     const router = createRouter({ provider: fakeProvider({ onExtract: (r) => seen.push(r) }) });

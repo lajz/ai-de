@@ -95,12 +95,20 @@ export function wrapTranscript(chunk: string): string {
   return `<transcript>\n${chunk}\n</transcript>`;
 }
 
-export const extractedEvidenceSchema = z.object({
-  quote: z.string().min(1),
-  charStart: z.number().int().nonnegative().optional(),
-  charEnd: z.number().int().nonnegative().optional(),
-  relation: evidenceRelationSchema.default('supports'),
-});
+export const extractedEvidenceSchema = z
+  .object({
+    quote: z.string().min(1),
+    charStart: z.number().int().nonnegative().optional(),
+    charEnd: z.number().int().nonnegative().optional(),
+    relation: evidenceRelationSchema.default('supports'),
+  })
+  // A half-open [charStart, charEnd) span: both present ⇒ end must sit past start.
+  // The provider JSON Schema can't express a cross-field rule; this is where a
+  // reversed span is caught.
+  .refine((e) => e.charStart === undefined || e.charEnd === undefined || e.charEnd > e.charStart, {
+    message: 'charEnd must be greater than charStart',
+    path: ['charEnd'],
+  });
 
 export const extractedFactSchema = z.object({
   type: factTypeSchema,
