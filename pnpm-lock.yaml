@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@authzed/authzed-node':
+      specifier: 1.6.1
+      version: 1.6.1
     '@temporalio/activity':
       specifier: ^1.23.0
       version: 1.23.0
@@ -83,6 +86,9 @@ importers:
       '@fde/audit':
         specifier: workspace:*
         version: link:../../packages/audit
+      '@fde/authz':
+        specifier: workspace:*
+        version: link:../../packages/authz
       '@fde/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -216,6 +222,28 @@ importers:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@22.20.1)(terser@5.51.2)
 
+  packages/authz:
+    dependencies:
+      '@authzed/authzed-node':
+        specifier: 'catalog:'
+        version: 1.6.1
+      '@fde/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.20.1)(terser@5.51.2)
+
   packages/core:
     dependencies:
       zod:
@@ -329,6 +357,9 @@ packages:
     peerDependenciesMeta:
       zod:
         optional: true
+
+  '@authzed/authzed-node@1.6.1':
+    resolution: {integrity: sha512-Rj3rMtWOjo3igxY/2fpPrIedCTfDq3e+weykuxNBzV/y6azBCoXp8SzpjCEJXVcWyBD8bu/EKY3cye3kOLsKpQ==}
 
   '@aws-crypto/branch-keystore-node@4.2.4':
     resolution: {integrity: sha512-fMkNjKgJMNIbhB5r7x8Cz6bR8fUAj1puHs8sBil9ZvZjjgARRcDmEdFhy2M8kVtYtUjSjeteBtizgHvK1XW7ig==}
@@ -1376,6 +1407,12 @@ packages:
 
   '@petamoriken/float16@3.9.3':
     resolution: {integrity: sha512-8awtpHXCx/bNpFt4mt2xdkgtgVvKqty8VbjHI/WWWQuEw+KLzFot3f4+LkQY9YmOtq7A5GdOnqoIC8Pdygjk2g==}
+
+  '@protobuf-ts/runtime-rpc@2.11.1':
+    resolution: {integrity: sha512-4CqqUmNA+/uMz00+d3CYKgElXO9VrEbucjnBFEjqI4GuDrEQ32MaI3q+9qPBvIGOlL4PmHXrzM32vBPWRhQKWQ==}
+
+  '@protobuf-ts/runtime@2.11.1':
+    resolution: {integrity: sha512-KuDaT1IfHkugM2pyz+FwiY80ejWrkH1pAtOBOZFuR6SXEFTsnb/jiQWQ1rCIrcKx2BtyxnxW6BWwsVSA/Ie+WQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -2602,6 +2639,9 @@ packages:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
     engines: {node: '>=18'}
 
+  google-protobuf@4.0.2:
+    resolution: {integrity: sha512-yD2fqbNgvJPuQwdKJiPdbUcXveNRxgqy070gzsBsCyFJA8Qdj9oxa9xtkddb/JEhcDk0RD5SfGUWg+nhINfMxA==}
+
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -3505,6 +3545,13 @@ snapshots:
       standardwebhooks: 1.1.1
     optionalDependencies:
       zod: 3.25.76
+
+  '@authzed/authzed-node@1.6.1':
+    dependencies:
+      '@grpc/grpc-js': 1.14.4
+      '@protobuf-ts/runtime': 2.11.1
+      '@protobuf-ts/runtime-rpc': 2.11.1
+      google-protobuf: 4.0.2
 
   '@aws-crypto/branch-keystore-node@4.2.4':
     dependencies:
@@ -4436,6 +4483,12 @@ snapshots:
       webcrypto-core: 1.9.2
 
   '@petamoriken/float16@3.9.3': {}
+
+  '@protobuf-ts/runtime-rpc@2.11.1':
+    dependencies:
+      '@protobuf-ts/runtime': 2.11.1
+
+  '@protobuf-ts/runtime@2.11.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -5779,6 +5832,8 @@ snapshots:
       tslib: 2.8.1
 
   globals@14.0.0: {}
+
+  google-protobuf@4.0.2: {}
 
   gopd@1.2.0: {}
 

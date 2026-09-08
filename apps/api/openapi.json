@@ -95,6 +95,30 @@
         "tags": ["engagements"]
       }
     },
+    "/engagements/{id}/members": {
+      "post": {
+        "operationId": "EngagementsController_addMember",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddMemberResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["engagements"]
+      }
+    },
     "/auth/callback": {
       "get": {
         "operationId": "AuthController_callback",
@@ -262,6 +286,15 @@
           }
         },
         "required": ["rows"]
+      },
+      "AddMemberResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": ["ok"]
       },
       "CallbackResponse": {
         "type": "object",

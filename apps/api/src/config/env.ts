@@ -64,6 +64,24 @@ export const envSchema = z
     /** dev/test only — swaps `KmsKeyProvider` for the in-memory `FakeKeyProvider` */
     FDE_FAKE_KMS: z.enum(['true', 'false']).optional(),
     AWS_REGION: z.string().optional(),
+
+    /**
+     * SpiceDB (`@fde/authz`). Unset in dev/test → the in-memory `AuthzClient`
+     * (`createAuthzClientFromEnv`). Required under `NODE_ENV=production` — the
+     * in-memory client refuses to run there.
+     */
+    SPICEDB_ENDPOINT: z.string().optional(),
+    SPICEDB_TOKEN: z.string().optional(),
+    SPICEDB_INSECURE: z.enum(['true', 'false']).optional(),
+
+    /**
+     * When `true`, single-engagement reads additionally pass through
+     * `canViewEngagement` (403 on failure) and `GET /engagements` filters its
+     * RLS-scoped list through `listViewableEngagements` — layered on top of RLS,
+     * never replacing it. Default `false`: RLS scoping is the only gate and
+     * every pre-#10 test stays green.
+     */
+    AUTHZ_ENFORCE: z.enum(['true', 'false']).default('false'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {
@@ -82,6 +100,15 @@ export const envSchema = z
           path: ['FDE_FAKE_KMS'],
           message: 'FDE_FAKE_KMS=true is not allowed when NODE_ENV=production',
         });
+      }
+      for (const key of ['SPICEDB_ENDPOINT', 'SPICEDB_TOKEN'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when NODE_ENV=production (the in-memory AuthzClient is refused there)`,
+          });
+        }
       }
     }
   });

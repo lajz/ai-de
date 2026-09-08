@@ -5,6 +5,7 @@
     { "path": "packages/crypto" },
     { "path": "packages/db" },
     { "path": "packages/audit" },
+    { "path": "packages/authz" },
     { "path": "packages/llm" },
     { "path": "tools/review" },
     { "path": "apps/workers" },

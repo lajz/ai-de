@@ -18,6 +18,7 @@ allowBuilds:
   protobufjs: true
 
 catalog:
+  '@authzed/authzed-node': 1.6.1
   '@types/node': ^22.10.5
   typescript: ^5.7.3
   vitest: ^2.1.8
