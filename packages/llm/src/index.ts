@@ -8,3 +8,5 @@ export * from './env.js';
 export * from './router.js';
 export * from './prompts.js';
 export * from './embeddings.js';
+export * from './tracing.js';
+export * from './langfuse-tracer.js';

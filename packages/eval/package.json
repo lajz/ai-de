@@ -1,31 +1,22 @@
 {
-  "name": "@fde/llm",
+  "name": "@fde/eval",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
   "scripts": {
+    "eval": "pnpm --filter=@fde/eval... run build && tsx --env-file-if-exists=../../.env src/run.ts",
+    "eval:update-baseline": "pnpm run eval -- --update-baseline",
     "build": "tsc -b",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
     "@fde/core": "workspace:*",
-    "langfuse": "catalog:",
+    "@fde/llm": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "tsx": "^4.19.2",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

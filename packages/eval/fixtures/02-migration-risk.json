@@ -1,0 +1,11 @@
+{
+  "id": "migration-risk",
+  "chunk": "Dana: One thing I'm worried about — the data migration might slip past the launch date if the vendor export is slow.\nLee: That's a real risk. We don't have a fallback if the export takes more than two days.\nDana: Open question then: do we hold the launch, or ship without the historical data?\nLee: Let's leave that open until we've timed a test export.",
+  "expected": {
+    "factsByType": { "risk": 1, "question": 1 },
+    "keyPhrases": [
+      "data migration might slip",
+      "hold the launch, or ship without the historical data"
+    ]
+  }
+}

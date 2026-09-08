@@ -36,6 +36,9 @@ catalogs:
     drizzle-orm:
       specifier: ^0.38.3
       version: 0.38.4
+    langfuse:
+      specifier: 3.38.20
+      version: 3.38.20
     postgres:
       specifier: ^3.4.5
       version: 3.4.9
@@ -313,6 +316,31 @@ importers:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@22.20.1)(terser@5.51.2)
 
+  packages/eval:
+    dependencies:
+      '@fde/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fde/llm':
+        specifier: workspace:*
+        version: link:../llm
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.20.1)(terser@5.51.2)
+
   packages/llm:
     dependencies:
       '@anthropic-ai/sdk':
@@ -321,6 +349,9 @@ importers:
       '@fde/core':
         specifier: workspace:*
         version: link:../core
+      langfuse:
+        specifier: 'catalog:'
+        version: 3.38.20
       zod:
         specifier: 'catalog:'
         version: 3.25.76
@@ -2792,6 +2823,14 @@ packages:
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
+  langfuse-core@3.38.20:
+    resolution: {integrity: sha512-zBKVmQN/1oT5VWZUBYlWzvokIlkC/6mnpgr/2atMyTeAm+jR3ia7w2iJMjlrF5/oG8ukO1s8+LDRCzJpF1QeEA==}
+    engines: {node: '>=18'}
+
+  langfuse@3.38.20:
+    resolution: {integrity: sha512-MAmBAASSzJtmK1O9HQegA1mFsQhT8Yf+OJRGvE7FXkyv3g/eiBE0glLD0Ohg3pkxhoPdggM5SejK7ue9ctlaMA==}
+    engines: {node: '>=18'}
+
   leb@1.0.0:
     resolution: {integrity: sha512-Y3c3QZfvKWHX60BVOQPhLCvVGmDYWyJEiINE3drOog6KCyN2AOwvuQQzlS3uJg1J85kzpILXIUwRXULWavir+w==}
 
@@ -2954,6 +2993,10 @@ packages:
   multer@2.2.0:
     resolution: {integrity: sha512-6rdyFg2kLrMh9Jee7/BMPuV9lEAd7lLW2YUpF9/YxR7njyoUwwQ0ZPh3TaIY50Sw6vlyD2HW3wGOkTS4P79xrQ==}
     engines: {node: '>= 10.16.0'}
+
+  mustache@4.2.0:
+    resolution: {integrity: sha512-71ippSywq5Yb7/tVYyGbkBggbU8H3u5Rz56fH60jGFgr8uHwxs+aSKeqmluIVzM0m0kB7xQjKS6qPfd0b2ZoqQ==}
+    hasBin: true
 
   nanoid@3.3.18:
     resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
@@ -5956,6 +5999,14 @@ snapshots:
     dependencies:
       json-buffer: 3.0.1
 
+  langfuse-core@3.38.20:
+    dependencies:
+      mustache: 4.2.0
+
+  langfuse@3.38.20:
+    dependencies:
+      langfuse-core: 3.38.20
+
   leb@1.0.0: {}
 
   levn@0.4.1:
@@ -6064,6 +6115,8 @@ snapshots:
       busboy: 1.6.0
       concat-stream: 2.0.0
       type-is: 1.6.18
+
+  mustache@4.2.0: {}
 
   nanoid@3.3.18: {}
 

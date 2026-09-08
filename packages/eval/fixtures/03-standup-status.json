@@ -1,0 +1,11 @@
+{
+  "id": "standup-status",
+  "chunk": "Ravi: Quick status — the billing API is now deployed to staging and passing smoke tests.\nSam: Nice. Action item for me: I'll wire the staging webhook to the sandbox account today.\nRavi: And someone needs to update the runbook once that's done.\nSam: I'll take the runbook update too.",
+  "expected": {
+    "factsByType": { "status_change": 1, "action_item": 2 },
+    "keyPhrases": [
+      "billing API is now deployed to staging",
+      "wire the staging webhook to the sandbox account"
+    ]
+  }
+}

@@ -28,8 +28,17 @@ round-trip; crypto-shred blocks access; composite-FK cross-engagement rejection;
 `KmsKeyProvider` against LocalStack.
 
 **Landed since the spine:** `@fde/audit` (#8), `apps/workers` +
-`CaptureSession` (#6, #15), `@fde/llm` (#14), `apps/api` skeleton (#16), and
-**`@fde/authz` (#10)** — SpiceDB schema (`AUTHZ_SCHEMA` + `schema.zed`), the
+`CaptureSession` (#6, #15), `@fde/llm` (#14), `apps/api` skeleton (#16),
+**Langfuse redacted tracing + the extraction eval harness (#11)** — the `Tracer`
+seam in `@fde/llm` (`LangfuseTracer` / `NoopTracer` / `FakeTracer`,
+`createTracerFromEnv`, an `assertRedacted` boundary + a canary test), wired as a
+structured layer over `onUsage` (`tracingUsageSink` + `traceExtraction`) into
+`ExtractionPipeline` — redacted spans only (tokens / prompt version / latency /
+cost / ids / coarse outcome / hashes, never content); and `@fde/eval` — a
+hand-labelled fixture set, a precision/recall + key-phrase scorer, and a
+committed-baseline no-regression gate (`pnpm --filter @fde/eval eval`, not part
+of `pnpm test`) — and **`@fde/authz` (#10)** — SpiceDB schema (`AUTHZ_SCHEMA` +
+`schema.zed`), the
 `AuthzClient` seam (`SpiceDbAuthzClient` / `InMemoryAuthzClient` /
 `createAuthzClientFromEnv`), and platform-role checks wired into `apps/api`
 behind `AUTHZ_ENFORCE` (default off, layered on top of RLS). Source-ACL
@@ -41,8 +50,9 @@ and written as `facts` + `evidence` (🔒 quote + char span, model spans verifie
 verbatim against the source) + `embeddings`, every row stamped with one
 `extraction_run_id`; a durable timer then purges `raw_body` under
 `derived-ephemeral-raw`. Ids-only payloads; all body handling inside one
-activity. Capture → extraction auto-trigger, the `apps/web` view (#9), and
-Langfuse tracing + the eval gate (#11) are still to come.
+activity. Redacted Langfuse tracing + the extraction eval gate (#11) are now
+wired in; the capture → extraction auto-trigger and the `apps/web` view (#9) are
+still to come.
 
 ---
 
@@ -52,20 +62,20 @@ Goal of M1: **one engagement, meeting capture → extracted decisions, end to en
 on the security spine.** Each row below is one PR / one dispatch. `≈` is rough
 size. Dependencies in the last column.
 
-| #      | PR                                                       | What                                                                                                                                                                                                                                                                                                                                                       | ≈   | Needs                       |
-| ------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --------------------------- |
-| 4      | **`@fde/audit`**                                         | typed `logAccess()` append-only writer; tenant-facing query surface (list access to engagement X, by actor/date/action); break-glass primitive — time-boxed grant, reason required, second-person approval, every step logged. Pure package.                                                                                                               | S   | —                           |
-| ~~5~~  | ~~**`apps/api` skeleton + WorkOS**~~ _(done)_            | NestJS app; WorkOS SSO + SCIM/Directory Sync behind a fake-able port; `TenantContextGuard` + `TenantContextInterceptor` (auth → 401 pre-DB, then `withTenant` / `withEngagement`, exposed via an `AsyncLocalStorage` `RequestContext`); `/healthz` `/me` `/engagements` `/engagements/:id/audit`; OpenAPI → `apps/api/openapi.json`; zod-validated config. | M   | #4                          |
-| 6      | **Temporal + `apps/workers` skeleton**                   | Temporal Cloud client + worker bootstrap; one trivial workflow+activity end to end; the `cipher`-param convention for activities (no `AsyncLocalStorage` across the worker boundary); payloads carry ids, never bodies.                                                                                                                                    | M   | —                           |
-| 7      | **`CaptureSession` workflow**                            | schedule a Recall.ai bot → meeting → transcript webhook → store as a `source` (`🔒 raw_body` inline, or S3 + `raw_object_key`) through `withEngagement`; retention-policy aware.                                                                                                                                                                           | M   | #6, Recall.ai account + DPA |
-| ~~8~~  | ~~**`@fde/llm` + `ExtractionPipeline`**~~ _(done)_       | Claude router (ZDR, `claude-opus-5` default / `claude-sonnet-5` bulk), versioned extraction prompts, pluggable embedding client (Voyage first). Workflow: chunk transcript → structured extraction → `facts` + `evidence` (🔒 quote + `char_span`) + `embeddings`, all stamped `extraction_run_id`; purge raw under `derived-ephemeral-raw`.               | L   | #7                          |
-| 9      | **`apps/web` engagement view**                           | Next.js; engagement list; fact list with source citations (permalinks); single-engagement Q&A (pgvector retrieval → authz gate → decrypt post-gate). Read-only.                                                                                                                                                                                            | M   | #5, #8                      |
-| ~~10~~ | ~~**`@fde/authz` (SpiceDB) — platform roles**~~ _(done)_ | SpiceDB schema + typed check/write wrappers; platform-role checks in the read path behind `AUTHZ_ENFORCE`. Source-ACL mirroring is deferred to M5 (Slack).                                                                                                                                                                                                 | M   | #5                          |
-| 11     | **Langfuse + eval harness**                              | redacted tracing in `@fde/llm` (token counts / prompt version / hashes — never content); first hand-labelled extraction eval set; no-regression gate on prompt changes.                                                                                                                                                                                    | S   | #8                          |
+| #      | PR                                                       | What                                                                                                                                                                                                                                                                                                                                                                   | ≈   | Needs                       |
+| ------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --------------------------- |
+| 4      | **`@fde/audit`**                                         | typed `logAccess()` append-only writer; tenant-facing query surface (list access to engagement X, by actor/date/action); break-glass primitive — time-boxed grant, reason required, second-person approval, every step logged. Pure package.                                                                                                                           | S   | —                           |
+| ~~5~~  | ~~**`apps/api` skeleton + WorkOS**~~ _(done)_            | NestJS app; WorkOS SSO + SCIM/Directory Sync behind a fake-able port; `TenantContextGuard` + `TenantContextInterceptor` (auth → 401 pre-DB, then `withTenant` / `withEngagement`, exposed via an `AsyncLocalStorage` `RequestContext`); `/healthz` `/me` `/engagements` `/engagements/:id/audit`; OpenAPI → `apps/api/openapi.json`; zod-validated config.             | M   | #4                          |
+| 6      | **Temporal + `apps/workers` skeleton**                   | Temporal Cloud client + worker bootstrap; one trivial workflow+activity end to end; the `cipher`-param convention for activities (no `AsyncLocalStorage` across the worker boundary); payloads carry ids, never bodies.                                                                                                                                                | M   | —                           |
+| 7      | **`CaptureSession` workflow**                            | schedule a Recall.ai bot → meeting → transcript webhook → store as a `source` (`🔒 raw_body` inline, or S3 + `raw_object_key`) through `withEngagement`; retention-policy aware.                                                                                                                                                                                       | M   | #6, Recall.ai account + DPA |
+| ~~8~~  | ~~**`@fde/llm` + `ExtractionPipeline`**~~ _(done)_       | Claude router (ZDR, `claude-opus-5` default / `claude-sonnet-5` bulk), versioned extraction prompts, pluggable embedding client (Voyage first). Workflow: chunk transcript → structured extraction → `facts` + `evidence` (🔒 quote + `char_span`) + `embeddings`, all stamped `extraction_run_id`; purge raw under `derived-ephemeral-raw`.                           | L   | #7                          |
+| 9      | **`apps/web` engagement view**                           | Next.js; engagement list; fact list with source citations (permalinks); single-engagement Q&A (pgvector retrieval → authz gate → decrypt post-gate). Read-only.                                                                                                                                                                                                        | M   | #5, #8                      |
+| ~~10~~ | ~~**`@fde/authz` (SpiceDB) — platform roles**~~ _(done)_ | SpiceDB schema + typed check/write wrappers; platform-role checks in the read path behind `AUTHZ_ENFORCE`. Source-ACL mirroring is deferred to M5 (Slack).                                                                                                                                                                                                             | M   | #5                          |
+| ~~11~~ | ~~**Langfuse + eval harness**~~ _(done)_                 | redacted tracing in `@fde/llm` (`Tracer` seam, `assertRedacted` boundary, `tracingUsageSink` + `traceExtraction` over `onUsage`, wired into `ExtractionPipeline`); `@fde/eval` — hand-labelled fixtures + precision/recall + key-phrase scorer + committed-baseline no-regression gate; `.github/workflows/eval.yml` (non-required, manual gate absent a CI provider). | S   | #8                          |
 
 **Suggested order:** #4 and #6 in parallel → #5 → #7 → #8 → (#9, #10, #11 in
-parallel). M1 is done when the [M1 e2e check](./architecture.md#verification)
-passes in staging.
+parallel). #9 is the last open item. M1 is done when the
+[M1 e2e check](./architecture.md#verification) passes in staging.
 
 **Parallel track (not code):** SOC 2 controls; sub-processor DPAs + zero-retention
 riders (Anthropic ZDR, Voyage, Recall.ai); public sub-processor list; security
@@ -85,7 +95,7 @@ whitepaper for sales.
 
 ## Open decisions (low-risk to revisit)
 
-1. Extraction model default — `claude-opus-5` vs `claude-sonnet-5` for bulk: decide on the #11 eval set.
+1. Extraction model default — `claude-opus-5` vs `claude-sonnet-5` for bulk: run `pnpm --filter @fde/eval eval` against each and compare (the #11 harness + `--update-baseline` flow).
 2. AuthZ engine — SpiceDB (recommended) vs OpenFGA: pick at #10; wrapper keeps it swappable.
 3. Postgres host — Aurora (recommended) vs Neon: can start on Neon, migrate before the first enterprise pilot / T1.
 4. Retrieval store — stay on `pgvector` until a measured limit.

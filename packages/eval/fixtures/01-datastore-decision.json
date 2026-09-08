@@ -1,0 +1,8 @@
+{
+  "id": "datastore-decision",
+  "chunk": "Priya: We've gone back and forth on the datastore. I think we should commit to Postgres and stop debating it.\nMarcus: Agreed. Let's lock in Postgres for the primary store.\nPriya: Good. Marcus, can you write up the migration plan?\nMarcus: Yes, I'll have the migration plan ready by Friday.",
+  "expected": {
+    "factsByType": { "decision": 1, "commitment": 1 },
+    "keyPhrases": ["commit to Postgres", "migration plan ready by Friday"]
+  }
+}

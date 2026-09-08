@@ -1,0 +1,8 @@
+{
+  "id": "empty-smalltalk",
+  "chunk": "Kim: Morning! How was the long weekend?\nAlex: Good, mostly rain though. You?\nKim: Same. Anyway, give me a minute, I'm just grabbing coffee before the other folks join.\nAlex: No worries.",
+  "expected": {
+    "factsByType": {},
+    "keyPhrases": []
+  }
+}
