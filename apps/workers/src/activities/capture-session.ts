@@ -191,10 +191,11 @@ export function createCaptureSessionActivities(deps: CaptureSessionActivitiesDep
           .set({ status: 'captured', sourceId, purgeRawAfter, updatedAt: new Date() })
           .where(sessionRef(input));
 
-        // TODO(roadmap #8 — ExtractionPipeline): under `derived-ephemeral-raw`,
-        // the extraction workflow purges `sources.raw_body` once its
-        // extraction_run completes and `purge_raw_after` has passed. Capture
-        // only marks the hand-off; there is no standalone purge job here.
+        // Under `derived-ephemeral-raw`, `extractionPipelineWorkflow`
+        // (src/workflows/extraction-pipeline.ts) purges `sources.raw_body` via
+        // `purgeRawBodyActivity` once its extraction_run has landed and this
+        // `purge_raw_after` has passed. Capture only writes the hand-off marker;
+        // there is no standalone purge job here.
 
         return {
           captureSessionId: input.captureSessionId,

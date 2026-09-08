@@ -1,3 +1,4 @@
+import { loadLlmEnv } from './env.js';
 import { EmbeddingDimError, ProviderRequestError } from './errors.js';
 
 /**
@@ -135,4 +136,33 @@ export class VoyageEmbeddingClient implements EmbeddingClient {
         return vec;
       });
   }
+}
+
+// --- createEmbeddingClientFromEnv --------------------------------------------
+
+/**
+ * Build the embedding backend from the environment — the dev/prod stance mirrors
+ * `createProviderFromEnv`: the real `VoyageEmbeddingClient` when `VOYAGE_API_KEY`
+ * is set, the deterministic `FakeEmbeddingClient` otherwise so local dev and CI
+ * run the extraction pipeline end to end without a Voyage account. A missing key
+ * under `NODE_ENV=production` is a misconfiguration, not a silent fallback: the
+ * fake produces non-semantic vectors and must never reach a real index.
+ */
+export function createEmbeddingClientFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): EmbeddingClient {
+  loadLlmEnv();
+  if (env.VOYAGE_API_KEY) {
+    return new VoyageEmbeddingClient({ apiKey: env.VOYAGE_API_KEY });
+  }
+  if (env.NODE_ENV === 'production') {
+    throw new Error(
+      'VOYAGE_API_KEY is required when NODE_ENV=production (refusing to fall back to FakeEmbeddingClient)',
+    );
+  }
+  // stderr, one line, no content — same shape as loadLlmEnv's warnings.
+  console.warn(
+    '@fde/llm: VOYAGE_API_KEY unset — using FakeEmbeddingClient (non-semantic vectors; dev/CI only)',
+  );
+  return new FakeEmbeddingClient();
 }

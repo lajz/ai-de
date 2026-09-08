@@ -35,6 +35,15 @@ round-trip; crypto-shred blocks access; composite-FK cross-engagement rejection;
 behind `AUTHZ_ENFORCE` (default off, layered on top of RLS). Source-ACL
 mirroring stays deferred to M5 — the schema/wrapper leave additive hooks for it.
 
+**`ExtractionPipeline` workflow (roadmap #8) — landed:** an encrypted transcript
+`source` is chunked, run through Claude structured extraction (ZDR, bulk tier),
+and written as `facts` + `evidence` (🔒 quote + char span, model spans verified
+verbatim against the source) + `embeddings`, every row stamped with one
+`extraction_run_id`; a durable timer then purges `raw_body` under
+`derived-ephemeral-raw`. Ids-only payloads; all body handling inside one
+activity. Capture → extraction auto-trigger, the `apps/web` view (#9), and
+Langfuse tracing + the eval gate (#11) are still to come.
+
 ---
 
 ## Next up — the M1 completion queue
@@ -49,7 +58,7 @@ size. Dependencies in the last column.
 | ~~5~~  | ~~**`apps/api` skeleton + WorkOS**~~ _(done)_            | NestJS app; WorkOS SSO + SCIM/Directory Sync behind a fake-able port; `TenantContextGuard` + `TenantContextInterceptor` (auth → 401 pre-DB, then `withTenant` / `withEngagement`, exposed via an `AsyncLocalStorage` `RequestContext`); `/healthz` `/me` `/engagements` `/engagements/:id/audit`; OpenAPI → `apps/api/openapi.json`; zod-validated config. | M   | #4                          |
 | 6      | **Temporal + `apps/workers` skeleton**                   | Temporal Cloud client + worker bootstrap; one trivial workflow+activity end to end; the `cipher`-param convention for activities (no `AsyncLocalStorage` across the worker boundary); payloads carry ids, never bodies.                                                                                                                                    | M   | —                           |
 | 7      | **`CaptureSession` workflow**                            | schedule a Recall.ai bot → meeting → transcript webhook → store as a `source` (`🔒 raw_body` inline, or S3 + `raw_object_key`) through `withEngagement`; retention-policy aware.                                                                                                                                                                           | M   | #6, Recall.ai account + DPA |
-| 8      | **`@fde/llm` + `ExtractionPipeline`**                    | Claude router (ZDR, `claude-opus-5` default / `claude-sonnet-5` bulk), versioned extraction prompts, pluggable embedding client (Voyage first). Workflow: chunk transcript → structured extraction → `facts` + `evidence` (🔒 quote + `char_span`) + `embeddings`, all stamped `extraction_run_id`; purge raw under `derived-ephemeral-raw`.               | L   | #7                          |
+| ~~8~~  | ~~**`@fde/llm` + `ExtractionPipeline`**~~ _(done)_       | Claude router (ZDR, `claude-opus-5` default / `claude-sonnet-5` bulk), versioned extraction prompts, pluggable embedding client (Voyage first). Workflow: chunk transcript → structured extraction → `facts` + `evidence` (🔒 quote + `char_span`) + `embeddings`, all stamped `extraction_run_id`; purge raw under `derived-ephemeral-raw`.               | L   | #7                          |
 | 9      | **`apps/web` engagement view**                           | Next.js; engagement list; fact list with source citations (permalinks); single-engagement Q&A (pgvector retrieval → authz gate → decrypt post-gate). Read-only.                                                                                                                                                                                            | M   | #5, #8                      |
 | ~~10~~ | ~~**`@fde/authz` (SpiceDB) — platform roles**~~ _(done)_ | SpiceDB schema + typed check/write wrappers; platform-role checks in the read path behind `AUTHZ_ENFORCE`. Source-ACL mirroring is deferred to M5 (Slack).                                                                                                                                                                                                 | M   | #5                          |
 | 11     | **Langfuse + eval harness**                              | redacted tracing in `@fde/llm` (token counts / prompt version / hashes — never content); first hand-labelled extraction eval set; no-regression gate on prompt changes.                                                                                                                                                                                    | S   | #8                          |
