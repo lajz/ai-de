@@ -212,16 +212,21 @@ export class EngagementsController {
     const { userId: rawUserId, role: rawRole } = parseAddMemberBody(body);
 
     // Confine the grantee to the caller's tenant before seeding a (tenant-blind)
-    // SpiceDB tuple for them. `@EngagementScope` guarantees the interceptor
-    // opened `withEngagement` → `withTenant`, so `tx` is RLS-scoped to
-    // `tenantId`; the explicit `tenant_id` predicate is a redundant belt (the
-    // same pattern `@fde/audit`'s break-glass reads use).
+    // SpiceDB tuple for them. `tx` here is the request transaction the
+    // `@EngagementScope` interceptor opened via `withEngagement` → `withTenant`
+    // (`SET LOCAL app.tenant_id`), so it is RLS-scoped to `tenantId` — the same
+    // `tx` `GET /engagements/:id/audit` reads through, asserted in
+    // `request-context/tenant-context.interceptor.test.ts`. The explicit
+    // `tenant_id` predicate is a redundant second check (as in `@fde/audit`'s
+    // break-glass reads): a WHERE clause Postgres applies regardless of RLS.
     const [target] = await tx
       .select({ id: users.id })
       .from(users)
       .where(and(eq(users.id, rawUserId), eq(users.tenantId, tenantId)))
       .limit(1);
     if (!target) throw new BadRequestException('userId is not a member of this tenant');
+    // TODO(M5): write a `role_granted` access_log row here (needs the action added
+    // to `@fde/core` ACCESS_LOG_ACTIONS) so grants show in the tenant audit view.
     await this.authz.linkEngagementToTenant(engagement.id, tenantId);
     // Provision the grantee's tenant membership too — an admin may add someone
     // who hasn't logged in yet, so we can't rely on the SSO seam having run.
