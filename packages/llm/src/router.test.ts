@@ -133,10 +133,18 @@ describe('createRouter — extract validation', () => {
       facts: [{ type: 'decision' }],
     });
 
+    const onUsage = vi.fn();
     const bad = createRouter({
       provider: fakeProvider({ extractValue: { facts: [{ nope: true }] } }),
+      onUsage,
     });
-    await expect(bad.extract(schema, { messages: 'x' })).rejects.toThrow(StructuredOutputError);
+    const err = await bad
+      .extract(schema, { messages: 'x' })
+      .catch((e) => e as StructuredOutputError);
+    expect(err).toBeInstanceOf(StructuredOutputError);
+    // Usage is emitted once and also rides on the error for a catching caller.
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(err.usage).toMatchObject({ inputTokens: 1000, outputTokens: 200 });
   });
 
   it('meters a billed call even when the provider throws StructuredOutputError with usage', async () => {

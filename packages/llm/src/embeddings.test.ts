@@ -70,6 +70,20 @@ describe('VoyageEmbeddingClient (mocked fetch)', () => {
     );
   });
 
+  it('fails closed when a response row omits its index (would mis-order the batch)', async () => {
+    const noIndex = vi.fn(async () =>
+      httpJson({
+        data: [
+          { embedding: Array(1024).fill(0.1), index: 0 },
+          { embedding: Array(1024).fill(0.2) },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+    await expect(
+      new VoyageEmbeddingClient({ fetchImpl: noIndex }).embed(['a', 'b']),
+    ).rejects.toThrow(ProviderRequestError);
+  });
+
   it('short-circuits an empty input', async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     expect(await new VoyageEmbeddingClient({ fetchImpl }).embed([])).toEqual([]);

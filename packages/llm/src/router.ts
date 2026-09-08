@@ -164,9 +164,12 @@ export function createRouter(config: RouterConfig = {}): Router {
 
       const parsed = schema.safeParse(result.value);
       if (!parsed.success) {
+        // `usage` was already emitted above; carry it on the error too so a
+        // caller catching this still knows the call landed and was billed.
         throw new StructuredOutputError(
           'model output failed schema validation',
           parsed.error.issues,
+          result.usage,
         );
       }
       return { value: parsed.data, usage };

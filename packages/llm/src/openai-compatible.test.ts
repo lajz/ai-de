@@ -115,21 +115,31 @@ describe('OpenAiCompatibleProvider', () => {
     await expect(call(truncated)).rejects.toThrow(StructuredOutputError);
   });
 
+  const extract = (fetchImpl: typeof fetch) =>
+    new OpenAiCompatibleProvider({ ...base, fetchImpl }).extract({
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: 'extract' }],
+      maxTokens: 1000,
+      thinking: 'adaptive',
+      jsonSchema: { type: 'object' },
+      schemaName: 'record_result',
+    });
+
   it('extract: a failure the provider still billed carries usage for the router to meter', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const unparseable = vi.fn(async () =>
       httpJson(chat('not json at all', 'stop', { prompt_tokens: 40, completion_tokens: 5 })),
     ) as unknown as typeof fetch;
-    const err = await new OpenAiCompatibleProvider({ ...base, fetchImpl })
-      .extract({
-        model: 'deepseek-v4-flash',
-        messages: [{ role: 'user', content: 'extract' }],
-        maxTokens: 1000,
-        thinking: 'adaptive',
-        jsonSchema: { type: 'object' },
-        schemaName: 'record_result',
-      })
-      .catch((e) => e as StructuredOutputError);
+    const err = await extract(unparseable).catch((e) => e as StructuredOutputError);
     expect(err).toBeInstanceOf(StructuredOutputError);
     expect(err.usage).toMatchObject({ inputTokens: 40, outputTokens: 5 });
+  });
+
+  it('extract: propagates a truncated (finish_reason=length) response with usage attached', async () => {
+    const truncated = vi.fn(async () =>
+      httpJson(chat('{"facts":[', 'length', { prompt_tokens: 60, completion_tokens: 1000 })),
+    ) as unknown as typeof fetch;
+    const err = await extract(truncated).catch((e) => e as StructuredOutputError);
+    expect(err).toBeInstanceOf(StructuredOutputError);
+    expect(err.usage).toMatchObject({ inputTokens: 60, outputTokens: 1000 });
   });
 });

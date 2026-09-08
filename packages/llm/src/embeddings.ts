@@ -121,8 +121,14 @@ export class VoyageEmbeddingClient implements EmbeddingClient {
         `expected ${texts.length} vectors, got ${rows?.length ?? 0}`,
       );
     }
+    // Voyage returns a per-row `index`; re-sort by it so the vectors line up with
+    // `texts`. Fail closed if any row omits it rather than silently coalescing to
+    // 0 and mis-ordering the batch.
+    if (rows.some((r) => typeof r.index !== 'number')) {
+      throw new ProviderRequestError(res.status, 'response row missing a numeric index');
+    }
     return [...rows]
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      .sort((a, b) => a.index! - b.index!)
       .map((row) => {
         const vec = row.embedding ?? [];
         if (vec.length !== this.dim) throw new EmbeddingDimError(this.dim, vec.length);
