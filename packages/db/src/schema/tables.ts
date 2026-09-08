@@ -9,6 +9,7 @@ export const TENANT_SCOPED_TABLES = [
   'users',
   'engagements',
   'sources',
+  'capture_sessions',
   'acl_snapshots',
   'entities',
   'relationships',

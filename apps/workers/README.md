@@ -51,7 +51,40 @@ pnpm --filter @fde/workers start   # node dist/worker.js
 ```
 
 Requires `DATABASE_URL`. `FDE_FAKE_KMS=true` swaps in `FakeKeyProvider`
-(no AWS) for local dev; never set it outside dev/test.
+(no AWS) for local dev; never set it outside dev/test. `RECALL_API_KEY`
+(+ optional `RECALL_API_BASE_URL`, the region host) selects the real
+`HttpRecallClient`; without it the deterministic `FakeRecallClient` is used
+(refused when `NODE_ENV=production`).
+
+## Meeting capture — `CaptureSession`
+
+`workflows/capture-session.ts` + `activities/capture-session.ts` — schedule a
+Recall.ai bot for a meeting, wait for the recording to finish, land the
+transcript as an encrypted `sources` row.
+
+```
+captureSessionWorkflow({ tenantId, engagementId, meetingUrl, joinAt, retentionPolicy })
+  → scheduleCaptureBotActivity   Recall createBot; persist a capture_sessions row (botId)
+  → pollCaptureBotActivity ×N     poll bot status until `done` / `failed`
+       (webhook-signal seam: `transcriptReadySignal` short-circuits a poll sleep)
+  → storeTranscriptSourceActivity fetch transcript → RawArtifact (kind: 'transcript')
+       → sources row via withEngagementActivity; raw_body field-encrypted
+         (encryptRow + CRYPTO_COLUMNS) unless retentionPolicy is `reference-only`
+```
+
+- **ids-only payload**: the workflow carries `{ tenantId, engagementId,
+meetingUrl, joinAt, retentionPolicy }`. The transcript body enters the
+  process only inside `storeTranscriptSourceActivity`, from Recall, and is
+  encrypted with the engagement DEK before it reaches Postgres.
+- **retention**: `reference-only` stores permalink + metadata only (no body);
+  `derived-ephemeral-raw` stores the encrypted body and stamps
+  `capture_sessions.purge_raw_after` for `ExtractionPipeline` (roadmap #8) to
+  purge; `full-retention` keeps the encrypted body.
+- **`RecallClient`** (`capture/`): `scheduleBot` / `getBot` / `getTranscript`.
+  `FakeRecallClient` is deterministic (advances by poll count) and backs all
+  the workflow tests; `HttpRecallClient` speaks the real API and is exercised
+  only by `capture/recall-client.smoke.test.ts`
+  (`describe.skipIf(!RECALL_API_KEY)`).
 
 ## The ping loop
 
@@ -109,6 +142,17 @@ pnpm --filter @fde/workers test
 - `activities/no-async-local-storage.test.ts` — static check that no activity
   file (besides the documented `engagement-context.ts` exception) imports
   `AsyncLocalStorage` or references `getCipher`.
+- `workflows/capture-session.test.ts` — `captureSessionWorkflow` against
+  `TestWorkflowEnvironment` + `FakeRecallClient` + `FakeKeyProvider`: happy path
+  lands a ciphertext `sources` row, `reference-only` stores no body, and the
+  bot-failure / capture-timeout paths surface a retryable `ApplicationFailure`.
+- `activities/transcript-source.test.ts` — the pure transcript → `RawArtifact`
+  → encrypted-row builder, per retention policy.
+- `activities/capture-session.integration.test.ts` — the activities against a
+  real database (skipped unless `DATABASE_URL`): ciphertext at rest, decrypt
+  round-trip through `withEngagement`, retry idempotency.
+- `capture/recall-client.smoke.test.ts` — the live Recall API
+  (`describe.skipIf(!RECALL_API_KEY)`).
 - `activities/engagement-context.test.ts` — integration test for
   `withEngagementActivity` against a real, migrated + hardened database.
   Skipped unless `DATABASE_URL` is set (same convention as
