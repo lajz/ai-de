@@ -12,8 +12,8 @@ export type ProviderKind = 'anthropic' | 'openai-compatible';
  * Load the repo-root `.env` into `process.env` (keys not already set). Loads the
  * whole file, like `tools/review`'s `loadDotEnv` — it's a local dev/CI
  * convenience, not part of any deployed path (containers get their env injected).
- * In Orca worktrees `.env` is a per-worktree symlink onto a shared, sometimes
- * slow volume — retry a transient read.
+ * In Orca worktrees `.env` is a per-worktree symlink onto a shared volume that
+ * can momentarily EIO — retry a transient read a few times.
  *
  * No-ops under `NODE_ENV=production`: a deployed process must take its
  * environment only from what the platform injects, never from a file that
@@ -23,6 +23,10 @@ export function loadLlmEnv(root = repoRoot()): void {
   if (process.env.NODE_ENV === 'production') return;
   if (!root) return;
   const path = join(root, '.env');
+  // Immediate retries only — this is a synchronous startup helper (called from
+  // the sync `createProviderFromEnv`), so it must not park the thread with a
+  // timed `Atomics.wait`. A transient shared-volume read error clears on the
+  // next attempt; anything that survives 4 tries gets the warning below.
   for (let i = 0; i < 4; i++) {
     try {
       process.loadEnvFile(path); // Node >=20.12; only sets keys not already present
@@ -30,12 +34,11 @@ export function loadLlmEnv(root = repoRoot()): void {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // genuinely absent
       if (i === 3) {
-        // Exists but unreadable after retries — surface it (path only, never
-        // contents) rather than running silently on a stale environment.
+        // Exists but unreadable — surface it (path only, never contents) rather
+        // than running silently on a stale environment.
         console.warn(`@fde/llm: could not read ${path}: ${(err as Error).message}`);
         return;
       }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
     }
   }
 }
