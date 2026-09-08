@@ -142,6 +142,10 @@ export async function captureSessionWorkflow(
     retentionPolicy: input.retentionPolicy,
   });
 
+  // Extraction is NOT auto-triggered here — `extractionPipelineWorkflow`
+  // (transcript → facts + evidence + embeddings, and the `derived-ephemeral-raw`
+  // raw-body purge) is dispatched separately; wiring capture → extraction is a
+  // follow-up PR.
   return {
     captureSessionId,
     sourceId: stored.sourceId,

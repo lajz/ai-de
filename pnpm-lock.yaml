@@ -165,6 +165,9 @@ importers:
       '@fde/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@fde/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       '@temporalio/activity':
         specifier: 'catalog:'
         version: 1.23.0

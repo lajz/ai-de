@@ -3,6 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { FakeKeyProvider, KmsKeyProvider, type KeyProvider } from '@fde/crypto';
 import { createDbClient } from '@fde/db';
+import { createEmbeddingClientFromEnv, createRouter } from '@fde/llm';
 import { Worker } from '@temporalio/worker';
 
 import { createActivities } from './activities/index.js';
@@ -43,7 +44,22 @@ export async function runWorker(): Promise<void> {
   const dbHandle = createDbClient({ url: process.env.DATABASE_URL });
   const keyProvider = loadKeyProvider(process.env);
   const recallClient = loadRecallClient(process.env);
-  const activities = createActivities({ db: dbHandle.db, keyProvider, recallClient });
+  const router = createRouter({
+    onUsage: () => {
+      // Observability seam. #11 (Langfuse) attaches redacted traces here —
+      // token counts / prompt version / cost, never content. Per-run cost is
+      // summed inside `runExtractionActivity` from each `router.extract()`
+      // result, so nothing run-specific needs to live on this shared sink.
+    },
+  });
+  const embeddingClient = createEmbeddingClientFromEnv(process.env);
+  const activities = createActivities({
+    db: dbHandle.db,
+    keyProvider,
+    recallClient,
+    router,
+    embeddingClient,
+  });
 
   const worker = await Worker.create({
     connection,

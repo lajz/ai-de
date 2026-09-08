@@ -13,6 +13,7 @@
     "@fde/core": "workspace:*",
     "@fde/crypto": "workspace:*",
     "@fde/db": "workspace:*",
+    "@fde/llm": "workspace:*",
     "@temporalio/activity": "catalog:",
     "@temporalio/client": "catalog:",
     "@temporalio/common": "catalog:",

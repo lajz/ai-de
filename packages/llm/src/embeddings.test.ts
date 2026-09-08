@@ -6,6 +6,7 @@ import {
   FakeEmbeddingClient,
   ProviderRequestError,
   VoyageEmbeddingClient,
+  createEmbeddingClientFromEnv,
 } from './index.js';
 
 const httpJson = (body: unknown, ok = true, status = 200): Response =>
@@ -88,6 +89,23 @@ describe('VoyageEmbeddingClient (mocked fetch)', () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     expect(await new VoyageEmbeddingClient({ fetchImpl }).embed([])).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('createEmbeddingClientFromEnv', () => {
+  it('picks Voyage when the key is set, the fake otherwise, and refuses the fake in production', () => {
+    expect(createEmbeddingClientFromEnv({ VOYAGE_API_KEY: 'k' })).toBeInstanceOf(
+      VoyageEmbeddingClient,
+    );
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(createEmbeddingClientFromEnv({})).toBeInstanceOf(FakeEmbeddingClient);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+
+    expect(() => createEmbeddingClientFromEnv({ NODE_ENV: 'production' })).toThrow(
+      /VOYAGE_API_KEY/,
+    );
   });
 });
 
