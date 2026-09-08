@@ -27,6 +27,9 @@ export interface Config {
   minSeverity: Severity;
   /** Per-request timeout in milliseconds. */
   timeoutMs: number;
+  /** Cap on completion tokens per model call. A large PR can need the full budget
+   * to emit its findings JSON; hitting it reads as a truncation failure. */
+  maxTokens: number;
   /** Extra attempts after the first on a transient failure (timeout, network, 5xx, 429). */
   retries: number;
   /** Passes to run. */

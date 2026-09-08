@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { complete, chatUrl, extractJson } from './provider.js';
+import { complete, chatUrl, extractJson, requestBody } from './provider.js';
 import type { Config } from './types.js';
 
 const cfg = (over: Partial<Config> = {}): Config =>
@@ -9,6 +9,7 @@ const cfg = (over: Partial<Config> = {}): Config =>
     baseUrl: 'https://api.deepseek.com',
     apiKey: 'sk-test',
     timeoutMs: 1000,
+    maxTokens: 64000,
     retries: 2,
     ...over,
   }) as Config;
@@ -53,6 +54,21 @@ describe('extractJson', () => {
 
   it('throws when there is no object', () => {
     expect(() => extractJson('no json here')).toThrow();
+  });
+});
+
+describe('requestBody', () => {
+  it('sends the configured max_tokens', () => {
+    expect(
+      requestBody([{ role: 'user', content: 'x' }], cfg({ maxTokens: 12345 })).max_tokens,
+    ).toBe(12345);
+  });
+
+  it('disables thinking only for deepseek models', () => {
+    expect(requestBody([], cfg({ model: 'deepseek-v4-flash' })).thinking).toEqual({
+      type: 'disabled',
+    });
+    expect(requestBody([], cfg({ model: 'qwen3-coder:30b' })).thinking).toBeUndefined();
   });
 });
 
