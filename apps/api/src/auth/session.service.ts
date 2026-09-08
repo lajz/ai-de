@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { Injectable } from '@nestjs/common';
 import type { Request } from 'express';
@@ -27,17 +27,20 @@ export const SESSION_COOKIE = 'fde_session';
  * In-memory session store. Deliberately simple for the skeleton — a real
  * deployment moves this to Redis (shared across API instances, TTL'd).
  *
- * The store is keyed by `sha256(token)`, not the token itself: a timing leak on
- * the `Map` key comparison, or a memory dump, then reveals only a hash — same
- * reasoning as never storing raw passwords. Tokens are 256-bit random, so
- * guessing is infeasible regardless.
+ * The store is keyed by `sha256(token)`, not the token itself: a memory dump
+ * then reveals only a hash — same reasoning as never storing raw passwords.
+ * `resolve` compares that hash against every stored key with `timingSafeEqual`
+ * and no early exit, so lookup latency does not depend on the token's bytes or
+ * on whether it matches. Tokens are 256-bit random, so guessing is infeasible
+ * regardless — this just removes the side channel entirely.
  */
 @Injectable()
 export class SessionService {
+  /** keyed by `sha256(token)` (hex); looked up in constant time by `resolve` */
   private readonly byTokenHash = new Map<string, Session>();
 
-  private static hash(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+  private static hash(token: string): Buffer {
+    return createHash('sha256').update(token).digest();
   }
 
   create(input: NewSession): Session {
@@ -46,13 +49,19 @@ export class SessionService {
       createdAt: new Date(),
       ...input,
     };
-    this.byTokenHash.set(SessionService.hash(session.token), session);
+    this.byTokenHash.set(SessionService.hash(session.token).toString('hex'), session);
     return session;
   }
 
   resolve(token: string | undefined): Session | undefined {
     if (!token) return undefined;
-    return this.byTokenHash.get(SessionService.hash(token));
+    const target = SessionService.hash(token);
+    let match: Session | undefined;
+    for (const [key, session] of this.byTokenHash) {
+      // Non-short-circuiting: keep scanning every entry even after a hit.
+      if (timingSafeEqual(Buffer.from(key, 'hex'), target)) match = session;
+    }
+    return match;
   }
 
   /** Immediately invalidates every session for a WorkOS user. Returns the count. */
