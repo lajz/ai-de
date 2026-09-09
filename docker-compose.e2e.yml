@@ -1,0 +1,44 @@
+# M1 end-to-end test stack. Brought up by `.github/workflows/e2e.yml` and by
+# `pnpm e2e:stack:up` locally; never used in a deployed environment.
+#
+#   docker compose -f docker-compose.e2e.yml up -d --wait
+#   DATABASE_URL=postgres://postgres:postgres@localhost:5442/fde_e2e e2e/scripts/db-setup.sh
+#   DATABASE_URL=... TEMPORAL_ADDRESS=localhost:7233 pnpm e2e
+#
+# Isolated from the dev `docker-compose.yml`: its own project name, its own
+# host ports (5442 / 7233), its own ephemeral database (`fde_e2e`, no volume) so
+# a run always starts from a clean slate.
+name: fde-e2e
+
+services:
+  postgres:
+    # Same image the other integration tests run against (see docker-compose.yml).
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fde_e2e
+    ports:
+      - '${E2E_PG_PORT:-5442}:5432'
+    tmpfs:
+      # no named volume — the e2e DB is disposable and rebuilt on every run
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d fde_e2e']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  temporal:
+    # `temporal server start-dev` in a container — the in-memory dev server, no
+    # Cassandra/Elasticsearch. `--ip 0.0.0.0` so it is reachable from the host.
+    image: temporalio/temporal:1.8.3
+    command: ['server', 'start-dev', '--ip', '0.0.0.0', '--log-level', 'warn']
+    ports:
+      - '${E2E_TEMPORAL_PORT:-7233}:7233'
+      - '${E2E_TEMPORAL_UI_PORT:-8233}:8233'
+    healthcheck:
+      test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', '127.0.0.1:7233']
+      interval: 3s
+      timeout: 5s
+      retries: 20

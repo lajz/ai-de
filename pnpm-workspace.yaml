@@ -2,6 +2,7 @@ packages:
   - 'packages/*'
   - 'tools/*'
   - 'apps/*'
+  - 'e2e'
 
 # esbuild needs its postinstall to fetch the platform binary; tsx / vitest /
 # drizzle-kit all depend on it.
