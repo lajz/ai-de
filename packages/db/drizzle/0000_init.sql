@@ -12,6 +12,7 @@ CREATE TYPE "public"."predicate" AS ENUM('owns', 'accountable_for', 'informed_of
 CREATE TYPE "public"."evidence_relation" AS ENUM('supports', 'contradicts');--> statement-breakpoint
 CREATE TYPE "public"."fact_status" AS ENUM('open', 'resolved', 'superseded', 'retracted');--> statement-breakpoint
 CREATE TYPE "public"."fact_type" AS ENUM('decision', 'commitment', 'risk', 'question', 'action_item', 'status_change');--> statement-breakpoint
+CREATE TYPE "public"."identity_review_status" AS ENUM('pending', 'merged', 'rejected');--> statement-breakpoint
 CREATE TYPE "public"."actor_type" AS ENUM('user', 'system', 'break_glass');--> statement-breakpoint
 CREATE TABLE "engagements" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -216,6 +217,21 @@ CREATE TABLE "identities" (
 );
 --> statement-breakpoint
 ALTER TABLE "identities" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "identity_review_queue" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" uuid NOT NULL,
+	"entity_a_id" uuid NOT NULL,
+	"entity_b_id" uuid NOT NULL,
+	"score" double precision NOT NULL,
+	"signals" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"status" "identity_review_status" DEFAULT 'pending' NOT NULL,
+	"decided_by" text,
+	"decided_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "identity_review_queue_pair_order_ck" CHECK ("identity_review_queue"."entity_a_id" < "identity_review_queue"."entity_b_id")
+);
+--> statement-breakpoint
+ALTER TABLE "identity_review_queue" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE TABLE "access_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
@@ -278,6 +294,9 @@ ALTER TABLE "embeddings" ADD CONSTRAINT "embeddings_engagement_id_engagements_id
 ALTER TABLE "embeddings" ADD CONSTRAINT "embeddings_source_fk" FOREIGN KEY ("engagement_id","source_id") REFERENCES "public"."sources"("engagement_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "identities" ADD CONSTRAINT "identities_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "identities" ADD CONSTRAINT "identities_user_fk" FOREIGN KEY ("tenant_id","user_id") REFERENCES "public"."users"("tenant_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "identity_review_queue" ADD CONSTRAINT "identity_review_queue_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "identity_review_queue" ADD CONSTRAINT "identity_review_queue_entity_a_id_entities_id_fk" FOREIGN KEY ("entity_a_id") REFERENCES "public"."entities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "identity_review_queue" ADD CONSTRAINT "identity_review_queue_entity_b_id_entities_id_fk" FOREIGN KEY ("entity_b_id") REFERENCES "public"."entities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "access_log" ADD CONSTRAINT "access_log_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "access_log" ADD CONSTRAINT "access_log_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "break_glass_grants" ADD CONSTRAINT "break_glass_grants_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -298,6 +317,7 @@ CREATE INDEX "facts_engagement_type_idx" ON "facts" USING btree ("engagement_id"
 CREATE INDEX "embeddings_source_idx" ON "embeddings" USING btree ("source_id");--> statement-breakpoint
 CREATE INDEX "embeddings_hnsw_idx" ON "embeddings" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
 CREATE UNIQUE INDEX "identities_user_connector_uq" ON "identities" USING btree ("user_id","connector","external_account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "identity_review_queue_pair_uq" ON "identity_review_queue" USING btree ("entity_a_id","entity_b_id");--> statement-breakpoint
 CREATE INDEX "access_log_engagement_idx" ON "access_log" USING btree ("engagement_id","created_at");--> statement-breakpoint
 CREATE INDEX "break_glass_grants_engagement_idx" ON "break_glass_grants" USING btree ("engagement_id");--> statement-breakpoint
 CREATE POLICY "engagements_tenant_isolation" ON "engagements" AS PERMISSIVE FOR ALL TO "app_rw" USING ("engagements"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("engagements"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
@@ -314,5 +334,6 @@ CREATE POLICY "extraction_runs_tenant_isolation" ON "extraction_runs" AS PERMISS
 CREATE POLICY "facts_tenant_isolation" ON "facts" AS PERMISSIVE FOR ALL TO "app_rw" USING ("facts"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("facts"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "embeddings_tenant_isolation" ON "embeddings" AS PERMISSIVE FOR ALL TO "app_rw" USING ("embeddings"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("embeddings"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "identities_tenant_isolation" ON "identities" AS PERMISSIVE FOR ALL TO "app_rw" USING ("identities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("identities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
+CREATE POLICY "identity_review_queue_tenant_isolation" ON "identity_review_queue" AS PERMISSIVE FOR ALL TO "app_rw" USING ("identity_review_queue"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("identity_review_queue"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "access_log_tenant_isolation" ON "access_log" AS PERMISSIVE FOR ALL TO "app_rw" USING ("access_log"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("access_log"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "break_glass_grants_tenant_isolation" ON "break_glass_grants" AS PERMISSIVE FOR ALL TO "app_rw" USING ("break_glass_grants"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("break_glass_grants"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);

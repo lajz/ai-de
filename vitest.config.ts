@@ -17,6 +17,7 @@ export default defineConfig({
       '@fde/audit': pkg('audit'),
       '@fde/connectors': pkg('connectors'),
       '@fde/authz': pkg('authz'),
+      '@fde/identity': pkg('identity'),
       '@fde/llm': pkg('llm'),
     },
   },

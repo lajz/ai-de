@@ -6,5 +6,6 @@ export * from './graph.js';
 export * from './facts.js';
 export * from './embeddings.js';
 export * from './identities.js';
+export * from './identity.js';
 export * from './audit.js';
 export * from './tables.js';

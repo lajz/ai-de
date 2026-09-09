@@ -14,6 +14,7 @@ import {
   extractionRuns,
   facts,
   identities,
+  identityReviewQueue,
   relationships,
   sources,
   users,
@@ -34,6 +35,7 @@ const tenantTables = {
   extraction_runs: extractionRuns,
   embeddings,
   identities,
+  identity_review_queue: identityReviewQueue,
   access_log: accessLog,
   break_glass_grants: breakGlassGrants,
 };
@@ -85,7 +87,8 @@ describe('schema', () => {
     //   users         — a person in the FDE org
     //   engagements    — is itself the scope
     //   identities     — a user's connector credential, reused across engagements
-    const tenantOnly = new Set(['users', 'engagements', 'identities']);
+    //   identity_review_queue — a match pair that may span engagements in a tenant
+    const tenantOnly = new Set(['users', 'engagements', 'identities', 'identity_review_queue']);
     for (const [name, table] of Object.entries(tenantTables)) {
       if (tenantOnly.has(name)) continue;
       expect(getTableColumns(table), name).toHaveProperty('engagementId');

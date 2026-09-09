@@ -12,6 +12,7 @@ export const ACCESS_LOG_ACTIONS = [
   'break_glass_accessed',
   'break_glass_revoked',
   'crypto_shred',
+  'identity_merge',
 ] as const;
 export const accessLogActionSchema = z.enum(ACCESS_LOG_ACTIONS);
 export type AccessLogAction = (typeof ACCESS_LOG_ACTIONS)[number];
