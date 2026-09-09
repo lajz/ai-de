@@ -229,17 +229,28 @@ describe('captureSessionWorkflow', () => {
 
     // One worker, two capture executions — the second's `sourceId` collides
     // with the first's (both forced to `src-shared`), so its extraction
-    // `startChild` should hit the existing child id and be swallowed.
-    const [first, second] = await worker.runUntil(async () => [
-      await executeOnce(taskQueue, 'cap-dup-1', harness, 'full-retention'),
-      await executeOnce(taskQueue, 'cap-dup-2', harness, 'full-retention'),
-    ]);
+    // `startChild` should hit the existing child id and be swallowed. Read the
+    // child's `runId` after each capture (not just its `workflowId`, which the
+    // second capture would report identically even if a *new* run had been
+    // allowed under the same id) to prove the second `startChild` never created
+    // a second execution.
+    const [first, runIdAfterFirst, second, runIdAfterSecond] = await worker.runUntil(async () => {
+      const r1 = await executeOnce(taskQueue, 'cap-dup-1', harness, 'full-retention');
+      const runId1 = (await env.client.workflow.getHandle(r1.extractionWorkflowId!).describe())
+        .runId;
+      const r2 = await executeOnce(taskQueue, 'cap-dup-2', harness, 'full-retention');
+      const runId2 = (await env.client.workflow.getHandle(r2.extractionWorkflowId!).describe())
+        .runId;
+      return [r1, runId1, r2, runId2] as const;
+    });
 
     expect(first.extractionWorkflowId).toBe('extraction-src-shared');
     expect(second.extractionWorkflowId).toBe('extraction-src-shared');
     // both captures resolve to the same sourceId (dedupe hit), so the second
     // `startChild` collides on the deterministic child id and is swallowed as
-    // `WorkflowExecutionAlreadyStartedError` — extraction only actually starts once.
+    // `WorkflowExecutionAlreadyStartedError` — extraction only actually starts
+    // once, and the second capture observes the *same* run, not a new one.
+    expect(runIdAfterSecond).toBe(runIdAfterFirst);
     expect(harness.extractionStarts).toHaveLength(1);
   });
 
