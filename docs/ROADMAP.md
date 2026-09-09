@@ -51,7 +51,9 @@ verbatim against the source) + `embeddings`, every row stamped with one
 `extraction_run_id`; a durable timer then purges `raw_body` under
 `derived-ephemeral-raw`. Ids-only payloads; all body handling inside one
 activity. Redacted Langfuse tracing + the extraction eval gate (#11) are now
-wired in; the capture → extraction auto-trigger is still to come.
+wired in. `captureSessionWorkflow` auto-triggers `extractionPipelineWorkflow` as
+a detached (`parentClosePolicy: ABANDON`) child workflow once a body is
+retained, keyed by `sourceId` so a capture retry can't double-start it.
 
 **`apps/web` engagement view + single-engagement Q&A (roadmap #9) — landed:**
 `apps/api` grew a testable `retrieval/` service and two engagement-scoped routes
@@ -87,8 +89,8 @@ size. Dependencies in the last column.
 | ~~11~~ | ~~**Langfuse + eval harness**~~ _(done)_                 | redacted tracing in `@fde/llm` (`Tracer` seam, `assertRedacted` boundary, `tracingUsageSink` + `traceExtraction` over `onUsage`, wired into `ExtractionPipeline`); `@fde/eval` — hand-labelled fixtures + precision/recall + key-phrase scorer + committed-baseline no-regression gate; `.github/workflows/eval.yml` (non-required, manual gate absent a CI provider). | S   | #8                          |
 
 **Suggested order:** #4 and #6 in parallel → #5 → #7 → #8 → (#9, #10, #11 in
-parallel). #9, #10 and #11 are all in — the M1 code queue is clear; the capture →
-extraction auto-trigger is the remaining wiring. M1 is done when the
+parallel). #9, #10 and #11 are all in, and the capture → extraction auto-trigger
+is wired — the M1 code queue is clear. M1 is done when the
 [M1 e2e check](./architecture.md#verification) passes in staging.
 
 **Parallel track (not code):** SOC 2 controls; sub-processor DPAs + zero-retention
