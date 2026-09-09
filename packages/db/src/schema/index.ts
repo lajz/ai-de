@@ -1,6 +1,7 @@
 export * from './tenancy.js';
 export * from './sources.js';
 export * from './capture-sessions.js';
+export * from './connector-sync.js';
 export * from './graph.js';
 export * from './facts.js';
 export * from './embeddings.js';

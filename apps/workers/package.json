@@ -10,6 +10,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@fde/connectors": "workspace:*",
     "@fde/core": "workspace:*",
     "@fde/crypto": "workspace:*",
     "@fde/db": "workspace:*",

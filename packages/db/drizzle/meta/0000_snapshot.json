@@ -1,5 +1,5 @@
 {
-  "id": "0f932d6a-28d7-4d7e-90bc-6cee40967c4a",
+  "id": "fdd156f9-dad9-44a1-8bc2-d1480e8ff8c8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -848,6 +848,138 @@
           ],
           "using": "\"capture_sessions\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "\"capture_sessions\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.connector_sync_state": {
+      "name": "connector_sync_state",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "engagement_id": {
+          "name": "engagement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connector": {
+          "name": "connector",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cursor": {
+          "name": "cursor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_run_at": {
+          "name": "last_run_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "connector_sync_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'idle'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "connector_sync_state_engagement_connector_uq": {
+          "name": "connector_sync_state_engagement_connector_uq",
+          "columns": [
+            {
+              "expression": "engagement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "connector",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "connector_sync_state_tenant_id_tenants_id_fk": {
+          "name": "connector_sync_state_tenant_id_tenants_id_fk",
+          "tableFrom": "connector_sync_state",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "connector_sync_state_engagement_id_engagements_id_fk": {
+          "name": "connector_sync_state_engagement_id_engagements_id_fk",
+          "tableFrom": "connector_sync_state",
+          "tableTo": "engagements",
+          "columnsFrom": [
+            "engagement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "connector_sync_state_tenant_isolation": {
+          "name": "connector_sync_state_tenant_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_rw"
+          ],
+          "using": "\"connector_sync_state\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid",
+          "withCheck": "\"connector_sync_state\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid"
         }
       },
       "checkConstraints": {},
@@ -2327,6 +2459,15 @@
         "capturing",
         "captured",
         "failed"
+      ]
+    },
+    "public.connector_sync_status": {
+      "name": "connector_sync_status",
+      "schema": "public",
+      "values": [
+        "idle",
+        "running",
+        "error"
       ]
     },
     "public.entity_type": {

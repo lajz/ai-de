@@ -1,9 +1,11 @@
+import type { ConnectorRegistry } from '@fde/connectors';
 import type { KeyProvider } from '@fde/crypto';
 import type { Database } from '@fde/db';
 import type { EmbeddingClient, Router, Tracer } from '@fde/llm';
 
 import type { RecallClient } from '../capture/recall-client.js';
 import { createCaptureSessionActivities } from './capture-session.js';
+import { createConnectorSyncActivities } from './connector-sync.js';
 import { createDescribeEngagementActivity } from './describe-engagement.js';
 import { createExtractionActivities } from './extraction-pipeline.js';
 import { pingActivity } from './ping.js';
@@ -12,6 +14,8 @@ export interface ActivityDeps {
   db: Database;
   keyProvider: KeyProvider;
   recallClient: RecallClient;
+  /** connector id → factory; drives the generic `ConnectorSync` workflow */
+  connectors: ConnectorRegistry;
   router: Router;
   embeddingClient: EmbeddingClient;
   /** redacted LLM tracing — `NoopTracer` when Langfuse is unconfigured */
@@ -28,6 +32,7 @@ export function createActivities(deps: ActivityDeps) {
     describeEngagementActivity: createDescribeEngagementActivity(deps),
     ...createCaptureSessionActivities(deps),
     ...createExtractionActivities(deps),
+    ...createConnectorSyncActivities(deps),
   };
 }
 
@@ -59,6 +64,21 @@ export {
   type TranscriptSourceRow,
 } from './transcript-source.js';
 export { chunkTranscript, type ChunkOptions, type TranscriptChunk } from './chunk-transcript.js';
+export {
+  createConnectorSyncActivities,
+  type ConnectorSyncActivitiesDeps,
+  type ConnectorSyncActivities,
+  type ConnectorSyncMode,
+  type RunConnectorSyncInput,
+  type RunConnectorSyncResult,
+} from './connector-sync.js';
+export {
+  buildConnectorSource,
+  connectorContentHash,
+  type BuildConnectorSourceInput,
+  type BuiltConnectorSource,
+  type ConnectorSourceRow,
+} from './connector-source.js';
 export {
   createExtractionActivities,
   type ExtractionActivitiesDeps,
