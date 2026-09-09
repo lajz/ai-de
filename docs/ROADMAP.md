@@ -51,8 +51,21 @@ verbatim against the source) + `embeddings`, every row stamped with one
 `extraction_run_id`; a durable timer then purges `raw_body` under
 `derived-ephemeral-raw`. Ids-only payloads; all body handling inside one
 activity. Redacted Langfuse tracing + the extraction eval gate (#11) are now
-wired in; the capture → extraction auto-trigger and the `apps/web` view (#9) are
-still to come.
+wired in; the capture → extraction auto-trigger is still to come.
+
+**`apps/web` engagement view + single-engagement Q&A (roadmap #9) — landed:**
+`apps/api` grew a testable `retrieval/` service and two engagement-scoped routes
+— `GET /engagements/:id/facts` (decrypted facts + evidence citations to
+`sources.url_permalink`) and `POST /engagements/:id/qa` (embed the question →
+pgvector cosine KNN over `embeddings` → `canViewEngagement` gate **before** the
+LLM → decrypt the surviving sources post-gate → answer from that context only,
+via a new versioned `qa` prompt in `@fde/llm`). The raw drizzle reads live in
+`@fde/db` (`selectEngagementFacts` / `selectNearestChunks` / …). Both routes log
+`content_read` (and `/qa` also `retrieval`) in the request transaction; decrypted
+content never reaches a log line. `filterCandidatesByAcl` is the identity seam
+for M4 per-source ACL filtering. `apps/web` is a thin read-only Next.js App
+Router app (engagement list → fact list → Ask panel) that proxies every API call
+server-side with the caller's `fde_session` token.
 
 ---
 
@@ -69,12 +82,13 @@ size. Dependencies in the last column.
 | 6      | **Temporal + `apps/workers` skeleton**                   | Temporal Cloud client + worker bootstrap; one trivial workflow+activity end to end; the `cipher`-param convention for activities (no `AsyncLocalStorage` across the worker boundary); payloads carry ids, never bodies.                                                                                                                                                | M   | —                           |
 | 7      | **`CaptureSession` workflow**                            | schedule a Recall.ai bot → meeting → transcript webhook → store as a `source` (`🔒 raw_body` inline, or S3 + `raw_object_key`) through `withEngagement`; retention-policy aware.                                                                                                                                                                                       | M   | #6, Recall.ai account + DPA |
 | ~~8~~  | ~~**`@fde/llm` + `ExtractionPipeline`**~~ _(done)_       | Claude router (ZDR, `claude-opus-5` default / `claude-sonnet-5` bulk), versioned extraction prompts, pluggable embedding client (Voyage first). Workflow: chunk transcript → structured extraction → `facts` + `evidence` (🔒 quote + `char_span`) + `embeddings`, all stamped `extraction_run_id`; purge raw under `derived-ephemeral-raw`.                           | L   | #7                          |
-| 9      | **`apps/web` engagement view**                           | Next.js; engagement list; fact list with source citations (permalinks); single-engagement Q&A (pgvector retrieval → authz gate → decrypt post-gate). Read-only.                                                                                                                                                                                                        | M   | #5, #8                      |
+| ~~9~~  | ~~**`apps/web` engagement view**~~ _(done)_              | Next.js; engagement list; fact list with source citations (permalinks); single-engagement Q&A (pgvector retrieval → authz gate → decrypt post-gate). Read-only. Landed as `@fde/db` read helpers + `apps/api/src/retrieval/` + `GET :id/facts` / `POST :id/qa` + a versioned `qa` prompt in `@fde/llm` + a thin `apps/web` App Router app.                             | M   | #5, #8                      |
 | ~~10~~ | ~~**`@fde/authz` (SpiceDB) — platform roles**~~ _(done)_ | SpiceDB schema + typed check/write wrappers; platform-role checks in the read path behind `AUTHZ_ENFORCE`. Source-ACL mirroring is deferred to M5 (Slack).                                                                                                                                                                                                             | M   | #5                          |
 | ~~11~~ | ~~**Langfuse + eval harness**~~ _(done)_                 | redacted tracing in `@fde/llm` (`Tracer` seam, `assertRedacted` boundary, `tracingUsageSink` + `traceExtraction` over `onUsage`, wired into `ExtractionPipeline`); `@fde/eval` — hand-labelled fixtures + precision/recall + key-phrase scorer + committed-baseline no-regression gate; `.github/workflows/eval.yml` (non-required, manual gate absent a CI provider). | S   | #8                          |
 
 **Suggested order:** #4 and #6 in parallel → #5 → #7 → #8 → (#9, #10, #11 in
-parallel). #9 is the last open item. M1 is done when the
+parallel). #9, #10 and #11 are all in — the M1 code queue is clear; the capture →
+extraction auto-trigger is the remaining wiring. M1 is done when the
 [M1 e2e check](./architecture.md#verification) passes in staging.
 
 **Parallel track (not code):** SOC 2 controls; sub-processor DPAs + zero-retention

@@ -3,3 +3,8 @@ dist
 coverage
 pnpm-lock.yaml
 packages/*/drizzle
+
+# Next.js build output + Next-managed files (rewritten by `next build`)
+**/.next
+apps/web/next-env.d.ts
+apps/web/tsconfig.json

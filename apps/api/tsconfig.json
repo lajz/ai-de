@@ -17,7 +17,8 @@
     { "path": "../../packages/crypto" },
     { "path": "../../packages/db" },
     { "path": "../../packages/audit" },
-    { "path": "../../packages/authz" }
+    { "path": "../../packages/authz" },
+    { "path": "../../packages/llm" }
   ],
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "src/test/**"]

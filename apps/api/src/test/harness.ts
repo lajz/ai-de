@@ -12,6 +12,10 @@ export interface TestAppOptions {
   fakeKms?: boolean;
   /** value to bind for the `AuthzClient` token — pass an `InMemoryAuthzClient` to seed relationships */
   authz?: unknown;
+  /** value to bind for the retrieval `ROUTER` token — pass a fake `@fde/llm` Router */
+  router?: unknown;
+  /** value to bind for the retrieval `QUERY_EMBEDDING_CLIENT` token */
+  embeddingClient?: unknown;
   /** sets `AUTHZ_ENFORCE` before `AppModule` (→ `@nestjs/config`) evaluates */
   enforceAuthz?: boolean;
 }
@@ -41,6 +45,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   const { DB } = await import('../db/db.module.js');
   const { WORKOS } = await import('../auth/workos.types.js');
   const { AuthzClient } = await import('@fde/authz');
+  const { ROUTER, QUERY_EMBEDDING_CLIENT } = await import('../retrieval/retrieval.tokens.js');
 
   let builder = Test.createTestingModule({ imports: [AppModule] });
   if (opts.db !== undefined) {
@@ -48,6 +53,12 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   }
   if (opts.authz !== undefined) {
     builder = builder.overrideProvider(AuthzClient).useValue(opts.authz);
+  }
+  if (opts.router !== undefined) {
+    builder = builder.overrideProvider(ROUTER).useValue(opts.router);
+  }
+  if (opts.embeddingClient !== undefined) {
+    builder = builder.overrideProvider(QUERY_EMBEDDING_CLIENT).useValue(opts.embeddingClient);
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ rawBody: true });

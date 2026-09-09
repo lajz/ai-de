@@ -8,6 +8,7 @@ import { HealthController } from './health/health.controller.js';
 import { KeyProviderModule } from './key-provider/key-provider.module.js';
 import { MeController } from './me/me.controller.js';
 import { RequestContextModule } from './request-context/request-context.module.js';
+import { RetrievalModule } from './retrieval/retrieval.module.js';
 
 /**
  * The API composition root. `RequestContextModule` registers the app-wide
@@ -17,7 +18,14 @@ import { RequestContextModule } from './request-context/request-context.module.j
  * WorkOS webhook live in `AuthModule` (imported via `RequestContextModule`).
  */
 @Module({
-  imports: [AppConfigModule, DbModule, KeyProviderModule, AuthzModule, RequestContextModule],
+  imports: [
+    AppConfigModule,
+    DbModule,
+    KeyProviderModule,
+    AuthzModule,
+    RequestContextModule,
+    RetrievalModule,
+  ],
   controllers: [HealthController, MeController, EngagementsController],
 })
 export class AppModule {}

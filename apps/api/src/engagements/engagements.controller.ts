@@ -4,6 +4,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -22,6 +23,8 @@ import {
 import {
   ACCESS_LOG_ACTIONS,
   type AccessLogAction,
+  EVIDENCE_RELATIONS,
+  FACT_TYPES,
   type EngagementId,
   type UserId,
 } from '@fde/core';
@@ -33,6 +36,7 @@ import { desc } from 'drizzle-orm';
 import type { Env } from '../config/env.js';
 import { EngagementScope } from '../request-context/metadata.js';
 import { getEngagementContext, getRequestContext } from '../request-context/request-context.js';
+import { RetrievalService } from '../retrieval/retrieval.service.js';
 
 class EngagementResponse {
   @ApiProperty({ type: String }) id!: string;
@@ -62,6 +66,44 @@ class AuditPageResponse {
   nextCursor?: string;
 }
 
+class EvidenceCitationResponse {
+  @ApiProperty({ type: String }) sourceId!: string;
+  @ApiProperty({ type: String, nullable: true }) permalink!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: 'decrypted supporting quote' })
+  quote!: string | null;
+  @ApiProperty({ type: Number, nullable: true }) charStart!: number | null;
+  @ApiProperty({ type: Number, nullable: true }) charEnd!: number | null;
+  @ApiProperty({ type: String, enum: [...EVIDENCE_RELATIONS] }) relation!: string;
+}
+
+class FactResponse {
+  @ApiProperty({ type: String }) id!: string;
+  @ApiProperty({ type: String, enum: [...FACT_TYPES] }) type!: string;
+  @ApiProperty({ type: String }) summary!: string;
+  @ApiProperty({ type: String, nullable: true, description: 'decrypted detail' })
+  body!: string | null;
+  @ApiProperty({ type: String }) status!: string;
+  @ApiProperty({ type: Number, nullable: true }) confidence!: number | null;
+  @ApiProperty({ type: String, format: 'date-time', nullable: true }) occurredAt!: string | null;
+  @ApiProperty({ type: String, format: 'date-time' }) createdAt!: string;
+  @ApiProperty({ type: [EvidenceCitationResponse] }) citations!: EvidenceCitationResponse[];
+}
+
+class QaBody {
+  @ApiProperty({ type: String }) question!: string;
+}
+
+class QaCitationResponse {
+  @ApiProperty({ type: String }) sourceId!: string;
+  @ApiProperty({ type: String, nullable: true }) permalink!: string | null;
+  @ApiProperty({ type: String }) quote!: string;
+}
+
+class QaResponse {
+  @ApiProperty({ type: String }) answer!: string;
+  @ApiProperty({ type: [QaCitationResponse] }) citations!: QaCitationResponse[];
+}
+
 class AddMemberBody {
   @ApiProperty({ type: String, format: 'uuid' }) userId!: string;
   @ApiProperty({ type: String, enum: [...ENGAGEMENT_ROLES] }) role!: EngagementRole;
@@ -79,6 +121,7 @@ export class EngagementsController {
 
   constructor(
     @Inject(AuthzClient) private readonly authz: AuthzClient,
+    @Inject(RetrievalService) private readonly retrieval: RetrievalService,
     @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     this.enforce = config.get('AUTHZ_ENFORCE', { infer: true }) === 'true';
@@ -185,6 +228,42 @@ export class EngagementsController {
       rows: page.rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
       nextCursor: page.nextCursor,
     };
+  }
+
+  /**
+   * This engagement's extracted `facts` (newest first) with their `evidence`
+   * citations. Engagement-scoped: the interceptor opened `withEngagement`, so
+   * `RetrievalService` decrypts `facts.body` / `evidence.quote` with the request
+   * cipher — only after the `canViewEngagement` gate (`AUTHZ_ENFORCE=true`, 403).
+   * Reading is a `content_read`, logged in the same transaction.
+   */
+  @Get(':id/facts')
+  @EngagementScope('id')
+  @ApiOkResponse({ type: [FactResponse] })
+  async facts(@Param('id', new ParseUUIDPipe()) _id: string): Promise<FactResponse[]> {
+    return this.retrieval.listFacts();
+  }
+
+  /**
+   * Single-engagement retrieval Q&A. `RetrievalService` embeds the question,
+   * runs a pgvector cosine KNN over this engagement's chunk embeddings, applies
+   * the authz gate **before** the LLM, decrypts the surviving sources' context
+   * post-gate, and answers from that context only. Logs a `retrieval` row and a
+   * `content_read` row (architecture read-path step 4).
+   */
+  @Post(':id/qa')
+  @HttpCode(200)
+  @EngagementScope('id')
+  @ApiOkResponse({ type: QaResponse })
+  async qa(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @Body() body: QaBody,
+  ): Promise<QaResponse> {
+    const question = (body as { question?: unknown }).question;
+    if (typeof question !== 'string' || question.trim() === '') {
+      throw new BadRequestException('question must be a non-empty string');
+    }
+    return this.retrieval.answerQuestion(question);
   }
 
   /**

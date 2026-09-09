@@ -6,6 +6,9 @@ import { defineConfig } from 'vitest/config';
 const pkg = (name: string) => resolve(import.meta.dirname, `packages/${name}/src/index.ts`);
 
 export default defineConfig({
+  // `apps/web` ships .tsx components; automatic JSX runtime keeps its tests from
+  // needing a `import React` in every file.
+  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: {
       '@fde/core': pkg('core'),
@@ -17,7 +20,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/*/src/**/*.test.ts', 'tools/*/src/**/*.test.ts', 'apps/*/src/**/*.test.ts'],
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'tools/*/src/**/*.test.ts',
+      'apps/*/src/**/*.test.ts',
+      'apps/*/src/**/*.test.tsx',
+    ],
     environment: 'node',
   },
 });
