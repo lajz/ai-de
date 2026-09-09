@@ -21,6 +21,7 @@ import {
   EMBEDDING_DIM,
   EXTRACTION_PROMPT_VERSION,
   FakeEmbeddingClient,
+  FakeTracer,
   type ExtractionResult,
   type Router,
 } from '@fde/llm';
@@ -124,13 +125,17 @@ describe.skipIf(!url)('runExtractionActivity (integration)', () => {
     return { engagementId, sourceId };
   }
 
-  const acts = (costUsd = 0.0009) =>
-    createExtractionActivities({
+  let tracer: FakeTracer;
+  const acts = (costUsd = 0.0009) => {
+    tracer = new FakeTracer();
+    return createExtractionActivities({
       db: handle.db,
       keyProvider: provider,
       router: fakeRouter(cannedResult(), costUsd),
       embeddingClient: new FakeEmbeddingClient(),
+      tracer,
     });
+  };
 
   const run = <T>(fn: (i: never) => Promise<T>, i: unknown): Promise<T> =>
     new MockActivityEnvironment().run(fn as never, i as never) as Promise<T>;
@@ -162,6 +167,15 @@ describe.skipIf(!url)('runExtractionActivity (integration)', () => {
       unlocatableSpanCount: 1,
       usdCost: 0.0009,
     });
+
+    // one redacted trace: a per-chunk generation + a run-end tally, no content
+    expect(tracer.traces).toHaveLength(1);
+    expect(tracer.traces[0]!.input).toMatchObject({ name: 'extraction.run', extractionRunId });
+    expect(tracer.traces[0]!.generations).toMatchObject([
+      { name: 'extraction.chunk', outcome: 'ok' },
+    ]);
+    expect(tracer.traces[0]!.end).toMatchObject({ factCount: 2, chunkCount: 1, okChunks: 1 });
+    expect(JSON.stringify(tracer.traces)).not.toMatch(/Friday|SOW|Rivera|Chen/);
 
     // ciphertext at rest — raw column reads never expose the plaintext
     const [rawBody] = await handle.db
@@ -237,6 +251,9 @@ describe.skipIf(!url)('runExtractionActivity (integration)', () => {
     expect(err).toBeInstanceOf(ApplicationFailure);
     expect((err as ApplicationFailure).type).toBe('NoRetainedBody');
     expect((err as ApplicationFailure).nonRetryable).toBe(true);
+    // the trace is still closed on the error path (no run tally)
+    expect(tracer.traces[0]!.ended).toBe(true);
+    expect(tracer.traces[0]!.end).toBeUndefined();
   });
 
   it('derived-ephemeral-raw: returns the capture purge marker, then purgeRawBodyActivity nulls the body', async () => {

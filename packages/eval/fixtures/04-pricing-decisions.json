@@ -1,0 +1,8 @@
+{
+  "id": "pricing-decisions",
+  "chunk": "Nadia: Two things to settle on pricing. First, we're going with three tiers, not five — Starter, Team, Enterprise.\nOwen: Works for me. Three tiers it is.\nNadia: Second, we'll bill annually by default, with monthly as an opt-in.\nOwen: Agreed, annual default. I'll update the pricing page copy.",
+  "expected": {
+    "factsByType": { "decision": 2, "commitment": 1 },
+    "keyPhrases": ["three tiers, not five", "bill annually by default"]
+  }
+}

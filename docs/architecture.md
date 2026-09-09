@@ -221,7 +221,8 @@ packages/
   db/          Drizzle schema + migrations + RLS policies + encrypted-column types                       [built]
   connectors/  Connector interface + built-in implementations (on Nango or direct clients)
   authz/       SpiceDB schema + typed check/write wrappers
-  llm/         model router (ZDR), extraction prompts (versioned), embedding client, eval harness
+  llm/         model router (ZDR), extraction prompts (versioned), embedding client, redacted Langfuse tracer
+  eval/        extraction eval harness — hand-labelled fixtures, precision/recall scorer, no-regression gate (dev-only)
   identity/    cross-system person/org identity resolution
   audit/       append-only audit-log writer + tenant-facing query API
 tools/

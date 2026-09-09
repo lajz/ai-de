@@ -1,0 +1,33 @@
+name: Extraction eval
+
+# Fires when the extraction prompt or the harness changes. NOT a required check:
+# CI has no Zero-Data-Retention provider, so without the EVAL_LLM_* secrets the
+# job prints a skip notice and passes. A prompt change is gated by a MANUAL eval
+# run against the production provider until a CI-side provider is wired up — see
+# packages/eval/README.md.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/llm/src/prompts.ts'
+      - 'packages/eval/**'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @fde/eval eval
+        env:
+          # Optional. With none of these set the run prints a skip notice and
+          # exits 0. Point at an OpenAI-compatible endpoint for a CI signal.
+          LLM_PROVIDER: ${{ vars.EVAL_LLM_PROVIDER }}
+          LLM_BASE_URL: ${{ vars.EVAL_LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.EVAL_LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.EVAL_LLM_API_KEY }}

@@ -32,7 +32,46 @@ Every call returns a `UsageRecord` — `{ provider, model, tier, promptVersion,
 inputTokens, outputTokens, cache*, costUsd, pricedFrom, latencyMs }` — and
 forwards it to `onUsage`. **It never contains prompt or response text**
 (`docs/architecture.md`: the router logs `{model, prompt_version, tokens, cost}`
-and never content). Langfuse wiring is #11; this is the seam.
+and never content).
+
+## Redacted tracing
+
+`docs/architecture.md`: **"Langfuse — redacted traces only"**. The `Tracer` seam
+turns model calls into redacted spans — token counts, prompt version, latency,
+cost, `extraction_run_id`, chunk count, a coarse outcome (`ok` / `schema-fail` /
+`provider-error`), and SHA-256 hashes. **Never a prompt, a transcript, a model
+response, or a fact/evidence body.**
+
+```ts
+import { createTracerFromEnv, tracingUsageSink, traceExtraction } from '@fde/llm';
+
+const tracer = createTracerFromEnv(process.env); // LangfuseTracer iff both LANGFUSE_* keys; else NoopTracer
+const router = createRouter({ onUsage: tracingUsageSink(tracer) });
+
+// A run shows as one trace with per-chunk generations underneath:
+await traceExtraction(tracer, { extractionRunId, sourceId }, async (trace) => {
+  const { usage } = await router.extract(extractionResultSchema, { ...chunk });
+  trace.generation(redactUsage(usage, { name: 'extraction.chunk', outcome: 'ok' }));
+  trace.end({ factCount, embeddingCount, usdCost });
+});
+```
+
+- `NoopTracer` (default), `FakeTracer` (records spans in memory for tests),
+  `LangfuseTracer` (real, behind `langfuse`).
+- `LangfuseTracer` is **fire-and-forget**: `startTrace` / `generation` / `end`
+  never block on IO and never throw into the caller; the SDK batches and flushes
+  on an interval; `tracer.shutdown()` drains it. A Langfuse outage costs traces,
+  never extraction.
+- **The redaction boundary** — `assertRedacted(payload)` — runs over every
+  payload before it can reach the transport: it throws unless every key is in
+  `REDACTED_KEYS`, every leaf is a scalar, and no string exceeds 120 chars.
+- Inside a `traceExtraction` scope the run records its own per-chunk generations;
+  `tracingUsageSink` defers to it (no double-recording) and otherwise emits a
+  one-off trace per call.
+
+Config from env: `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` /
+`LANGFUSE_BASE_URL` (self-hosted, in-VPC). Tracing is optional — a lone key warns
+once (keys/paths never logged) and falls back to `NoopTracer`.
 
 ## Providers
 

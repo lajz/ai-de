@@ -3,7 +3,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { FakeKeyProvider, KmsKeyProvider, type KeyProvider } from '@fde/crypto';
 import { createDbClient } from '@fde/db';
-import { createEmbeddingClientFromEnv, createRouter } from '@fde/llm';
+import {
+  createEmbeddingClientFromEnv,
+  createRouter,
+  createTracerFromEnv,
+  tracingUsageSink,
+} from '@fde/llm';
 import { Worker } from '@temporalio/worker';
 
 import { createActivities } from './activities/index.js';
@@ -44,14 +49,12 @@ export async function runWorker(): Promise<void> {
   const dbHandle = createDbClient({ url: process.env.DATABASE_URL });
   const keyProvider = loadKeyProvider(process.env);
   const recallClient = loadRecallClient(process.env);
-  const router = createRouter({
-    onUsage: () => {
-      // Observability seam. #11 (Langfuse) attaches redacted traces here —
-      // token counts / prompt version / cost, never content. Per-run cost is
-      // summed inside `runExtractionActivity` from each `router.extract()`
-      // result, so nothing run-specific needs to live on this shared sink.
-    },
-  });
+  // Redacted tracing (`docs/architecture.md`: "Langfuse — redacted traces only").
+  // `NoopTracer` unless both LANGFUSE_* keys are set; the sink turns each
+  // content-free `UsageRecord` into a redacted span, and `traceExtraction` inside
+  // `runExtractionActivity` groups a run's per-chunk generations under one trace.
+  const tracer = createTracerFromEnv(process.env);
+  const router = createRouter({ onUsage: tracingUsageSink(tracer) });
   const embeddingClient = createEmbeddingClientFromEnv(process.env);
   const activities = createActivities({
     db: dbHandle.db,
@@ -59,6 +62,7 @@ export async function runWorker(): Promise<void> {
     recallClient,
     router,
     embeddingClient,
+    tracer,
   });
 
   const worker = await Worker.create({
@@ -78,6 +82,7 @@ export async function runWorker(): Promise<void> {
   } finally {
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
+    await tracer.shutdown(); // flush queued redacted spans; never throws
     await dbHandle.close();
     await connection.close();
   }
