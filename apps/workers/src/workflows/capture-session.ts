@@ -2,12 +2,19 @@ import {
   ApplicationFailure,
   condition,
   defineSignal,
+  log,
+  ParentClosePolicy,
   proxyActivities,
   setHandler,
+  startChild,
   uuid4,
+  WorkflowIdReusePolicy,
 } from '@temporalio/workflow';
 
 import type { EngagementId, RetentionPolicy, TenantId } from '@fde/core';
+// Not re-exported from `@temporalio/workflow` (only a curated subset of
+// `@temporalio/common`'s errors is) — deterministic-safe, no runtime behavior.
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 
 // Type-only — workflow code runs in Temporal's deterministic sandbox and must
 // not pull in the real activity implementations (@fde/db, postgres, the Recall
@@ -20,6 +27,9 @@ import type {
   StoreTranscriptSourceInput,
   StoreTranscriptSourceResult,
 } from '../activities/capture-session.js';
+// Type-only — `startChild` is called by workflow-type name string below; this
+// import only pins the arg/result shape so the call stays type-checked.
+import type { extractionPipelineWorkflow } from './extraction-pipeline.js';
 
 const { scheduleCaptureBotActivity, pollCaptureBotActivity, storeTranscriptSourceActivity } =
   proxyActivities<{
@@ -54,6 +64,8 @@ export interface CaptureSessionWorkflowResult {
   sourceId: string;
   /** false under reference-only — the transcript body was not persisted */
   bodyRetained: boolean;
+  /** null when extraction was skipped (nothing retained to extract) */
+  extractionWorkflowId: string | null;
 }
 
 /**
@@ -142,13 +154,59 @@ export async function captureSessionWorkflow(
     retentionPolicy: input.retentionPolicy,
   });
 
-  // Extraction is NOT auto-triggered here — `extractionPipelineWorkflow`
-  // (transcript → facts + evidence + embeddings, and the `derived-ephemeral-raw`
-  // raw-body purge) is dispatched separately; wiring capture → extraction is a
-  // follow-up PR.
+  // Auto-trigger extraction as a child workflow — but only when there's a body
+  // to extract; `reference-only` persists no transcript text.
+  //
+  // `startChild` (not `executeChild`): capture should complete as soon as the
+  // extraction run is *started*, not block on it — a long transcript's
+  // extraction can run for tens of minutes, far longer than we want this
+  // short-lived capture workflow open. `parentClosePolicy: ABANDON` detaches
+  // the child's lifecycle from the parent's (capture completing does not
+  // cancel/terminate extraction) while keeping it visible in the same
+  // workflow tree for observability.
+  //
+  // The child `workflowId` is derived from `stored.sourceId`, not
+  // `captureSessionId` — `storeTranscriptSourceActivity` dedupes on
+  // `(engagementId, connector, botId, contentHash)`, so a genuine capture retry
+  // (new workflow execution, same underlying Recall bot) resolves to the same
+  // `sourceId` and therefore the same child id, while `captureSessionId` is a
+  // fresh `uuid4()` every run and would not catch that case. Duplicate starts
+  // are rejected outright (`workflowIdReusePolicy: REJECT_DUPLICATE`, so a
+  // prior extraction run that already finished doesn't get silently re-run
+  // under the same id) and surface as `WorkflowExecutionAlreadyStartedError`,
+  // which we treat as success rather than a duplicate extraction run.
+  let extractionWorkflowId: string | null = null;
+  if (stored.bodyRetained) {
+    const childWorkflowId = `extraction-${stored.sourceId}`;
+    try {
+      await startChild<typeof extractionPipelineWorkflow>('extractionPipelineWorkflow', {
+        workflowId: childWorkflowId,
+        parentClosePolicy: ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON,
+        workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
+        args: [
+          {
+            tenantId: input.tenantId,
+            engagementId: input.engagementId,
+            sourceId: stored.sourceId,
+          },
+        ],
+      });
+      extractionWorkflowId = childWorkflowId;
+    } catch (err) {
+      if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
+      extractionWorkflowId = childWorkflowId;
+    }
+  } else {
+    log.info('capture retained no body; skipping extraction', {
+      captureSessionId,
+      sourceId: stored.sourceId,
+    });
+  }
+
   return {
     captureSessionId,
     sourceId: stored.sourceId,
     bodyRetained: stored.bodyRetained,
+    extractionWorkflowId,
   };
 }

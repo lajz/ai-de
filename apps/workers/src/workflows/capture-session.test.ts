@@ -7,7 +7,7 @@ import { WorkflowFailedError } from '@temporalio/client';
 import { ApplicationFailure } from '@temporalio/common';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type {
   PollCaptureBotInput,
@@ -23,23 +23,34 @@ import type {
   CaptureSessionWorkflowInput,
   CaptureSessionWorkflowResult,
 } from './capture-session.js';
+import type { ExtractionPipelineWorkflowInput } from './extraction-pipeline.js';
 
-const workflowsPath = fileURLToPath(new URL('./index.ts', import.meta.url));
+// Points at the stub bundle (real `captureSessionWorkflow` + a fake
+// `extractionPipelineWorkflow` that just records its input) so this suite never
+// depends on the real, DB/LLM-backed extraction activities.
+const workflowsPath = fileURLToPath(
+  new URL('./capture-session-test.workflows.ts', import.meta.url),
+);
 const TENANT_CMK = 'fake:cmk';
 
 /**
- * Test doubles for the three capture activities: the schedule + store steps run
- * against `FakeRecallClient` + `FakeKeyProvider` and land the `sources` row in
- * an in-memory array (the DB write path is covered by
- * `activities/capture-session.integration.test.ts`). `buildTranscriptSource` —
- * the encryption-critical part — is the real implementation.
+ * Test doubles for the three capture activities plus the extraction-start
+ * recorder: the schedule + store steps run against `FakeRecallClient` +
+ * `FakeKeyProvider` and land the `sources` row in an in-memory array (the DB
+ * write path is covered by `activities/capture-session.integration.test.ts`).
+ * `buildTranscriptSource` — the encryption-critical part — is the real
+ * implementation. `sourceIdOverride` simulates the real store activity's
+ * botId-keyed dedupe (see `capture-session.ts` activities) for the
+ * duplicate-capture test, where two independent workflow executions must
+ * resolve to the same `sourceId`.
  */
-function makeCaptureActivities(recallOptions: FakeRecallOptions = {}) {
+function makeCaptureActivities(recallOptions: FakeRecallOptions = {}, sourceIdOverride?: string) {
   const recall = new FakeRecallClient(recallOptions);
   const provider = new FakeKeyProvider();
   const tenantId = randomUUID() as TenantId;
   const engagementId = randomUUID() as EngagementId;
   const storedRows: TranscriptSourceRow[] = [];
+  const extractionStarts: ExtractionPipelineWorkflowInput[] = [];
   let dek: Promise<{ wrappedDek: Uint8Array }> | undefined;
 
   const activities = {
@@ -80,14 +91,17 @@ function makeCaptureActivities(recallOptions: FakeRecallOptions = {}) {
       storedRows.push(built.row);
       return {
         captureSessionId: input.captureSessionId,
-        sourceId: `src-${storedRows.length}`,
+        sourceId: sourceIdOverride ?? `src-${storedRows.length}`,
         bodyRetained: built.bodyRetained,
         transcriptChars: built.transcriptChars,
       };
     },
+    async recordExtractionStartActivity(input: ExtractionPipelineWorkflowInput) {
+      extractionStarts.push(input);
+    },
   };
 
-  return { activities, storedRows, recall, tenantId, engagementId };
+  return { activities, storedRows, extractionStarts, recall, tenantId, engagementId };
 }
 
 function workflowInput(
@@ -110,15 +124,42 @@ function workflowInput(
 }
 
 describe('captureSessionWorkflow', () => {
+  // A fresh env per test, not one shared `beforeAll` env: a shared time-skipping
+  // server's auto-skip gets wedged after a prior test starts a child workflow —
+  // a later test whose poll loop needs several sequential `condition()` skips
+  // (the capture-timeout path) then hangs forever waiting on virtual time that
+  // never advances. Isolating the env per test trades a little setup time for
+  // never hitting that cross-test interaction.
   let env: TestWorkflowEnvironment;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     env = await TestWorkflowEnvironment.createTimeSkipping();
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await env?.teardown();
   });
+
+  // Runs one capture execution on an already-started `worker` and, if it
+  // started an extraction child (detached via `parentClosePolicy: ABANDON`),
+  // waits for that child too — otherwise `runUntil`'s worker can shut down
+  // before the child's workflow/activity tasks are ever picked up.
+  async function executeOnce(
+    taskQueue: string,
+    workflowId: string,
+    harness: ReturnType<typeof makeCaptureActivities>,
+    retentionPolicy: RetentionPolicy,
+  ): Promise<CaptureSessionWorkflowResult> {
+    const result = (await env.client.workflow.execute('captureSessionWorkflow', {
+      taskQueue,
+      workflowId,
+      args: [workflowInput(harness.tenantId, harness.engagementId, retentionPolicy)],
+    })) as CaptureSessionWorkflowResult;
+    if (result.extractionWorkflowId) {
+      await env.client.workflow.getHandle(result.extractionWorkflowId).result();
+    }
+    return result;
+  }
 
   async function run(
     taskQueue: string,
@@ -131,16 +172,12 @@ describe('captureSessionWorkflow', () => {
       workflowsPath,
       activities: harness.activities,
     });
-    return worker.runUntil(
-      env.client.workflow.execute('captureSessionWorkflow', {
-        taskQueue,
-        workflowId: `capture-${taskQueue}`,
-        args: [workflowInput(harness.tenantId, harness.engagementId, retentionPolicy)],
-      }),
-    ) as Promise<CaptureSessionWorkflowResult>;
+    return worker.runUntil(() =>
+      executeOnce(taskQueue, `capture-${taskQueue}`, harness, retentionPolicy),
+    );
   }
 
-  it('happy path: lands one encrypted sources row and returns its id', async () => {
+  it('happy path: lands one encrypted sources row and starts extraction', async () => {
     const harness = makeCaptureActivities({ pollsUntilDone: 2 });
     const result = await run('cap-happy', harness, 'full-retention');
 
@@ -158,15 +195,63 @@ describe('captureSessionWorkflow', () => {
     const bytes = Buffer.from(row.rawBody!).toString('utf8');
     expect(bytes).not.toContain('Friday');
     expect(bytes).not.toContain('decided');
+
+    expect(result.extractionWorkflowId).toBe('extraction-src-1');
+    expect(harness.extractionStarts).toHaveLength(1);
+    expect(harness.extractionStarts[0]).toEqual({
+      tenantId: harness.tenantId,
+      engagementId: harness.engagementId,
+      sourceId: 'src-1',
+    });
   });
 
-  it('reference-only: stores no transcript body', async () => {
+  it('reference-only: stores no transcript body and skips extraction', async () => {
     const harness = makeCaptureActivities({ pollsUntilDone: 1 });
     const result = await run('cap-refonly', harness, 'reference-only');
 
     expect(result.bodyRetained).toBe(false);
     expect(harness.storedRows[0]!.rawBody).toBeUndefined();
     expect(harness.storedRows[0]!.urlPermalink).toBe('https://meet.example/standup');
+
+    expect(result.extractionWorkflowId).toBeNull();
+    expect(harness.extractionStarts).toHaveLength(0);
+  });
+
+  it('duplicate capture (same underlying source) does not double-start extraction', async () => {
+    const harness = makeCaptureActivities({ pollsUntilDone: 1 }, 'src-shared');
+    const taskQueue = 'cap-dup';
+    const worker = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue,
+      workflowsPath,
+      activities: harness.activities,
+    });
+
+    // One worker, two capture executions — the second's `sourceId` collides
+    // with the first's (both forced to `src-shared`), so its extraction
+    // `startChild` should hit the existing child id and be swallowed. Read the
+    // child's `runId` after each capture (not just its `workflowId`, which the
+    // second capture would report identically even if a *new* run had been
+    // allowed under the same id) to prove the second `startChild` never created
+    // a second execution.
+    const [first, runIdAfterFirst, second, runIdAfterSecond] = await worker.runUntil(async () => {
+      const r1 = await executeOnce(taskQueue, 'cap-dup-1', harness, 'full-retention');
+      const runId1 = (await env.client.workflow.getHandle(r1.extractionWorkflowId!).describe())
+        .runId;
+      const r2 = await executeOnce(taskQueue, 'cap-dup-2', harness, 'full-retention');
+      const runId2 = (await env.client.workflow.getHandle(r2.extractionWorkflowId!).describe())
+        .runId;
+      return [r1, runId1, r2, runId2] as const;
+    });
+
+    expect(first.extractionWorkflowId).toBe('extraction-src-shared');
+    expect(second.extractionWorkflowId).toBe('extraction-src-shared');
+    // both captures resolve to the same sourceId (dedupe hit), so the second
+    // `startChild` collides on the deterministic child id and is swallowed as
+    // `WorkflowExecutionAlreadyStartedError` — extraction only actually starts
+    // once, and the second capture observes the *same* run, not a new one.
+    expect(runIdAfterSecond).toBe(runIdAfterFirst);
+    expect(harness.extractionStarts).toHaveLength(1);
   });
 
   it('bot-failure path: surfaces a retryable ApplicationFailure', async () => {
