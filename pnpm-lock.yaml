@@ -205,6 +205,9 @@ importers:
 
   apps/workers:
     dependencies:
+      '@fde/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@fde/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -329,6 +332,22 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.13
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.20.1)(terser@5.51.2)
+
+  packages/connectors:
+    dependencies:
+      '@fde/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

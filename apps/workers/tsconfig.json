@@ -8,7 +8,8 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/crypto" },
     { "path": "../../packages/db" },
-    { "path": "../../packages/llm" }
+    { "path": "../../packages/llm" },
+    { "path": "../../packages/connectors" }
   ],
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts"]

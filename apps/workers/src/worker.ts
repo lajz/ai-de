@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { createDefaultConnectorRegistry } from '@fde/connectors';
 import { FakeKeyProvider, KmsKeyProvider, type KeyProvider } from '@fde/crypto';
 import { createDbClient } from '@fde/db';
 import {
@@ -49,6 +50,10 @@ export async function runWorker(): Promise<void> {
   const dbHandle = createDbClient({ url: process.env.DATABASE_URL });
   const keyProvider = loadKeyProvider(process.env);
   const recallClient = loadRecallClient(process.env);
+  // Connector registry for the generic `ConnectorSync` workflow — Granola backed
+  // by `HttpGranolaClient` when `GRANOLA_API_KEY` is set, `FakeGranolaClient`
+  // otherwise (same real-vs-fake config flip as `loadRecallClient`).
+  const connectors = createDefaultConnectorRegistry(process.env);
   // Redacted tracing (`docs/architecture.md`: "Langfuse — redacted traces only").
   // `NoopTracer` unless both LANGFUSE_* keys are set; the sink turns each
   // content-free `UsageRecord` into a redacted span, and `traceExtraction` inside
@@ -60,6 +65,7 @@ export async function runWorker(): Promise<void> {
     db: dbHandle.db,
     keyProvider,
     recallClient,
+    connectors,
     router,
     embeddingClient,
     tracer,

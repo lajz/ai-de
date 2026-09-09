@@ -10,9 +10,9 @@ do $$
 declare
   t text;
   tenant_tables text[] := array[
-    'users','engagements','sources','capture_sessions','acl_snapshots','entities',
-    'relationships','facts','evidence','extraction_runs','embeddings','identities',
-    'access_log','break_glass_grants'
+    'users','engagements','sources','capture_sessions','connector_sync_state',
+    'acl_snapshots','entities','relationships','facts','evidence','extraction_runs',
+    'embeddings','identities','access_log','break_glass_grants'
   ];
 begin
   foreach t in array tenant_tables loop

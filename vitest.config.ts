@@ -15,6 +15,7 @@ export default defineConfig({
       '@fde/crypto': pkg('crypto'),
       '@fde/db': pkg('db'),
       '@fde/audit': pkg('audit'),
+      '@fde/connectors': pkg('connectors'),
       '@fde/authz': pkg('authz'),
       '@fde/llm': pkg('llm'),
     },
