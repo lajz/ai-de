@@ -1,0 +1,26 @@
+{
+  "name": "@fde/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fde/core": "workspace:*",
+    "@fde/crypto": "workspace:*",
+    "@fde/db": "workspace:*",
+    "@fde/llm": "workspace:*",
+    "@fde/workers": "workspace:*",
+    "@temporalio/client": "catalog:",
+    "@temporalio/worker": "catalog:",
+    "drizzle-orm": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "@temporalio/testing": "catalog:"
+  }
+}

@@ -1,0 +1,52 @@
+name: E2E
+
+# The M1 end-to-end check (docs/architecture.md#verification): a recorded meeting
+# runs capture → ExtractionPipeline → facts/evidence/embeddings on the security
+# spine, and the read path returns them with working citations — asserting field
+# encryption at rest, the crypto-shred boundary, and tenant isolation.
+#
+# NOT a required check yet (like eval.yml) — make it required once it has proven
+# reliably green and under ~10 min. Everything runs against the disposable
+# `docker-compose.e2e.yml` stack; no secrets, no external providers (extraction
+# is a deterministic stand-in here — quality is gated by eval.yml).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5442/fde_e2e
+      TEMPORAL_ADDRESS: localhost:7233
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Start the e2e stack
+        run: docker compose -f docker-compose.e2e.yml up -d --wait
+
+      - name: Bootstrap + migrate + harden the e2e database
+        run: e2e/scripts/db-setup.sh
+
+      - name: Run the M1 e2e
+        run: pnpm e2e
+
+      - name: Temporal + Postgres logs
+        if: failure()
+        run: docker compose -f docker-compose.e2e.yml logs --no-color temporal postgres
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down -v
