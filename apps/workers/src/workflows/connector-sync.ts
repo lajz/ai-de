@@ -7,6 +7,7 @@ import type { EngagementId, TenantId } from '@fde/core';
 // postgres). Only the input/output shapes.
 import type {
   ConnectorSyncMode,
+  GraphWriteTally,
   RunConnectorSyncInput,
   RunConnectorSyncResult,
 } from '../activities/connector-sync.js';
@@ -43,6 +44,8 @@ export interface ConnectorSyncWorkflowResult {
   /** child `extractionPipelineWorkflow`s started for newly-landed transcript sources */
   extractionsStarted: number;
   cursor: string | null;
+  /** canonical-graph write tally from persisting `normalize` output (metadata only) */
+  graph: GraphWriteTally;
 }
 
 /**
@@ -72,6 +75,7 @@ export async function connectorSyncWorkflow(
     sourceCount: result.sourceCount,
     extractionsStarted,
     cursor: result.cursor,
+    graph: result.graph,
   };
 }
 

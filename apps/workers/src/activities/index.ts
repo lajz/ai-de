@@ -69,6 +69,7 @@ export {
   type ConnectorSyncActivitiesDeps,
   type ConnectorSyncActivities,
   type ConnectorSyncMode,
+  type GraphWriteTally,
   type RunConnectorSyncInput,
   type RunConnectorSyncResult,
 } from './connector-sync.js';

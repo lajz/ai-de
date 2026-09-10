@@ -235,6 +235,9 @@ importers:
       '@fde/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@fde/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity
       '@fde/llm':
         specifier: workspace:*
         version: link:../../packages/llm
