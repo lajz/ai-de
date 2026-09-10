@@ -11,6 +11,7 @@ export const TENANT_SCOPED_TABLES = [
   'sources',
   'capture_sessions',
   'connector_sync_state',
+  'connector_config',
   'acl_snapshots',
   'entities',
   'relationships',
@@ -39,6 +40,9 @@ export const CRYPTO_COLUMNS = {
   evidence: [{ prop: 'quote', path: 'evidence.quote', codec: 'string' }],
   sources: [{ prop: 'rawBody', path: 'sources.raw_body', codec: 'string' }],
   acl_snapshots: [{ prop: 'principalRules', path: 'acl_snapshots.principal_rules', codec: 'json' }],
+  connector_config: [
+    { prop: 'credentialRef', path: 'connector_config.credential_ref', codec: 'string' },
+  ],
   entities: [
     { prop: 'attributes', path: 'entities.attributes', codec: 'json' },
     { prop: 'body', path: 'entities.body', codec: 'string' },

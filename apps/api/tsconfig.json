@@ -18,6 +18,7 @@
     { "path": "../../packages/db" },
     { "path": "../../packages/audit" },
     { "path": "../../packages/authz" },
+    { "path": "../../packages/connectors" },
     { "path": "../../packages/llm" }
   ],
   "include": ["src/**/*"],

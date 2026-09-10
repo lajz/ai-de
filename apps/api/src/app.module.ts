@@ -1,21 +1,26 @@
 import { Module } from '@nestjs/common';
 
+import { AdminModule } from './admin/admin.module.js';
 import { AuthzModule } from './authz/authz.module.js';
 import { AppConfigModule } from './config/config.module.js';
 import { DbModule } from './db/db.module.js';
 import { EngagementsController } from './engagements/engagements.controller.js';
 import { HealthController } from './health/health.controller.js';
 import { KeyProviderModule } from './key-provider/key-provider.module.js';
+import { LineageModule } from './lineage/lineage.module.js';
 import { MeController } from './me/me.controller.js';
 import { RequestContextModule } from './request-context/request-context.module.js';
 import { RetrievalModule } from './retrieval/retrieval.module.js';
+import { TemporalModule } from './temporal/temporal.module.js';
 
 /**
  * The API composition root. `RequestContextModule` registers the app-wide
  * guard + interceptor that every non-`@Public()` route below runs behind; the
- * `Controller`s here hold only the minimal M1 routes that prove the seam
- * (`/healthz`, `/me`, `/engagements`, `/engagements/:id/audit`). SSO + the
- * WorkOS webhook live in `AuthModule` (imported via `RequestContextModule`).
+ * `Controller`s here hold the M1 seam routes (`/healthz`, `/me`, `/engagements`,
+ * `/engagements/:id/audit` + the `retrieval` read path). `AdminModule` /
+ * `LineageModule` add the `/admin` connector-config + data-lineage surface, and
+ * `TemporalModule` the optional workflow client that backs connector sync. SSO +
+ * the WorkOS webhook live in `AuthModule` (imported via `RequestContextModule`).
  */
 @Module({
   imports: [
@@ -25,6 +30,9 @@ import { RetrievalModule } from './retrieval/retrieval.module.js';
     AuthzModule,
     RequestContextModule,
     RetrievalModule,
+    TemporalModule,
+    AdminModule,
+    LineageModule,
   ],
   controllers: [HealthController, MeController, EngagementsController],
 })
