@@ -257,6 +257,9 @@ importers:
 
   e2e:
     dependencies:
+      '@fde/connectors':
+        specifier: workspace:*
+        version: link:../packages/connectors
       '@fde/core':
         specifier: workspace:*
         version: link:../packages/core
@@ -439,6 +442,34 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.13
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.20.1)(terser@5.51.2)
+
+  packages/identity:
+    dependencies:
+      '@fde/audit':
+        specifier: workspace:*
+        version: link:../audit
+      '@fde/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fde/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@fde/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.38.4(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

@@ -21,6 +21,7 @@ import {
   withTenant,
   type Database,
 } from '@fde/db';
+import { ConnectorRegistry } from '@fde/connectors';
 import { EMBEDDING_DIM, FakeEmbeddingClient, NoopTracer } from '@fde/llm';
 import { createActivities } from '@fde/workers/activities/index.js';
 import { FakeRecallClient } from '@fde/workers/capture/index.js';
@@ -163,6 +164,8 @@ describe.skipIf(!DATABASE_URL)('M1 pipeline e2e (capture → extraction → read
       router: createCannedExtractionRouter(),
       embeddingClient: new FakeEmbeddingClient(),
       tracer: new NoopTracer(),
+      // this pipeline is capture -> extraction -> read; no connector sync runs here
+      connectors: new ConnectorRegistry({}),
     });
 
     worker = await Worker.create({

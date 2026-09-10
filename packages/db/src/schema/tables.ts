@@ -19,6 +19,7 @@ export const TENANT_SCOPED_TABLES = [
   'extraction_runs',
   'embeddings',
   'identities',
+  'identity_review_queue',
   'access_log',
   'break_glass_grants',
 ] as const;

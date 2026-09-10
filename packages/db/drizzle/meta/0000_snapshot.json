@@ -1,5 +1,5 @@
 {
-  "id": "fdd156f9-dad9-44a1-8bc2-d1480e8ff8c8",
+  "id": "945c5714-409b-47af-92e6-4bf526e0bbe4",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2115,6 +2115,162 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.identity_review_queue": {
+      "name": "identity_review_queue",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_a_id": {
+          "name": "entity_a_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_b_id": {
+          "name": "entity_b_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "score": {
+          "name": "score",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signals": {
+          "name": "signals",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "status": {
+          "name": "status",
+          "type": "identity_review_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "identity_review_queue_pair_uq": {
+          "name": "identity_review_queue_pair_uq",
+          "columns": [
+            {
+              "expression": "entity_a_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_b_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "identity_review_queue_tenant_id_tenants_id_fk": {
+          "name": "identity_review_queue_tenant_id_tenants_id_fk",
+          "tableFrom": "identity_review_queue",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "identity_review_queue_entity_a_id_entities_id_fk": {
+          "name": "identity_review_queue_entity_a_id_entities_id_fk",
+          "tableFrom": "identity_review_queue",
+          "tableTo": "entities",
+          "columnsFrom": [
+            "entity_a_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "identity_review_queue_entity_b_id_entities_id_fk": {
+          "name": "identity_review_queue_entity_b_id_entities_id_fk",
+          "tableFrom": "identity_review_queue",
+          "tableTo": "entities",
+          "columnsFrom": [
+            "entity_b_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "identity_review_queue_tenant_isolation": {
+          "name": "identity_review_queue_tenant_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "app_rw"
+          ],
+          "using": "\"identity_review_queue\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid",
+          "withCheck": "\"identity_review_queue\".\"tenant_id\" = nullif(current_setting('app.tenant_id', true), '')::uuid"
+        }
+      },
+      "checkConstraints": {
+        "identity_review_queue_pair_order_ck": {
+          "name": "identity_review_queue_pair_order_ck",
+          "value": "\"identity_review_queue\".\"entity_a_id\" < \"identity_review_queue\".\"entity_b_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.access_log": {
       "name": "access_log",
       "schema": "",
@@ -2532,6 +2688,15 @@
         "question",
         "action_item",
         "status_change"
+      ]
+    },
+    "public.identity_review_status": {
+      "name": "identity_review_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "merged",
+        "rejected"
       ]
     },
     "public.actor_type": {

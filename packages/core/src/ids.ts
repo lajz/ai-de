@@ -16,5 +16,6 @@ export type AclSnapshotId = Brand<string, 'AclSnapshotId'>;
 export type ExtractionRunId = Brand<string, 'ExtractionRunId'>;
 export type EmbeddingId = Brand<string, 'EmbeddingId'>;
 export type IdentityId = Brand<string, 'IdentityId'>;
+export type IdentityReviewId = Brand<string, 'IdentityReviewId'>;
 export type AccessLogId = Brand<string, 'AccessLogId'>;
 export type BreakGlassGrantId = Brand<string, 'BreakGlassGrantId'>;

@@ -10,6 +10,7 @@ const fromHere = (p: string) => resolve(import.meta.dirname, p);
 export default defineConfig({
   resolve: {
     alias: {
+      '@fde/connectors': fromHere('../packages/connectors/src/index.ts'),
       '@fde/core': fromHere('../packages/core/src/index.ts'),
       '@fde/crypto': fromHere('../packages/crypto/src/index.ts'),
       '@fde/db': fromHere('../packages/db/src/index.ts'),

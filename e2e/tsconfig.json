@@ -9,6 +9,7 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
+      "@fde/connectors": ["../packages/connectors/src/index.ts"],
       "@fde/core": ["../packages/core/src/index.ts"],
       "@fde/crypto": ["../packages/crypto/src/index.ts"],
       "@fde/db": ["../packages/db/src/index.ts"],
