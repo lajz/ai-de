@@ -12,6 +12,7 @@
     "@fde/core": "workspace:*",
     "@fde/crypto": "workspace:*",
     "@fde/db": "workspace:*",
+    "@fde/identity": "workspace:*",
     "@fde/llm": "workspace:*",
     "@fde/workers": "workspace:*",
     "@temporalio/client": "catalog:",

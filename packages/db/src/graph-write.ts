@@ -89,6 +89,11 @@ export async function upsertEntityByRef(
   cipher: EngagementCipher,
 ): Promise<UpsertEntityResult> {
   const refs = normalizeRefs(canonical.externalRefs);
+  // `canonicalEntitySchema` enforces `.min(1)`; guard anyway so a direct caller
+  // can't turn an empty ref list into an `or()` of nothing (→ match any row).
+  if (refs.length === 0) {
+    throw new Error('upsertEntityByRef: canonical entity has no externalRefs');
+  }
   const scope = and(
     eq(entities.tenantId, tenantId),
     eq(entities.engagementId, engagementId),
@@ -123,7 +128,13 @@ export async function upsertEntityByRef(
         ...(hit.body == null && enc.body != null ? { body: enc.body } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(entities.tenantId, tenantId), eq(entities.id, hit.id)));
+      .where(
+        and(
+          eq(entities.tenantId, tenantId),
+          eq(entities.engagementId, engagementId),
+          eq(entities.id, hit.id),
+        ),
+      );
     return { entityId: hit.id as EntityId, created: false };
   }
 

@@ -13,6 +13,7 @@
       "@fde/core": ["../packages/core/src/index.ts"],
       "@fde/crypto": ["../packages/crypto/src/index.ts"],
       "@fde/db": ["../packages/db/src/index.ts"],
+      "@fde/identity": ["../packages/identity/src/index.ts"],
       "@fde/llm": ["../packages/llm/src/index.ts"],
       "@fde/workers/*": ["../apps/workers/src/*"]
     }

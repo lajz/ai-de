@@ -14,6 +14,7 @@ export default defineConfig({
       '@fde/core': fromHere('../packages/core/src/index.ts'),
       '@fde/crypto': fromHere('../packages/crypto/src/index.ts'),
       '@fde/db': fromHere('../packages/db/src/index.ts'),
+      '@fde/identity': fromHere('../packages/identity/src/index.ts'),
       '@fde/llm': fromHere('../packages/llm/src/index.ts'),
       '@fde/workers': fromHere('../apps/workers/src'),
     },
