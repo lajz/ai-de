@@ -1,4 +1,14 @@
-import type { Engagement, Fact, QaResult } from './types';
+import type {
+  ConnectorConfig,
+  Engagement,
+  EngagementGraph,
+  Fact,
+  FactProvenance,
+  PipelineStatus,
+  PutConnectorBody,
+  QaResult,
+  SyncMode,
+} from './types';
 
 const DEFAULT_BASE_URL = 'http://localhost:3000';
 
@@ -66,4 +76,69 @@ export function askQuestion(
     method: 'POST',
     body: JSON.stringify({ question }),
   });
+}
+
+// --- /admin: connector configuration -----------------------------------------
+
+export function getConnectors(
+  token: string | undefined,
+  engagementId: string,
+): Promise<ConnectorConfig[]> {
+  return apiJson<ConnectorConfig[]>(`/engagements/${engagementId}/connectors`, token);
+}
+
+export function putConnector(
+  token: string | undefined,
+  engagementId: string,
+  connectorId: string,
+  body: PutConnectorBody,
+): Promise<ConnectorConfig> {
+  return apiJson<ConnectorConfig>(`/engagements/${engagementId}/connectors/${connectorId}`, token, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export function startConnectorSync(
+  token: string | undefined,
+  engagementId: string,
+  connectorId: string,
+  mode: SyncMode,
+): Promise<{ workflowId: string }> {
+  return apiJson<{ workflowId: string }>(
+    `/engagements/${engagementId}/connectors/${connectorId}/sync`,
+    token,
+    { method: 'POST', body: JSON.stringify({ mode }) },
+  );
+}
+
+// --- /admin: data lineage --------------------------------------------------
+
+export function getFactProvenance(
+  token: string | undefined,
+  engagementId: string,
+  factId: string,
+): Promise<FactProvenance> {
+  return apiJson<FactProvenance>(`/engagements/${engagementId}/facts/${factId}/provenance`, token);
+}
+
+export function getGraph(
+  token: string | undefined,
+  engagementId: string,
+  filters?: { entityType?: string; predicate?: string },
+): Promise<EngagementGraph> {
+  const qs = new URLSearchParams();
+  if (filters?.entityType) qs.set('entityType', filters.entityType);
+  if (filters?.predicate) qs.set('predicate', filters.predicate);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return apiJson<EngagementGraph>(`/engagements/${engagementId}/graph${suffix}`, token);
+}
+
+export function getPipeline(
+  token: string | undefined,
+  engagementId: string,
+  limit?: number,
+): Promise<PipelineStatus> {
+  const suffix = limit ? `?limit=${limit}` : '';
+  return apiJson<PipelineStatus>(`/engagements/${engagementId}/pipeline${suffix}`, token);
 }

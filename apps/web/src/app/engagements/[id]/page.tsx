@@ -26,6 +26,8 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
     <main>
       <p>
         <Link href="/">← Engagements</Link>
+        {' · '}
+        <Link href={`/engagements/${id}/admin/connectors`}>Admin</Link>
       </p>
       <h1>Engagement</h1>
       <p>
