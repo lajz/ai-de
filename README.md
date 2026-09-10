@@ -34,6 +34,18 @@ The remaining apps (`web`, `mcp`) and packages (`connectors`, `authz`, `llm`,
 
 ## Setup
 
+**Recommended — `tilt up`:** one command for the whole stack (Postgres +
+Temporal + SpiceDB + the three apps, with a dashboard and hot-reload). See
+[`docs/local-dev.md`](docs/local-dev.md).
+
+```bash
+pnpm install
+cp .env.example .env
+pnpm dev                             # tilt up — full stack + dashboard
+```
+
+Or drive the pieces by hand:
+
 ```bash
 pnpm install
 cp .env.example .env

@@ -8,6 +8,10 @@ Full architecture rationale (tiers, key hierarchy, threat model, stack choices,
 data model, connector strategy) lives in
 [`docs/architecture.md`](./architecture.md).
 
+**Local dev:** `tilt up` (`pnpm dev`) brings up the full backing stack
+(Postgres + Temporal + SpiceDB, LocalStack/Redis behind profiles) and the three
+apps with one dashboard — see [`docs/local-dev.md`](./local-dev.md).
+
 ---
 
 ## Where things stand
