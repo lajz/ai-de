@@ -6,7 +6,10 @@
 #                           http://localhost:10350
 #   tilt up -- aws          also start localstack (KMS for @fde/crypto tests)
 #   tilt up -- redis        also start redis (not wired into app code yet — M3)
-#   tilt up -- aws redis    both
+#   tilt up -- nango        also start self-hosted Nango (OAuth token custody for
+#                           the Linear connector — M3); set NANGO_SECRET_KEY +
+#                           NANGO_SERVER_URL in .env to point the worker at it
+#   tilt up -- aws redis    combine any of them
 #   tilt down               stop the apps and the compose stack (keeps volumes)
 #
 # Tilt drives `docker-compose` for the infra (see ./docker-compose.yml) and
@@ -20,7 +23,7 @@
 
 config.define_string_list('profiles', args=True)
 _enabled = config.parse().get('profiles', [])
-compose_profiles = [p for p in ['aws', 'redis'] if p in _enabled]
+compose_profiles = [p for p in ['aws', 'redis', 'nango'] if p in _enabled]
 
 # Repo-root .env — Tilt uses it for docker-compose ${VAR} interpolation; parse
 # it here too so the readiness probes / links track a remapped PORT etc.
@@ -51,11 +54,15 @@ if 'aws' in compose_profiles:
     infra_services.append('localstack')
 if 'redis' in compose_profiles:
     infra_services.append('redis')
+if 'nango' in compose_profiles:
+    infra_services.extend(['nango-db', 'nango-redis', 'nango-server'])
 
 for svc in infra_services:
     svc_links = []
     if svc == 'temporal':
         svc_links = [link('http://localhost:%s' % envget('TEMPORAL_UI_PORT', '8233'), 'Temporal UI')]
+    if svc == 'nango-server':
+        svc_links = [link('http://localhost:%s' % envget('NANGO_SERVER_PORT', '3003'), 'Nango')]
     dc_resource(svc, labels=['infra'], links=svc_links)
 
 # ---------------------------------------------------------------------------

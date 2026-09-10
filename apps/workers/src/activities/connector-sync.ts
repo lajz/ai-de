@@ -5,19 +5,21 @@ import type {
   CanonicalRecord,
   Connector,
   ConnectorContext,
+  ConnectorCredential,
   EngagementId,
   RawArtifact,
   RetentionPolicy,
   TenantId,
 } from '@fde/core';
 import { rawArtifactSchema } from '@fde/core';
-import { encryptRow, type KeyProvider } from '@fde/crypto';
+import { decryptRow, encryptRow, type KeyProvider } from '@fde/crypto';
 import {
   aclSnapshots,
   connectorSyncState,
   CRYPTO_COLUMNS,
   engagements,
   resolveEndpointRef,
+  selectConnectorConfigs,
   sources,
   upsertEntityByRef,
   upsertRelationship,
@@ -25,7 +27,7 @@ import {
   type Database,
 } from '@fde/db';
 import { resolveNormalizedRecords } from '@fde/identity';
-import { type ConnectorRegistry } from '@fde/connectors';
+import { type ConnectorRegistry, type NangoClient } from '@fde/connectors';
 
 import { buildConnectorSource, connectorContentHash } from './connector-source.js';
 import { withEngagementActivity, type EngagementActivityContext } from './engagement-context.js';
@@ -35,6 +37,12 @@ export interface ConnectorSyncActivitiesDeps {
   keyProvider: KeyProvider;
   /** connector id → factory; built in `worker.ts` (`createDefaultConnectorRegistry`) */
   connectors: ConnectorRegistry;
+  /**
+   * Self-hosted Nango — mints a fresh OAuth token for `authKind: 'nango-oauth'`
+   * connectors. `FakeNangoClient` when `NANGO_SECRET_KEY` is unset (built in
+   * `worker.ts`).
+   */
+  nango: NangoClient;
 }
 
 export type ConnectorSyncMode = 'backfill' | 'incremental';
@@ -213,6 +221,102 @@ export function createConnectorSyncActivities(deps: ConnectorSyncActivitiesDeps)
           set: { ...patch, updatedAt: new Date() },
         }),
     );
+  }
+
+  /**
+   * Read + decrypt `connector_config.credentialRef` for `(engagement,
+   * connectorId)` with the engagement DEK. One `withEngagementActivity` per
+   * call — the caller memoizes it for the run. Returns `null` when no row / no
+   * stored credential.
+   */
+  function loadConnectorCredentialRef(
+    tenantId: TenantId,
+    engagementId: EngagementId,
+    connectorId: string,
+  ): Promise<string | null> {
+    return withEngagementActivity(
+      deps.db,
+      deps.keyProvider,
+      { tenantId, engagementId },
+      async (c) => {
+        const cfg = (await selectConnectorConfigs(c.tx, tenantId, engagementId)).find(
+          (x) => x.connector === connectorId,
+        );
+        if (!cfg?.credentialRef) return null;
+        const { credentialRef } = await decryptRow<{ credentialRef: string }>(
+          c.cipher,
+          CRYPTO_COLUMNS.connector_config,
+          { credentialRef: cfg.credentialRef },
+        );
+        return credentialRef;
+      },
+    );
+  }
+
+  /**
+   * Build the vault-backed `ConnectorContext.getCredential` for one sync run.
+   *
+   * The decrypted `credentialRef` means different things by auth kind:
+   *
+   * - `nango-oauth` — it is a **Nango connection id**. Exchange it via
+   *   `deps.nango.getConnection(connectionId, providerConfigKey)` for a fresh
+   *   access token (Nango refreshes server-side). `providerConfigKey` is the
+   *   connector id by convention (`'linear'` → the `linear` Nango integration).
+   * - `bearer` / others — it is the secret itself (a Granola `grn_` token, a
+   *   Recall key); returned as-is. (Granola injects a pre-authed client and
+   *   never calls this, but the path is here for any bearer connector that does.)
+   *
+   * A missing `credentialRef`, or Nango being unreachable, raises a retryable
+   * `ApplicationFailure` — an admin attaching the credential, or Nango
+   * recovering, lets Temporal's retry succeed without restarting the sync. The
+   * connection-id → token exchange is memoized per run (one Nango round trip).
+   */
+  function makeGetCredential(
+    connector: Connector,
+    ref: { tenantId: TenantId; engagementId: EngagementId; connectorId: string },
+  ): () => Promise<ConnectorCredential> {
+    let cached: Promise<ConnectorCredential> | undefined;
+    const resolve = async (): Promise<ConnectorCredential> => {
+      const credentialRef = await loadConnectorCredentialRef(
+        ref.tenantId,
+        ref.engagementId,
+        ref.connectorId,
+      );
+
+      if (connector.authKind === 'nango-oauth') {
+        if (!credentialRef) {
+          throw ApplicationFailure.create({
+            type: 'ConnectorCredentialMissing',
+            message: `connector '${ref.connectorId}' has no Nango connection id (connector_config.credentialRef) for engagement ${ref.engagementId}`,
+          });
+        }
+        let connection;
+        try {
+          connection = await deps.nango.getConnection(credentialRef, ref.connectorId);
+        } catch (err) {
+          throw ApplicationFailure.create({
+            type: 'NangoUnavailable',
+            message: `Nango getConnection failed for '${ref.connectorId}': ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          });
+        }
+        return {
+          authKind: 'nango-oauth',
+          value: connection.accessToken,
+          ...(Object.keys(connection.metadata).length > 0 ? { metadata: connection.metadata } : {}),
+        };
+      }
+
+      if (!credentialRef) {
+        throw ApplicationFailure.create({
+          type: 'ConnectorCredentialMissing',
+          message: `connector '${ref.connectorId}' has no stored credential for engagement ${ref.engagementId}`,
+        });
+      }
+      return { authKind: connector.authKind, value: credentialRef };
+    };
+    return () => (cached ??= resolve());
   }
 
   /** Persist one artifact: dedupe → resolveAcl → acl_snapshots → encrypted sources row → canonical graph. */
@@ -401,6 +505,7 @@ export function createConnectorSyncActivities(deps: ConnectorSyncActivitiesDeps)
       engagementRetentionPolicy: retentionPolicy,
     });
     const effectiveRetentionPolicy = connector.retentionPolicy;
+    const getCredential = makeGetCredential(connector, { tenantId, engagementId, connectorId });
 
     await upsertSyncState(tenantId, engagementId, connectorId, {
       status: 'running',
@@ -410,13 +515,7 @@ export function createConnectorSyncActivities(deps: ConnectorSyncActivitiesDeps)
     const ctx: ConnectorContext = {
       tenantId,
       engagementId,
-      getCredential: () =>
-        Promise.reject(
-          new Error(
-            'ConnectorSync injects a pre-authed client (e.g. GRANOLA_API_KEY); ' +
-              'the vault-backed getCredential path lands with Nango in M3',
-          ),
-        ),
+      getCredential,
       // structured log sink — connectors MUST NOT pass artifact bodies here
       // (see the `Connector` interface).
       log: (event, fields) =>

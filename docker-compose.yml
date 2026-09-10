@@ -96,12 +96,85 @@ services:
       timeout: 5s
       retries: 10
 
-  # --- Nango (self-hosted) — lands with M3 -------------------------------------
-  # Linear/Google Docs connectors run on a self-hosted Nango, which is its own
-  # multi-container stack (nango-server + its own Postgres + Redis + Temporal).
-  # When M3 starts, pull it in with a top-level `include:` of an upstream
-  # nango compose file rather than hand-copying its services. Left as a marker.
+  # --- Nango (self-hosted) — OAuth token custody for `nango-oauth` connectors --
+  # `docs/architecture.md`: Nango self-hosted (never Nango Cloud) — connector
+  # tokens are crown-jewel access. This is a curated minimal set rather than a
+  # top-level `include:` of NangoHQ's compose file, whose bind mounts
+  # (`./packages/providers/providers.yaml`, `./nango-data`) assume you are inside
+  # the nango repo. Off by default; bring it up with
+  # `docker compose --profile nango up -d` or `tilt up -- nango`. The worker
+  # (@fde/workers) talks to it via NANGO_SERVER_URL / NANGO_SECRET_KEY; without
+  # those it uses FakeNangoClient and Linear runs on FakeLinearClient.
+  #
+  # One-time setup after first boot — create the `linear` integration
+  # (providerConfigKey=`linear`) with your Linear OAuth app credentials: see
+  # packages/connectors/src/nango/README.md.
+  nango-db:
+    image: postgres:16-alpine
+    profiles: ['nango']
+    environment:
+      POSTGRES_USER: nango
+      POSTGRES_PASSWORD: nango
+      POSTGRES_DB: nango
+    volumes:
+      - nangodata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nango -d nango']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nango-redis:
+    image: redis:7-alpine
+    profiles: ['nango']
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nango-server:
+    image: nangohq/nango-server:hosted
+    platform: linux/amd64
+    profiles: ['nango']
+    depends_on:
+      nango-db:
+        condition: service_healthy
+      nango-redis:
+        condition: service_healthy
+    environment:
+      NANGO_DB_HOST: nango-db
+      NANGO_DB_PORT: '5432'
+      NANGO_DB_USER: nango
+      NANGO_DB_PASSWORD: nango
+      NANGO_DB_NAME: nango
+      NANGO_REDIS_URL: redis://nango-redis:6379
+      # dev-only 32-byte base64 key — generate a real one for any shared env
+      NANGO_ENCRYPTION_KEY: ${NANGO_ENCRYPTION_KEY:-RVhBTVBMRV9ERVZfT05MWV8zMl9CWVRFX0tFWV9YWFhY}
+      NANGO_SECRET_KEY: ${NANGO_SECRET_KEY:-nango-dev-secret-key}
+      NANGO_SERVER_URL: ${NANGO_SERVER_URL:-http://localhost:3003}
+      NANGO_PUBLIC_SERVER_URL: ${NANGO_SERVER_URL:-http://localhost:3003}
+      NANGO_PUBLIC_CONNECT_URL: ${NANGO_CONNECT_BASE_URL:-http://localhost:3009}
+      SERVER_PORT: '3003'
+      FLAG_AUTH_ENABLED: 'false'
+      FLAG_SERVE_CONNECT_UI: 'true'
+      NANGO_LOGS_ENABLED: 'false'
+      TELEMETRY: 'false'
+    ports:
+      - '${NANGO_SERVER_PORT:-3003}:3003'
+      - '${NANGO_CONNECT_UI_PORT:-3009}:3009'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:3003/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 15
 
 volumes:
   pgdata:
   temporaldata:
+  nangodata:

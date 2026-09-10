@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { createDefaultConnectorRegistry } from '@fde/connectors';
+import { createDefaultConnectorRegistry, loadNangoClient } from '@fde/connectors';
 import { FakeKeyProvider, KmsKeyProvider, type KeyProvider } from '@fde/crypto';
 import { createDbClient } from '@fde/db';
 import {
@@ -54,6 +54,11 @@ export async function runWorker(): Promise<void> {
   // by `HttpGranolaClient` when `GRANOLA_API_KEY` is set, `FakeGranolaClient`
   // otherwise (same real-vs-fake config flip as `loadRecallClient`).
   const connectors = createDefaultConnectorRegistry(process.env);
+  // Self-hosted Nango — OAuth token custody for `nango-oauth` connectors
+  // (Linear). Real `HttpNangoClient` when `NANGO_SECRET_KEY` is set (see
+  // `docker compose --profile nango` / `tilt up -- nango`), deterministic
+  // `FakeNangoClient` otherwise (Linear then runs on `FakeLinearClient`).
+  const nango = loadNangoClient(process.env);
   // Redacted tracing (`docs/architecture.md`: "Langfuse — redacted traces only").
   // `NoopTracer` unless both LANGFUSE_* keys are set; the sink turns each
   // content-free `UsageRecord` into a redacted span, and `traceExtraction` inside
@@ -66,6 +71,7 @@ export async function runWorker(): Promise<void> {
     keyProvider,
     recallClient,
     connectors,
+    nango,
     router,
     embeddingClient,
     tracer,

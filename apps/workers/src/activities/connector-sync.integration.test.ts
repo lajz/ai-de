@@ -11,7 +11,14 @@ import type {
   TenantId,
 } from '@fde/core';
 import { artifactEmit, checkpointEmit } from '@fde/core';
-import { ConnectorRegistry, FakeGranolaClient, GranolaConnector } from '@fde/connectors';
+import {
+  ConnectorRegistry,
+  FakeGranolaClient,
+  FakeLinearClient,
+  FakeNangoClient,
+  GranolaConnector,
+  LinearConnector,
+} from '@fde/connectors';
 import { FakeKeyProvider, getCipher } from '@fde/crypto';
 import {
   aclSnapshots,
@@ -23,6 +30,7 @@ import {
   relationships,
   sources,
   tenants,
+  upsertConnectorConfig,
   withEngagement,
   withTenant,
   type Database,
@@ -49,15 +57,26 @@ describe.skipIf(!url)('connectorSync activities (integration)', () => {
   let handle: { db: Database; close: () => Promise<void> };
   const tenantId = randomUUID() as TenantId;
 
+  const nango = new FakeNangoClient({ accessToken: 'tok-linear-123' });
   const registry = new ConnectorRegistry({
     granola: (ctx) =>
       new GranolaConnector({
         client: new FakeGranolaClient(),
         engagementRetentionPolicy: ctx.engagementRetentionPolicy,
       }),
+    linear: (ctx) =>
+      new LinearConnector({
+        clientFactory: () => new FakeLinearClient(),
+        engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+      }),
   });
   const acts = () =>
-    createConnectorSyncActivities({ db: handle.db, keyProvider: provider, connectors: registry });
+    createConnectorSyncActivities({
+      db: handle.db,
+      keyProvider: provider,
+      connectors: registry,
+      nango,
+    });
   const run = (input: RunConnectorSyncInput): Promise<RunConnectorSyncResult> =>
     new MockActivityEnvironment().run(
       acts().runConnectorSyncActivity as never,
@@ -168,6 +187,48 @@ describe.skipIf(!url)('connectorSync activities (integration)', () => {
     );
     expect(rows).toHaveLength(3);
   });
+
+  it('nango-oauth getCredential: decrypts the connection id, calls Nango, ingests with the token', async () => {
+    const engagementId = await seedEngagement();
+
+    // store the Nango connection id, encrypted with the engagement DEK — the
+    // shape `PUT /admin/.../connectors/linear` writes
+    await withEngagement(handle.db, provider, { tenantId, engagementId }, async (tx) => {
+      const credentialRef = await getCipher().encryptString(
+        'connector_config.credential_ref',
+        'nango-conn-linear-1',
+      );
+      await upsertConnectorConfig(
+        tx,
+        { tenantId, engagementId, connector: 'linear' },
+        { enabled: true, credentialRef },
+      );
+    });
+
+    const before = nango.calls.length;
+    const res = await run({ tenantId, engagementId, connectorId: 'linear', mode: 'backfill' });
+
+    // Nango was asked for a fresh token with the decrypted connection id + the
+    // connector id as the providerConfigKey
+    expect(nango.calls.slice(before)).toContainEqual(['nango-conn-linear-1', 'linear']);
+    expect(res.sourceCount).toBe(3);
+
+    const issueRows = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ kind: sources.kind, connector: sources.connector })
+        .from(sources)
+        .where(and(eq(sources.engagementId, engagementId), eq(sources.connector, 'linear'))),
+    );
+    expect(issueRows).toHaveLength(3);
+    expect(issueRows.every((r) => r.kind === 'issue')).toBe(true);
+  });
+
+  it('nango-oauth getCredential: a missing connection id fails (retryable)', async () => {
+    const engagementId = await seedEngagement();
+    await expect(
+      run({ tenantId, engagementId, connectorId: 'linear', mode: 'backfill' }),
+    ).rejects.toThrow(/no Nango connection id/);
+  });
 });
 
 /**
@@ -256,8 +317,12 @@ describe.skipIf(!url)('connectorSync activities — graph persistence (integrati
   const registry = new ConnectorRegistry({ 'fake-graph': () => new FakeGraphConnector() });
   const run = (engagementId: EngagementId): Promise<RunConnectorSyncResult> =>
     new MockActivityEnvironment().run(
-      createConnectorSyncActivities({ db: handle.db, keyProvider: provider, connectors: registry })
-        .runConnectorSyncActivity as never,
+      createConnectorSyncActivities({
+        db: handle.db,
+        keyProvider: provider,
+        connectors: registry,
+        nango: new FakeNangoClient(),
+      }).runConnectorSyncActivity as never,
       { tenantId, engagementId, connectorId: 'fake-graph', mode: 'backfill' } as never,
     ) as Promise<RunConnectorSyncResult>;
 

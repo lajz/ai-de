@@ -2,6 +2,8 @@ import { type Connector, type RetentionPolicy } from '@fde/core';
 
 import { GranolaConnector } from './granola/granola-connector.js';
 import { loadGranolaClient } from './granola/load-granola-client.js';
+import { LinearConnector } from './linear/linear-connector.js';
+import { loadLinearClientFactory } from './linear/load-linear-client.js';
 
 export interface ConnectorBuildContext {
   /** the engagement's retention policy — a connector derives its effective policy from it */
@@ -38,17 +40,30 @@ export class ConnectorRegistry {
 }
 
 /**
- * The default registry: Granola, backed by `loadGranolaClient(env)` (real
- * `HttpGranolaClient` when `GRANOLA_API_KEY` is set, `FakeGranolaClient`
- * otherwise). One shared client instance across sync runs.
+ * The default registry:
+ *
+ * - **Granola** — backed by `loadGranolaClient(env)` (real `HttpGranolaClient`
+ *   when `GRANOLA_API_KEY` is set, `FakeGranolaClient` otherwise). One shared
+ *   client instance across sync runs.
+ * - **Linear** — `authKind: 'nango-oauth'`; its bearer token is minted per run
+ *   by self-hosted Nango via `ConnectorContext.getCredential` (wired in
+ *   `apps/workers`). `loadLinearClientFactory(env)` selects `HttpLinearClient`
+ *   when `NANGO_SECRET_KEY` is set, `FakeLinearClient` otherwise.
  */
 export function createDefaultConnectorRegistry(env: NodeJS.ProcessEnv): ConnectorRegistry {
   const granolaClient = loadGranolaClient(env);
+  const linearClientFactory = loadLinearClientFactory(env);
   return new ConnectorRegistry({
     granola: (ctx) =>
       new GranolaConnector({
         client: granolaClient,
         engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+      }),
+    linear: (ctx) =>
+      new LinearConnector({
+        clientFactory: linearClientFactory,
+        engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+        ...(env.LINEAR_WEBHOOK_SECRET ? { webhookSecret: env.LINEAR_WEBHOOK_SECRET } : {}),
       }),
   });
 }
