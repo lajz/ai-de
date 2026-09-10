@@ -73,6 +73,24 @@ for M4 per-source ACL filtering. `apps/web` is a thin read-only Next.js App
 Router app (engagement list → fact list → Ask panel) that proxies every API call
 server-side with the caller's `fde_session` token.
 
+**Admin + data-lineage API (`apps/api`) — landed:** the backend for a follow-up
+`apps/web` `/admin` section. New `connector_config` table (`@fde/db`) — the
+Nango-ready `credentialRef` seam (encrypted bearer token today → Nango connection
+id at M3, same column). Connector-config routes (`apps/api/src/admin/`): `GET
+:id/connectors` merges `ConnectorRegistry` × `connector_config` ×
+`connector_sync_state` (never the secret — `hasCredential` only); admin-only `PUT
+:id/connectors/:connectorId` (encrypts the credential via `withEngagement` +
+`CRYPTO_COLUMNS.connector_config`); admin-only `POST
+:id/connectors/:connectorId/sync` starts `connectorSyncWorkflow` via an optional,
+lazily-connecting Temporal `WorkflowClient` (`TemporalModule` — 503 when
+`TEMPORAL_ADDRESS` is unset, never blocks boot). Lineage read views
+(`apps/api/src/lineage/`, `@fde/db` `lineage.ts` pure `tx` helpers): `GET
+:id/facts/:factId/provenance` (fact → evidence → source → ACL summary → extraction
+run, 🔒 fields decrypted post-`canViewEngagement`-gate + one `content_read`),
+`GET :id/graph` (cleartext entity/fact nodes + `relationships` edges, 2000-edge
+cap + `truncated`, `?entityType` / `?predicate`), `GET :id/pipeline` (sync state +
+recent `extraction_runs` + rollups, metadata only). OpenAPI regenerated.
+
 ---
 
 ## Next up — the M1 completion queue

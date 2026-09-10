@@ -75,6 +75,24 @@ export const envSchema = z
     SPICEDB_INSECURE: z.enum(['true', 'false']).optional(),
 
     /**
+     * Temporal connection for starting connector-sync workflows from the
+     * `/admin` API. All optional: with no `TEMPORAL_ADDRESS` the API binds a
+     * `null` workflow client and `POST …/connectors/:id/sync` returns 503
+     * ("Temporal is not configured"). Set `TEMPORAL_ADDRESS` — `localhost:7233`
+     * for `temporal server start-dev`, or the Temporal Cloud gRPC endpoint — to
+     * enable it. Auth mirrors `apps/workers` (`connection.ts`): mTLS
+     * (`TEMPORAL_CLIENT_CERT` + `_KEY`, PEM) or `TEMPORAL_API_KEY`, neither for
+     * local dev. The client connects lazily — a down Temporal never blocks boot.
+     */
+    TEMPORAL_ADDRESS: z.string().optional(),
+    TEMPORAL_NAMESPACE: z.string().optional(),
+    TEMPORAL_API_KEY: z.string().optional(),
+    TEMPORAL_CLIENT_CERT: z.string().optional(),
+    TEMPORAL_CLIENT_KEY: z.string().optional(),
+    /** task queue the connector-sync worker listens on (default `fde-default`) */
+    TEMPORAL_TASK_QUEUE: z.string().optional(),
+
+    /**
      * When `true`, single-engagement reads additionally pass through
      * `canViewEngagement` (403 on failure) and `GET /engagements` filters its
      * RLS-scoped list through `listViewableEngagements` — layered on top of RLS,

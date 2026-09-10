@@ -13,6 +13,7 @@
   "dependencies": {
     "@fde/audit": "workspace:*",
     "@fde/authz": "workspace:*",
+    "@fde/connectors": "workspace:*",
     "@fde/core": "workspace:*",
     "@fde/crypto": "workspace:*",
     "@fde/db": "workspace:*",
@@ -22,6 +23,7 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/swagger": "^11.0.0",
+    "@temporalio/client": "catalog:",
     "@workos-inc/node": "^7.44.0",
     "drizzle-orm": "catalog:",
     "reflect-metadata": "^0.2.2",

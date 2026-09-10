@@ -119,6 +119,19 @@ CREATE TABLE "connector_sync_state" (
 );
 --> statement-breakpoint
 ALTER TABLE "connector_sync_state" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "connector_config" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" uuid NOT NULL,
+	"engagement_id" uuid NOT NULL,
+	"connector" text NOT NULL,
+	"enabled" boolean DEFAULT false NOT NULL,
+	"retention_override" "retention_policy",
+	"credential_ref" "bytea",
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "connector_config" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE TABLE "entities" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
@@ -274,6 +287,8 @@ ALTER TABLE "capture_sessions" ADD CONSTRAINT "capture_sessions_engagement_id_en
 ALTER TABLE "capture_sessions" ADD CONSTRAINT "capture_sessions_source_fk" FOREIGN KEY ("engagement_id","source_id") REFERENCES "public"."sources"("engagement_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "connector_sync_state" ADD CONSTRAINT "connector_sync_state_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "connector_sync_state" ADD CONSTRAINT "connector_sync_state_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "connector_config" ADD CONSTRAINT "connector_config_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "connector_config" ADD CONSTRAINT "connector_config_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "entities" ADD CONSTRAINT "entities_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "entities" ADD CONSTRAINT "entities_engagement_id_engagements_id_fk" FOREIGN KEY ("engagement_id") REFERENCES "public"."engagements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "relationships" ADD CONSTRAINT "relationships_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -307,6 +322,7 @@ CREATE UNIQUE INDEX "sources_dedupe_uq" ON "sources" USING btree ("engagement_id
 CREATE INDEX "sources_engagement_occurred_idx" ON "sources" USING btree ("engagement_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "capture_sessions_engagement_idx" ON "capture_sessions" USING btree ("engagement_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "connector_sync_state_engagement_connector_uq" ON "connector_sync_state" USING btree ("engagement_id","connector");--> statement-breakpoint
+CREATE UNIQUE INDEX "connector_config_engagement_connector_uq" ON "connector_config" USING btree ("engagement_id","connector");--> statement-breakpoint
 CREATE INDEX "entities_engagement_type_idx" ON "entities" USING btree ("engagement_id","type");--> statement-breakpoint
 CREATE INDEX "relationships_from_idx" ON "relationships" USING btree ("from_kind","from_id","predicate");--> statement-breakpoint
 CREATE INDEX "relationships_to_idx" ON "relationships" USING btree ("to_kind","to_id","predicate");--> statement-breakpoint
@@ -327,6 +343,7 @@ CREATE POLICY "acl_snapshots_tenant_isolation" ON "acl_snapshots" AS PERMISSIVE 
 CREATE POLICY "sources_tenant_isolation" ON "sources" AS PERMISSIVE FOR ALL TO "app_rw" USING ("sources"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("sources"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "capture_sessions_tenant_isolation" ON "capture_sessions" AS PERMISSIVE FOR ALL TO "app_rw" USING ("capture_sessions"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("capture_sessions"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "connector_sync_state_tenant_isolation" ON "connector_sync_state" AS PERMISSIVE FOR ALL TO "app_rw" USING ("connector_sync_state"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("connector_sync_state"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
+CREATE POLICY "connector_config_tenant_isolation" ON "connector_config" AS PERMISSIVE FOR ALL TO "app_rw" USING ("connector_config"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("connector_config"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "entities_tenant_isolation" ON "entities" AS PERMISSIVE FOR ALL TO "app_rw" USING ("entities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("entities"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "relationships_tenant_isolation" ON "relationships" AS PERMISSIVE FOR ALL TO "app_rw" USING ("relationships"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("relationships"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY "evidence_tenant_isolation" ON "evidence" AS PERMISSIVE FOR ALL TO "app_rw" USING ("evidence"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK ("evidence"."tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint

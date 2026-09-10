@@ -6,6 +6,7 @@ import {
   aclSnapshots,
   breakGlassGrants,
   captureSessions,
+  connectorConfig,
   connectorSyncState,
   embeddings,
   engagements,
@@ -27,6 +28,7 @@ const tenantTables = {
   sources,
   capture_sessions: captureSessions,
   connector_sync_state: connectorSyncState,
+  connector_config: connectorConfig,
   acl_snapshots: aclSnapshots,
   entities,
   relationships,
@@ -78,6 +80,7 @@ describe('schema', () => {
         'acl_snapshots.principalRules',
         'entities.attributes',
         'entities.body',
+        'connector_config.credentialRef',
       ]),
     );
   });

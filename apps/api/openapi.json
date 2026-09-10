@@ -188,6 +188,153 @@
         },
         "tags": ["auth"]
       }
+    },
+    "/engagements/{id}/connectors": {
+      "get": {
+        "operationId": "AdminController_listConnectors",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
+    },
+    "/engagements/{id}/connectors/{connectorId}": {
+      "put": {
+        "operationId": "AdminController_putConnector",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
+    },
+    "/engagements/{id}/connectors/{connectorId}/sync": {
+      "post": {
+        "operationId": "AdminController_startSync",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStartedResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
+    },
+    "/engagements/{id}/facts/{factId}/provenance": {
+      "get": {
+        "operationId": "LineageController_provenance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactProvenanceResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
+    },
+    "/engagements/{id}/graph": {
+      "get": {
+        "operationId": "LineageController_graph",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngagementGraphResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
+    },
+    "/engagements/{id}/pipeline": {
+      "get": {
+        "operationId": "LineageController_pipeline",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
     }
   },
   "info": {
@@ -475,6 +622,411 @@
           }
         },
         "required": ["userId", "tenantId", "email"]
+      },
+      "ConnectorSyncResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["idle", "running", "error"]
+          },
+          "lastRunAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cursorPresent": {
+            "type": "boolean"
+          }
+        },
+        "required": ["status", "lastRunAt", "cursorPresent"]
+      },
+      "ConnectorResponse": {
+        "type": "object",
+        "properties": {
+          "connector": {
+            "type": "string"
+          },
+          "authKind": {
+            "type": "string",
+            "enum": ["nango-oauth", "bearer", "mcp-oauth", "inbound-push"]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "effectiveRetention": {
+            "type": "string",
+            "enum": ["reference-only", "derived-ephemeral-raw", "full-retention"]
+          },
+          "hasCredential": {
+            "type": "boolean",
+            "description": "a credential is stored — never the secret itself"
+          },
+          "sync": {
+            "$ref": "#/components/schemas/ConnectorSyncResponse"
+          }
+        },
+        "required": [
+          "connector",
+          "authKind",
+          "enabled",
+          "effectiveRetention",
+          "hasCredential",
+          "sync"
+        ]
+      },
+      "SyncStartedResponse": {
+        "type": "object",
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          }
+        },
+        "required": ["workflowId"]
+      },
+      "ProvenanceFactResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true,
+            "description": "decrypted detail"
+          },
+          "status": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "summary",
+          "body",
+          "status",
+          "confidence",
+          "occurredAt",
+          "createdAt"
+        ]
+      },
+      "ProvenanceSourceResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "connector": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "urlPermalink": {
+            "type": "string",
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["id", "connector", "externalId", "kind", "urlPermalink", "occurredAt"]
+      },
+      "AclSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "ruleCount": {
+            "type": "number"
+          },
+          "principalKinds": {
+            "description": "distinct rule scopes (e.g. slack_channel)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capturedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ttlSeconds": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "required": ["ruleCount", "principalKinds", "capturedAt", "ttlSeconds"]
+      },
+      "ProvenanceEvidenceResponse": {
+        "type": "object",
+        "properties": {
+          "quote": {
+            "type": "string",
+            "nullable": true,
+            "description": "decrypted supporting quote"
+          },
+          "charStart": {
+            "type": "number",
+            "nullable": true
+          },
+          "charEnd": {
+            "type": "number",
+            "nullable": true
+          },
+          "relation": {
+            "type": "string",
+            "enum": ["supports", "contradicts"]
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProvenanceSourceResponse"
+          },
+          "acl": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AclSummaryResponse"
+              }
+            ]
+          }
+        },
+        "required": ["quote", "charStart", "charEnd", "relation", "source", "acl"]
+      },
+      "ExtractionRunResponse": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "promptVersion": {
+            "type": "string"
+          },
+          "costUsd": {
+            "type": "number",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["model", "promptVersion", "costUsd", "createdAt"]
+      },
+      "FactProvenanceResponse": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/ProvenanceFactResponse"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProvenanceEvidenceResponse"
+            }
+          },
+          "extractionRun": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionRunResponse"
+              }
+            ]
+          }
+        },
+        "required": ["fact", "evidence", "extractionRun"]
+      },
+      "GraphNodeResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["entity", "fact"]
+          },
+          "type": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "entity displayName or fact summary"
+          },
+          "status": {
+            "type": "string"
+          },
+          "externalRefs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": ["id", "kind", "type", "label"]
+      },
+      "GraphEdgeResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fromKind": {
+            "type": "string",
+            "enum": ["entity", "fact"]
+          },
+          "fromId": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "toKind": {
+            "type": "string",
+            "enum": ["entity", "fact"]
+          },
+          "toId": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": ["id", "fromKind", "fromId", "predicate", "toKind", "toId", "sourceId"]
+      },
+      "EngagementGraphResponse": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphNodeResponse"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphEdgeResponse"
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "true when the edge cap was hit"
+          }
+        },
+        "required": ["nodes", "edges", "truncated"]
+      },
+      "SyncStateResponse": {
+        "type": "object",
+        "properties": {
+          "connector": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "lastRunAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cursorPresent": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["connector", "status", "lastRunAt", "cursorPresent", "updatedAt"]
+      },
+      "PipelineRunResponse": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "promptVersion": {
+            "type": "string"
+          },
+          "costUsd": {
+            "type": "number",
+            "nullable": true
+          },
+          "inputSourceCount": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["model", "promptVersion", "costUsd", "inputSourceCount", "createdAt"]
+      },
+      "PipelineRollupsResponse": {
+        "type": "object",
+        "properties": {
+          "totalFacts": {
+            "type": "number"
+          },
+          "totalEmbeddings": {
+            "type": "number"
+          },
+          "totalCostUsd": {
+            "type": "number"
+          },
+          "sourcesByConnector": {
+            "type": "object",
+            "description": "source count keyed by connector"
+          }
+        },
+        "required": ["totalFacts", "totalEmbeddings", "totalCostUsd", "sourcesByConnector"]
+      },
+      "PipelineStatusResponse": {
+        "type": "object",
+        "properties": {
+          "syncStates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncStateResponse"
+            }
+          },
+          "recentExtractionRuns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineRunResponse"
+            }
+          },
+          "rollups": {
+            "$ref": "#/components/schemas/PipelineRollupsResponse"
+          }
+        },
+        "required": ["syncStates", "recentExtractionRuns", "rollups"]
       }
     }
   }
