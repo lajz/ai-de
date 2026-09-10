@@ -235,6 +235,9 @@ importers:
       '@fde/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@fde/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity
       '@fde/llm':
         specifier: workspace:*
         version: link:../../packages/llm
@@ -275,6 +278,9 @@ importers:
 
   e2e:
     dependencies:
+      '@fde/audit':
+        specifier: workspace:*
+        version: link:../packages/audit
       '@fde/connectors':
         specifier: workspace:*
         version: link:../packages/connectors
@@ -287,6 +293,9 @@ importers:
       '@fde/db':
         specifier: workspace:*
         version: link:../packages/db
+      '@fde/identity':
+        specifier: workspace:*
+        version: link:../packages/identity
       '@fde/llm':
         specifier: workspace:*
         version: link:../packages/llm

@@ -32,6 +32,13 @@ function makeActivities(syncResult: Partial<RunConnectorSyncResult> = {}) {
         sourceCount: 2,
         transcriptSourceIds: ['src-a', 'src-b'],
         cursor: '2026-09-03T12:15:00.000Z',
+        graph: {
+          entitiesResolved: 4,
+          entitiesUpserted: 2,
+          relationshipsUpserted: 3,
+          relationshipsDeferred: 0,
+          matchCandidatesQueued: 1,
+        },
         ...syncResult,
       };
     },
@@ -107,6 +114,7 @@ describe('connectorSyncWorkflow', () => {
       sourceCount: 2,
       extractionsStarted: 2,
       cursor: '2026-09-03T12:15:00.000Z',
+      graph: { entitiesResolved: 4, entitiesUpserted: 2, relationshipsUpserted: 3 },
     });
     expect(seen.sync).toEqual([
       {

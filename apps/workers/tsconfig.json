@@ -8,6 +8,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/crypto" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/identity" },
     { "path": "../../packages/llm" },
     { "path": "../../packages/connectors" }
   ],
