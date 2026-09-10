@@ -91,6 +91,23 @@ run, 🔒 fields decrypted post-`canViewEngagement`-gate + one `content_read`),
 cap + `truncated`, `?entityType` / `?predicate`), `GET :id/pipeline` (sync state +
 recent `extraction_runs` + rollups, metadata only). OpenAPI regenerated.
 
+**`apps/web` `/admin` section — landed:** the UI over the routes above.
+`lib/api.ts` grew typed server-side client fns (`getConnectors` / `putConnector` /
+`startConnectorSync` / `getFactProvenance` / `getGraph` / `getPipeline`), and
+browser mutations go through two same-origin proxy route handlers
+(`app/api/admin/connectors` `PUT`, `app/api/admin/sync` `POST` — cookie session
+kept server-side, 409/503 relayed with a readable message), mirroring
+`/api/qa`. Routes under `app/engagements/[id]/admin/` (shared tab layout,
+`getSessionToken()` gate, friendly `ApiError` 403/503 states): **connectors** (a
+card per connector — enabled toggle, retention-override select, write-only
+credential field, Backfill/Incremental with a sync badge), **lineage** (fact
+picker → top-to-bottom provenance chain: fact → evidence → source → ACL chip →
+extraction run), **graph** (React Flow `@xyflow/react` + `@dagrejs/dagre`
+auto-layout, `entityType`/`predicate` filters re-fetch, node side-panel with a
+"trace provenance" link, `truncated` banner), **pipeline** (rollup stat cards +
+sync-state and extraction-run tables + manual refresh). An "Admin" link on the
+engagement detail page.
+
 ---
 
 ## Next up — the M1 completion queue
