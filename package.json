@@ -9,6 +9,8 @@
   "packageManager": "pnpm@11.0.8",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
+    "dev": "tilt up",
+    "dev:down": "tilt down",
     "build": "turbo run build",
     "clean": "turbo run clean && rm -rf .turbo node_modules/.cache",
     "typecheck": "tsc -b && pnpm --filter @fde/web run typecheck && pnpm --filter @fde/e2e run typecheck",

@@ -1,4 +1,14 @@
-# Local dev services. Not used in any deployed environment.
+# Local dev backing services. Not used in any deployed environment.
+#
+# `tilt up` (see ./Tiltfile) brings this stack up and supervises the three
+# TypeScript apps (@fde/api, @fde/web, @fde/workers) on top of it. Running
+# `docker compose up -d` on its own brings up just the infra — handy when you
+# want to run an app from your editor/debugger.
+#
+# Every host port is `${VAR:-default}` so a clash on your machine can be
+# remapped from .env without editing this file. If you remap one, keep the
+# matching URL/address in .env in sync (DATABASE_URL, TEMPORAL_ADDRESS,
+# SPICEDB_ENDPOINT, REDIS_URL). Defaults here match .env.example.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -7,7 +17,6 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: fde_dev
     ports:
-      # override with PG_HOST_PORT if 5432 is taken; keep DATABASE_URL in sync
       - '${PG_HOST_PORT:-5432}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -17,7 +26,52 @@ services:
       timeout: 5s
       retries: 10
 
-  # KMS for @fde/crypto integration tests. Start with: docker compose --profile aws up -d
+  # Temporal dev server — the in-memory single-binary server (no
+  # Cassandra/Elasticsearch), same image + command as docker-compose.e2e.yml.
+  # Unlike the e2e stack this one persists to a SQLite file on a named volume
+  # so workflow history survives `tilt down` / a machine restart. The volume is
+  # mounted at the `temporal` user's home so it inherits that user's ownership.
+  # Web UI on :8233, front-end gRPC on :7233.
+  temporal:
+    image: temporalio/temporal:1.8.3
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --log-level
+      - warn
+      - --db-filename
+      - /home/temporal/temporal.db
+    ports:
+      - '${TEMPORAL_HOST_PORT:-7233}:7233'
+      - '${TEMPORAL_UI_PORT:-8233}:8233'
+    volumes:
+      - temporaldata:/home/temporal
+    healthcheck:
+      test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', '127.0.0.1:7233']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # SpiceDB (@fde/authz). In-memory datastore, preshared key `dev`. gRPC serves
+  # plaintext by default (current SpiceDB dropped the old `--grpc-no-tls` flag —
+  # TLS is opt-in via `--grpc-tls-cert-path`), which matches SPICEDB_TOKEN=dev /
+  # SPICEDB_INSECURE=true in .env.example. The schema is pushed separately by
+  # `pnpm --filter @fde/authz schema:push` (the Tiltfile `setup` resource runs it).
+  spicedb:
+    image: authzed/spicedb:v1.35.0
+    command: ['serve', '--grpc-preshared-key', 'dev', '--log-level', 'warn']
+    ports:
+      - '${SPICEDB_HOST_PORT:-50051}:50051'
+    healthcheck:
+      test: ['CMD', 'grpc_health_probe', '-addr=localhost:50051']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # KMS for @fde/crypto integration tests. Off by default; bring it up with
+  # `docker compose --profile aws up -d` or `tilt up -- --aws`.
   localstack:
     image: localstack/localstack:3
     profiles: ['aws']
@@ -27,5 +81,27 @@ services:
     ports:
       - '${LOCALSTACK_PORT:-4566}:4566'
 
+  # Redis — not wired into any app code yet (lands with M3). Off by default;
+  # bring it up with `docker compose --profile redis up -d` or
+  # `tilt up -- --redis`. REDIS_URL in .env.example points here.
+  redis:
+    image: redis:7-alpine
+    profiles: ['redis']
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '${REDIS_HOST_PORT:-6379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Nango (self-hosted) — lands with M3 -------------------------------------
+  # Linear/Google Docs connectors run on a self-hosted Nango, which is its own
+  # multi-container stack (nango-server + its own Postgres + Redis + Temporal).
+  # When M3 starts, pull it in with a top-level `include:` of an upstream
+  # nango compose file rather than hand-copying its services. Left as a marker.
+
 volumes:
   pgdata:
+  temporaldata:
