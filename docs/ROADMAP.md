@@ -145,7 +145,29 @@ whitepaper for sales.
   - **Connector + generic sync — landed:** `@fde/connectors` (`GranolaClient` seam — `HttpGranolaClient` real `grn_` bearer REST / `FakeGranolaClient` deterministic / `loadGranolaClient` on `GRANOLA_API_KEY`; `GranolaConnector implements Connector` — cursor-poll `backfill`/`incremental` with per-page checkpoints, workspace-membership `resolveAcl`, pure `normalize` → meeting/document + participant `Person` entities + `externalRefs`; `handleWebhook` → `[]` seam), a `ConnectorRegistry` factory, and the reusable **`ConnectorSync`** Temporal workflow (`apps/workers` — ids-only payload; per-artifact dedupe → `resolveAcl` → encrypted `acl_snapshots` → encrypted `sources` row through `withEngagementActivity`; `connector_sync_state` cursor table in `@fde/db`; starts `extractionPipelineWorkflow` as an ABANDON child per new transcript).
   - **`@fde/identity` v1 — landed:** `resolveEntity` (deterministic upsert-by-identity into `entities` — exact `externalRef` → normalized email → SSO subject → org domain, priority-ordered, unioning `externalRefs` + shallow-merging `attributes`); `findMatchCandidates` (Jaro-Winkler name similarity + shared domain/org → the `identity_review_queue` table in `@fde/db`, **no fuzzy auto-merge**); `listPendingMatches` / `applyMatchDecision` (`merge` unions refs + repoints `relationships` edges + deletes the folded entity; `reject` blocks re-queue; both write an `identity_merge` `access_log` row).
   - **`@fde/identity` → `ConnectorSync` wiring — landed:** the sync activity now calls `connector.normalize(artifact)` in the same engagement transaction as the `sources` write and persists the canonical graph — `person` / `organization` via `resolveNormalizedRecords` (identity tiers + review-queue scan), `work_item` / `document` / `meeting` via `@fde/db`'s new `upsertEntityByRef` (external-ref key, union refs + shallow-merge attributes), and `relationship` edges via `resolveEndpointRef` + `upsertRelationship` (`onConflictDoNothing`, `source_id`-stamped). An edge whose endpoint entity does not exist yet is deferred + counted (no reconciliation pass yet); `resolveEndpointRef` is entity-only until `facts` carry origin refs. A metadata-only `{ entitiesResolved, entitiesUpserted, relationshipsUpserted, relationshipsDeferred, matchCandidatesQueued }` tally rides on `RunConnectorSyncResult`. All helpers are idempotent, so a connector re-run re-normalizes without duplicating rows.
-- **M3 — Linear via self-hosted Nango**: pull work items, link `(decision)-[implemented_by]->(workitem)`, write back a comment/link. **Kick off Slack Marketplace review here** (~7-week lead).
+- **M3 — Linear via self-hosted Nango**
+  - **Linear ingestion — landed:** self-hosted Nango in the local stack
+    (`docker compose --profile nango` / `tilt up -- nango`); `@fde/connectors`
+    `NangoClient` seam (`HttpNangoClient` REST against `NANGO_SERVER_URL` /
+    `NANGO_SECRET_KEY`, `FakeNangoClient`, `loadNangoClient`) backing
+    `ConnectorContext.getCredential` for `nango-oauth` connectors; the real
+    vault-backed `getCredential` in `ConnectorSync` (decrypt
+    `connector_config.credentialRef` = the Nango connection id → exchange for a
+    fresh token; bearer path unchanged; missing credential / Nango down →
+    retryable `ApplicationFailure`); `LinearConnector` (`LinearClient` seam,
+    GraphQL `issues` cursor-poll `backfill`/`incremental`, workspace-membership
+    `resolveAcl`, pure `normalize` → `work_item` + assignee/creator `person`
+    entities + `owns` / `informed_of` relationships + a marker-driven
+    `(decision)-[implemented_by]->(work_item)` edge — `fde:decision:<id>` in the
+    issue description, no NLP; `handleWebhook` with `linear-signature` HMAC
+    verification). One-time Nango provider-config setup:
+    `packages/connectors/src/nango/README.md`.
+  - **Follow-ups:** write-back to Linear (a back-link comment — the `Connector`
+    interface is read-only today); the admin "connect" step wired to the real
+    Nango Connect UI (the credential field takes the connection id as a string
+    for now); `fde` fact-permalink URLs as an additional decision-link marker.
+  - **Slack Marketplace submission** (~7-week review) is a parallel human task —
+    **start it now.**
 - **M4 — per-user authz-filtered retrieval + regulated-tier controls**: SpiceDB source-ACL mirroring + retrieval as the asking user; BYOK/CMEK (cross-account KMS grant, XKS) + `CryptoShred` Temporal workflow (DEK destruction + async ciphertext purge + audit); self-hosted embedding model option; `retentionPolicy` + region pin enforced end to end; Google Docs via Nango (`drive.file` scope, defers CASA); stakeholder + relationship-graph UI.
 - **M5 — Slack**: Marketplace app + Data Access API; `reference-only` (summary + permalink + ≤N-char quote, no body storage); ACL re-checked at query time.
 - **M6 — dedicated tier + public extensibility**: T1 Terraform workspace per tenant (self-hosted Temporal/SpiceDB/Nango, dedicated Aurora + S3, region pin), proven with one design partner; inbound ingestion API + MCP server GA + connector SDK; Jira / Asana / Notion / MS Graph as demand dictates.

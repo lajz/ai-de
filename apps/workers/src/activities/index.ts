@@ -1,4 +1,4 @@
-import type { ConnectorRegistry } from '@fde/connectors';
+import type { ConnectorRegistry, NangoClient } from '@fde/connectors';
 import type { KeyProvider } from '@fde/crypto';
 import type { Database } from '@fde/db';
 import type { EmbeddingClient, Router, Tracer } from '@fde/llm';
@@ -16,6 +16,8 @@ export interface ActivityDeps {
   recallClient: RecallClient;
   /** connector id → factory; drives the generic `ConnectorSync` workflow */
   connectors: ConnectorRegistry;
+  /** self-hosted Nango — mints OAuth tokens for `nango-oauth` connectors (Linear) */
+  nango: NangoClient;
   router: Router;
   embeddingClient: EmbeddingClient;
   /** redacted LLM tracing — `NoopTracer` when Langfuse is unconfigured */
@@ -24,7 +26,8 @@ export interface ActivityDeps {
 
 /**
  * Builds the activity map registered with the `Worker`. DI point for `db` /
- * `keyProvider` / `recallClient` / `router` / `embeddingClient` / `tracer`.
+ * `keyProvider` / `recallClient` / `connectors` / `nango` / `router` /
+ * `embeddingClient` / `tracer`.
  */
 export function createActivities(deps: ActivityDeps) {
   return {

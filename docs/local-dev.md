@@ -49,6 +49,7 @@ The dashboard is at <http://localhost:10350>. Two groups:
 | `setup`      | one-shot: `db:bootstrap` → `db:migrate` → `db:harden` → `@fde/authz schema:push`. Runs once on `tilt up`; re-run from the dashboard (▶) after pulling new migrations. | —                  |
 | `localstack` | KMS for `@fde/crypto` — **off** unless `tilt up -- aws`                                                                                                               | 4566               |
 | `redis`      | not wired into app code yet (M3) — **off** unless `tilt up -- redis`                                                                                                  | 6379               |
+| `nango-*`    | self-hosted Nango (OAuth token custody for the Linear connector) + its own Postgres/Redis — **off** unless `tilt up -- nango`; set `NANGO_SECRET_KEY` in `.env`       | 3003, 3009 UI      |
 
 ### `apps` (local processes)
 
@@ -66,7 +67,8 @@ restarts on crash, and collects logs.
 ```bash
 tilt up -- aws          # + localstack
 tilt up -- redis        # + redis
-tilt up -- aws redis    # both
+tilt up -- nango        # + self-hosted Nango (Linear connector — M3)
+tilt up -- aws redis    # combine any of them
 ```
 
 ## Common tasks
@@ -91,7 +93,7 @@ Same shape for Temporal history: `docker volume rm fde-tilt_temporaldata`.
 
 ```bash
 docker compose up -d              # postgres + temporal + spicedb
-docker compose --profile aws --profile redis up -d   # + optional ones
+docker compose --profile aws --profile redis --profile nango up -d   # + optional ones
 pnpm --filter @fde/api dev        # then run whichever app yourself
 ```
 
