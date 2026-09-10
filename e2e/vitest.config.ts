@@ -4,12 +4,15 @@ import { defineConfig } from 'vitest/config';
 
 // Its own vitest project — the M1 e2e is NOT part of `pnpm test`. It needs the
 // compose stack (`docker-compose.e2e.yml`) and runs serially. Package sources
-// are aliased the same way the root `vitest.config.ts` does, so no build step.
+// are aliased the same way the root `vitest.config.ts` does, so no build step —
+// keep this list in sync with every `@fde/*` the worker's activity graph pulls
+// in (`@fde/identity` → `@fde/audit` landed with the ConnectorSync graph wiring).
 const fromHere = (p: string) => resolve(import.meta.dirname, p);
 
 export default defineConfig({
   resolve: {
     alias: {
+      '@fde/audit': fromHere('../packages/audit/src/index.ts'),
       '@fde/connectors': fromHere('../packages/connectors/src/index.ts'),
       '@fde/core': fromHere('../packages/core/src/index.ts'),
       '@fde/crypto': fromHere('../packages/crypto/src/index.ts'),
