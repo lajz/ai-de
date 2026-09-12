@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { relativeTime } from '../../lib/relative-time';
 import type { FactProvenance } from '../../lib/types';
 import { factTypeColor } from '../../lib/type-color';
-import { safeHttpUrl } from '../../lib/url';
+import { SourceBadge } from '../source-badge';
 
 function AclChip({ acl }: { acl: FactProvenance['evidence'][number]['acl'] }) {
   if (!acl) return <span className="acl-chip acl-chip-none">no ACL captured</span>;
@@ -48,7 +48,6 @@ export function ProvenanceChain({
 
       <ol className="prov-evidence">
         {evidence.map((ev, i) => {
-          const href = safeHttpUrl(ev.source.urlPermalink);
           const span =
             ev.charStart != null && ev.charEnd != null
               ? ` (chars ${ev.charStart}–${ev.charEnd})`
@@ -62,18 +61,7 @@ export function ProvenanceChain({
                   {span}
                 </span>
               </div>
-              <div className="prov-source">
-                <span className="prov-source-connector">{ev.source.connector}</span>
-                <span className="prov-source-kind">{ev.source.kind}</span>
-                <span>{relativeTime(ev.source.occurredAt)}</span>
-                {href ? (
-                  <a href={href} target="_blank" rel="noreferrer">
-                    permalink
-                  </a>
-                ) : (
-                  <span className="no-permalink">(no permalink)</span>
-                )}
-              </div>
+              <SourceBadge source={ev.source} />
               <AclChip acl={ev.acl} />
             </li>
           );

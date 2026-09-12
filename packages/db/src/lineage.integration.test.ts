@@ -8,8 +8,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDbClient, type Database } from './client.js';
 import { selectConnectorConfigs, upsertConnectorConfig } from './connector-config.js';
 import {
+  selectEntityForProvenance,
+  selectEntityProvenanceEdges,
   selectExtractionRun,
   selectFactForProvenance,
+  selectFactsByIds,
   selectGraphEdges,
   selectGraphEntities,
   selectPipelineRollups,
@@ -143,6 +146,9 @@ describe.skipIf(!url)('lineage + connector_config (integration)', () => {
           externalId: 'ext-1',
           kind: 'transcript',
           urlPermalink: 'https://ex.com/p/1',
+          workspaceRef: 'ws-1',
+          containerRef: 'meeting-42',
+          authorRef: 'jane@example.com',
           occurredAt: new Date('2026-01-01T00:00:00Z'),
           contentHash: 'hash-1',
           retentionPolicy: 'full-retention',
@@ -185,6 +191,9 @@ describe.skipIf(!url)('lineage + connector_config (integration)', () => {
         'we will use postgres',
       );
       expect(ev[0]!.connector).toBe('granola');
+      expect(ev[0]!.workspaceRef).toBe('ws-1');
+      expect(ev[0]!.containerRef).toBe('meeting-42');
+      expect(ev[0]!.authorRef).toBe('jane@example.com');
       const rules = await getCipher().decryptJson(
         'acl_snapshots.principal_rules',
         ev[0]!.aclPrincipalRules!,
@@ -242,6 +251,75 @@ describe.skipIf(!url)('lineage + connector_config (integration)', () => {
       expect(people).toHaveLength(1);
       const edges = await selectGraphEdges(tx, tenantA, engagementId, { limit: 10 });
       expect(edges[0]!.predicate).toBe('member_of');
+    });
+  });
+
+  it('walks entity-touching relationships (either direction) to their attesting sources', async () => {
+    const engagementId = await seedEngagement(tenantA);
+    const [person, factId] = [randomUUID(), randomUUID()];
+
+    await withEngagement(handle.db, provider, { tenantId: tenantA, engagementId }, async (tx) => {
+      await tx.insert(entities).values({
+        id: person,
+        tenantId: tenantA,
+        engagementId,
+        type: 'person',
+        displayName: 'Jane',
+        attributes: await getCipher().encryptJson('entities.attributes', {}),
+      });
+      await tx.insert(facts).values({
+        id: factId,
+        tenantId: tenantA,
+        engagementId,
+        type: 'decision',
+        summary: 'chose Postgres',
+      });
+      const [src] = await tx
+        .insert(sources)
+        .values({
+          tenantId: tenantA,
+          engagementId,
+          connector: 'linear',
+          externalId: 'ext-comment-1',
+          kind: 'comment',
+          containerRef: 'issue-42',
+          authorRef: 'jane@example.com',
+          occurredAt: new Date('2026-01-01T00:00:00Z'),
+          contentHash: 'hash-2',
+          retentionPolicy: 'full-retention',
+        })
+        .returning({ id: sources.id });
+      await tx.insert(relationships).values({
+        tenantId: tenantA,
+        engagementId,
+        fromKind: 'entity',
+        fromId: person,
+        predicate: 'owns',
+        toKind: 'fact',
+        toId: factId,
+        sourceId: src!.id,
+      });
+    });
+
+    await withTenant(handle.db, tenantA, async (tx) => {
+      const entity = await selectEntityForProvenance(tx, tenantA, engagementId, person);
+      expect(entity).toEqual({ id: person, type: 'person', displayName: 'Jane' });
+
+      const edges = await selectEntityProvenanceEdges(tx, tenantA, engagementId, person);
+      expect(edges).toHaveLength(1);
+      expect(edges[0]).toMatchObject({
+        predicate: 'owns',
+        fromKind: 'entity',
+        fromId: person,
+        toKind: 'fact',
+        toId: factId,
+        connector: 'linear',
+        containerRef: 'issue-42',
+        authorRef: 'jane@example.com',
+      });
+
+      const facts_ = await selectFactsByIds(tx, tenantA, engagementId, [factId]);
+      expect(facts_).toEqual([{ id: factId, type: 'decision', summary: 'chose Postgres' }]);
     });
   });
 

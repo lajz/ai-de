@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sum } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, or, sum } from 'drizzle-orm';
 
 import type {
   Ciphertext,
@@ -6,6 +6,7 @@ import type {
   EntityType,
   EvidenceRelation,
   ExternalRef,
+  NodeKind,
   Predicate,
   TenantId,
 } from '@fde/core';
@@ -77,6 +78,9 @@ export interface ProvenanceEvidenceRow {
   externalId: string;
   kind: string;
   urlPermalink: string | null;
+  workspaceRef: string | null;
+  containerRef: string | null;
+  authorRef: string | null;
   occurredAt: Date;
   aclPrincipalRules: Ciphertext | null;
   aclCapturedAt: Date | null;
@@ -106,6 +110,9 @@ export function selectProvenanceEvidence(
       externalId: sources.externalId,
       kind: sources.kind,
       urlPermalink: sources.urlPermalink,
+      workspaceRef: sources.workspaceRef,
+      containerRef: sources.containerRef,
+      authorRef: sources.authorRef,
       occurredAt: sources.occurredAt,
       aclPrincipalRules: aclSnapshots.principalRules,
       aclCapturedAt: aclSnapshots.capturedAt,
@@ -167,6 +174,130 @@ export async function selectExtractionRun(
     )
     .limit(1);
   return row;
+}
+
+// --- entity provenance (cleartext only) -----------------------------------
+
+export interface EntityProvenanceRow {
+  id: string;
+  type: EntityType;
+  displayName: string;
+}
+
+/** The one entity at the head of an entity-provenance panel, or `undefined` if not in the engagement. */
+export async function selectEntityForProvenance(
+  tx: DbTransaction,
+  tenantId: TenantId,
+  engagementId: EngagementId,
+  entityId: string,
+): Promise<EntityProvenanceRow | undefined> {
+  const [row] = await tx
+    .select({ id: entities.id, type: entities.type, displayName: entities.displayName })
+    .from(entities)
+    .where(
+      and(
+        eq(entities.tenantId, tenantId),
+        eq(entities.engagementId, engagementId),
+        eq(entities.id, entityId),
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
+export interface EntityProvenanceEdgeRow {
+  relationshipId: string;
+  predicate: Predicate;
+  fromKind: NodeKind;
+  fromId: string;
+  toKind: NodeKind;
+  toId: string;
+  sourceId: string;
+  connector: string;
+  externalId: string;
+  kind: string;
+  urlPermalink: string | null;
+  workspaceRef: string | null;
+  containerRef: string | null;
+  authorRef: string | null;
+  occurredAt: Date;
+}
+
+/**
+ * Every `relationships` edge touching `entityId` (as either endpoint) that
+ * carries a `sourceId` — i.e. was attested by a single artifact — joined to
+ * that source. Edges with no `sourceId` (multi-artifact / inferred) are not
+ * "derived from" any one source and are excluded. Cleartext only: no
+ * decryption, no audit log needed (mirrors `selectGraphEdges`).
+ */
+export function selectEntityProvenanceEdges(
+  tx: DbTransaction,
+  tenantId: TenantId,
+  engagementId: EngagementId,
+  entityId: string,
+): Promise<EntityProvenanceEdgeRow[]> {
+  return tx
+    .select({
+      relationshipId: relationships.id,
+      predicate: relationships.predicate,
+      fromKind: relationships.fromKind,
+      fromId: relationships.fromId,
+      toKind: relationships.toKind,
+      toId: relationships.toId,
+      sourceId: sources.id,
+      connector: sources.connector,
+      externalId: sources.externalId,
+      kind: sources.kind,
+      urlPermalink: sources.urlPermalink,
+      workspaceRef: sources.workspaceRef,
+      containerRef: sources.containerRef,
+      authorRef: sources.authorRef,
+      occurredAt: sources.occurredAt,
+    })
+    .from(relationships)
+    .innerJoin(
+      sources,
+      and(
+        eq(sources.engagementId, relationships.engagementId),
+        eq(sources.id, relationships.sourceId),
+      ),
+    )
+    .where(
+      and(
+        eq(relationships.tenantId, tenantId),
+        eq(relationships.engagementId, engagementId),
+        or(
+          and(eq(relationships.fromKind, 'entity'), eq(relationships.fromId, entityId)),
+          and(eq(relationships.toKind, 'entity'), eq(relationships.toId, entityId)),
+        ),
+      ),
+    );
+}
+
+export interface EntityProvenanceFactRow {
+  id: string;
+  type: string;
+  summary: string;
+}
+
+/** `facts` rows by id, scoped to the engagement — the fact-node counterparts of an entity's edges. */
+export function selectFactsByIds(
+  tx: DbTransaction,
+  tenantId: TenantId,
+  engagementId: EngagementId,
+  factIds: string[],
+): Promise<EntityProvenanceFactRow[]> {
+  if (factIds.length === 0) return Promise.resolve([]);
+  return tx
+    .select({ id: facts.id, type: facts.type, summary: facts.summary })
+    .from(facts)
+    .where(
+      and(
+        eq(facts.tenantId, tenantId),
+        eq(facts.engagementId, engagementId),
+        inArray(facts.id, factIds),
+      ),
+    );
 }
 
 // --- provenance graph (cleartext only) -----------------------------------

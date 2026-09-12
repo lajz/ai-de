@@ -476,3 +476,8 @@ input[type='checkbox'] {
 .citation {
   padding-left: 0;
 }
+
+.fact-foot {
+  margin: var(--space-3) 0 0;
+  font-size: 0.8125rem;
+}

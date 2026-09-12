@@ -99,6 +99,9 @@ describe('LineageService.getFactProvenance', () => {
           externalId: 'ext-1',
           kind: 'transcript',
           urlPermalink: 'https://ex.com/p/1',
+          workspaceRef: 'ws-1',
+          containerRef: 'meeting-42',
+          authorRef: 'user-7',
           occurredAt: new Date('2026-01-01T00:00:00Z'),
           aclPrincipalRules: bytes('ct-acl'),
           aclCapturedAt: new Date('2026-01-01T00:00:00Z'),
@@ -123,7 +126,14 @@ describe('LineageService.getFactProvenance', () => {
     expect(res.evidence[0]).toMatchObject({
       quote: 'DEC(ct-quote)',
       relation: 'supports',
-      source: { connector: 'granola', kind: 'transcript', urlPermalink: 'https://ex.com/p/1' },
+      source: {
+        connector: 'granola',
+        kind: 'transcript',
+        urlPermalink: 'https://ex.com/p/1',
+        workspaceRef: 'ws-1',
+        containerRef: 'meeting-42',
+        authorRef: 'user-7',
+      },
       acl: { ruleCount: 1, principalKinds: ['granola_workspace'], ttlSeconds: 3600 },
     });
     expect(res.extractionRun).toEqual({
@@ -140,6 +150,86 @@ describe('LineageService.getFactProvenance', () => {
     await expect(
       run(fakeTx([[]]).tx, () => svc().getFactProvenance(factId)),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('LineageService.getEntityProvenance', () => {
+  const entityId = randomUUID();
+
+  it('assembles derivations from both edge directions + connected facts, decrypting nothing', async () => {
+    const factId = randomUUID();
+    const { tx } = fakeTx([
+      [{ id: entityId, type: 'person', displayName: 'Jane' }],
+      [
+        {
+          relationshipId: 'r1',
+          predicate: 'owns',
+          fromKind: 'entity',
+          fromId: entityId,
+          toKind: 'fact',
+          toId: factId,
+          sourceId: 's1',
+          connector: 'linear',
+          externalId: 'ext-1',
+          kind: 'comment',
+          urlPermalink: 'https://ex.com/c/1',
+          workspaceRef: 'ws-1',
+          containerRef: 'issue-42',
+          authorRef: 'jane@example.com',
+          occurredAt: new Date('2026-01-01T00:00:00Z'),
+        },
+        {
+          relationshipId: 'r2',
+          predicate: 'member_of',
+          fromKind: 'entity',
+          fromId: 'org-1',
+          toKind: 'entity',
+          toId: entityId,
+          sourceId: 's2',
+          connector: 'granola',
+          externalId: 'ext-2',
+          kind: 'transcript',
+          urlPermalink: null,
+          workspaceRef: null,
+          containerRef: null,
+          authorRef: null,
+          occurredAt: new Date('2026-01-02T00:00:00Z'),
+        },
+      ],
+      [{ id: factId, type: 'decision', summary: 'chose Postgres' }],
+    ]);
+
+    const res = await run(tx, () => svc().getEntityProvenance(entityId));
+
+    expect(res.entity).toEqual({ id: entityId, type: 'person', displayName: 'Jane' });
+    expect(res.derivedFrom).toHaveLength(2);
+    expect(res.derivedFrom[0]).toMatchObject({
+      predicate: 'owns',
+      direction: 'outgoing',
+      counterpart: { kind: 'fact', id: factId },
+      source: { connector: 'linear', containerRef: 'issue-42', authorRef: 'jane@example.com' },
+    });
+    expect(res.derivedFrom[1]).toMatchObject({
+      predicate: 'member_of',
+      direction: 'incoming',
+      counterpart: { kind: 'entity', id: 'org-1' },
+    });
+    expect(res.facts).toEqual([{ id: factId, type: 'decision', summary: 'chose Postgres' }]);
+    expect(decryptString).not.toHaveBeenCalled();
+    expect(decryptJson).not.toHaveBeenCalled();
+  });
+
+  it('404s when the entity is not in the engagement', async () => {
+    await expect(
+      run(fakeTx([[]]).tx, () => svc().getEntityProvenance(entityId)),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns an empty derivation/fact list when no edge carries a sourceId', async () => {
+    const { tx } = fakeTx([[{ id: entityId, type: 'person', displayName: 'Jane' }], [], []]);
+    const res = await run(tx, () => svc().getEntityProvenance(entityId));
+    expect(res.derivedFrom).toEqual([]);
+    expect(res.facts).toEqual([]);
   });
 });
 
