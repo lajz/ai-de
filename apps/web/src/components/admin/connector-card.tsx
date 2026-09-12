@@ -74,9 +74,10 @@ export function ConnectorCard({
       </div>
 
       <div className="connector-row">
-        <label>
+        <label className="field-label">
           Retention override
           <select
+            className="field-input"
             value={connector.effectiveRetention}
             disabled={pending}
             onChange={(e) =>
@@ -105,10 +106,11 @@ export function ConnectorCard({
           if (credential.trim()) save({ credential });
         }}
       >
-        <label>
+        <label className="field-label">
           Credential
           <input
             type="password"
+            className="field-input"
             aria-label={`${connector.connector} credential`}
             placeholder={connector.hasCredential ? '•••• set — enter to replace' : 'not set'}
             value={credential}
@@ -116,22 +118,35 @@ export function ConnectorCard({
             onChange={(e) => setCredential(e.target.value)}
           />
         </label>
-        <button type="submit" disabled={pending || credential.trim() === ''}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={pending || credential.trim() === ''}
+        >
           Save credential
         </button>
       </form>
 
       <div className="connector-row">
-        <button type="button" disabled={pending} onClick={() => sync('backfill')}>
+        <button type="button" className="btn" disabled={pending} onClick={() => sync('backfill')}>
           Backfill
         </button>
-        <button type="button" disabled={pending} onClick={() => sync('incremental')}>
+        <button
+          type="button"
+          className="btn"
+          disabled={pending}
+          onClick={() => sync('incremental')}
+        >
           Incremental
         </button>
-        <span className={`sync-badge sync-${syncState.status ?? 'none'}`}>
+        <span className="sync-badge">
+          <span
+            className={`status-dot status-dot-${syncState.status ?? 'none'}`}
+            aria-hidden="true"
+          />
           {syncState.status ?? 'never run'}
-          {lastRun ? ` · ${lastRun}` : ''}
-          {syncState.cursorPresent ? ' · cursor set' : ''}
+          {lastRun && <span className="sync-meta">{lastRun}</span>}
+          {syncState.cursorPresent && <span className="sync-meta">cursor set</span>}
         </span>
       </div>
 

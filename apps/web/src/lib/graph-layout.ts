@@ -1,17 +1,20 @@
 import dagre from '@dagrejs/dagre';
 import type { Edge, Node } from '@xyflow/react';
 
+import { entityTypeColor, entityTypeLine, factTypeColor, factTypeWash } from './type-color';
 import type { EngagementGraph, GraphNode } from './types';
 
 export const NODE_WIDTH = 180;
 export const NODE_HEIGHT = 48;
 
-/** A stable-ish hue per node type, so entity/fact families read as colour groups. */
-export function nodeColor(node: GraphNode): string {
-  if (node.kind === 'fact') return 'var(--graph-fact)';
-  let hash = 0;
-  for (const ch of node.type) hash = (hash * 31 + ch.charCodeAt(0)) % 360;
-  return `hsl(${hash} 55% 82%)`;
+/** Node fill, theme-aware — the same per-type palette as the fact list/legend. */
+export function nodeColor(node: GraphNode, dark = false): string {
+  return node.kind === 'fact' ? factTypeWash(node.type, dark) : entityTypeColor(node.type, dark);
+}
+
+/** Node border, theme-aware — the saturated line tone matching `nodeColor`'s fill. */
+export function nodeBorderColor(node: GraphNode, dark = false): string {
+  return node.kind === 'fact' ? factTypeColor(node.type, dark) : entityTypeLine(node.type, dark);
 }
 
 /**
@@ -19,7 +22,10 @@ export function nodeColor(node: GraphNode): string {
  * nodes/edges. Pure — no browser APIs — so it is unit-testable and can run in the
  * initial server payload.
  */
-export function buildFlowGraph(graph: EngagementGraph): {
+export function buildFlowGraph(
+  graph: EngagementGraph,
+  dark = false,
+): {
   nodes: Node[];
   edges: Edge[];
 } {
@@ -37,21 +43,29 @@ export function buildFlowGraph(graph: EngagementGraph): {
 
   const nodes: Node[] = graph.nodes.map((n) => {
     const pos = g.node(n.id);
+    const isFact = n.kind === 'fact';
     return {
       id: n.id,
       position: { x: (pos?.x ?? 0) - NODE_WIDTH / 2, y: (pos?.y ?? 0) - NODE_HEIGHT / 2 },
       data: { label: n.label, graphNode: n },
       style: {
         width: NODE_WIDTH,
-        background: nodeColor(n),
-        border: '1px solid rgba(0,0,0,0.25)',
-        borderRadius: 6,
+        background: nodeColor(n, dark),
+        color: dark ? '#e7e9ee' : '#171b21',
+        borderLeft: `3px solid ${nodeBorderColor(n, dark)}`,
+        borderTop: `1px solid ${nodeBorderColor(n, dark)}`,
+        borderRight: `1px solid ${nodeBorderColor(n, dark)}`,
+        borderBottom: `1px solid ${nodeBorderColor(n, dark)}`,
+        borderRadius: 4,
+        fontFamily: 'var(--font-sans)',
         fontSize: 12,
-        padding: 4,
+        fontWeight: isFact ? 600 : 400,
+        padding: '6px 8px',
       },
     };
   });
 
+  const edgeStroke = dark ? '#8a93a3' : '#5b6472';
   const edges: Edge[] = graph.edges
     .filter((e) => known.has(e.fromId) && known.has(e.toId))
     .map((e) => ({
@@ -59,7 +73,9 @@ export function buildFlowGraph(graph: EngagementGraph): {
       source: e.fromId,
       target: e.toId,
       label: e.predicate,
-      labelStyle: { fontSize: 10 },
+      style: { stroke: edgeStroke },
+      labelStyle: { fontSize: 10, fontFamily: 'var(--font-mono)', fill: edgeStroke },
+      labelBgStyle: { fill: dark ? '#181c24' : '#ffffff' },
     }));
 
   return { nodes, edges };

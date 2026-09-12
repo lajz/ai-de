@@ -1,3 +1,5 @@
+import '../../../admin.css';
+
 import { AdminNav } from '../../../../components/admin/admin-nav';
 
 export const dynamic = 'force-dynamic';

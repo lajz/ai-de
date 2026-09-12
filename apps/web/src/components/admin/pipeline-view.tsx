@@ -32,14 +32,18 @@ export function PipelineView({ pipeline }: { pipeline: PipelineStatus }) {
       </ul>
 
       {byConnector.length > 0 && (
-        <p className="sources-by-connector">
-          {byConnector.map(([c, n]) => `${c}: ${n}`).join(' · ')}
-        </p>
+        <div className="sources-by-connector">
+          {byConnector.map(([c, n]) => (
+            <span key={c} className="sources-by-connector-item">
+              {c}: {n}
+            </span>
+          ))}
+        </div>
       )}
 
       <h2>Sync state</h2>
       {syncStates.length === 0 ? (
-        <p>No connector has synced yet.</p>
+        <p className="empty-state">No connector has synced yet.</p>
       ) : (
         <div className="table-scroll">
           <table>
@@ -57,7 +61,10 @@ export function PipelineView({ pipeline }: { pipeline: PipelineStatus }) {
                 <tr key={s.connector}>
                   <td>{s.connector}</td>
                   <td>
-                    <span className={`sync-badge sync-${s.status}`}>{s.status}</span>
+                    <span className="sync-badge">
+                      <span className={`status-dot status-dot-${s.status}`} aria-hidden="true" />
+                      {s.status}
+                    </span>
                   </td>
                   <td>{relativeTime(s.lastRunAt) ?? '—'}</td>
                   <td>{s.cursorPresent ? 'set' : '—'}</td>
@@ -71,7 +78,7 @@ export function PipelineView({ pipeline }: { pipeline: PipelineStatus }) {
 
       <h2>Recent extraction runs</h2>
       {recentExtractionRuns.length === 0 ? (
-        <p>No extraction runs recorded.</p>
+        <p className="empty-state">No extraction runs recorded.</p>
       ) : (
         <div className="table-scroll">
           <table>

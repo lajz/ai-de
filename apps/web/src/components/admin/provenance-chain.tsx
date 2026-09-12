@@ -2,16 +2,16 @@ import Link from 'next/link';
 
 import { relativeTime } from '../../lib/relative-time';
 import type { FactProvenance } from '../../lib/types';
+import { factTypeColor } from '../../lib/type-color';
 import { safeHttpUrl } from '../../lib/url';
 
 function AclChip({ acl }: { acl: FactProvenance['evidence'][number]['acl'] }) {
   if (!acl) return <span className="acl-chip acl-chip-none">no ACL captured</span>;
   const kinds = acl.principalKinds.length ? acl.principalKinds.join(', ') : 'no scopes';
-  const ttl = acl.ttlSeconds != null ? ` · ttl ${acl.ttlSeconds}s` : '';
   return (
     <span className="acl-chip">
-      {acl.ruleCount} {acl.ruleCount === 1 ? 'rule' : 'rules'} · {kinds}
-      {ttl}
+      {acl.ruleCount} {acl.ruleCount === 1 ? 'rule' : 'rules'} for {kinds}
+      {acl.ttlSeconds != null && ` (ttl ${acl.ttlSeconds}s)`}
     </span>
   );
 }
@@ -30,7 +30,9 @@ export function ProvenanceChain({
     <div className="provenance">
       <article className="prov-fact">
         <div className="prov-fact-head">
-          <span className="fact-type">{fact.type}</span>
+          <span className="fact-type" style={{ color: factTypeColor(fact.type) }}>
+            {fact.type}
+          </span>
           <span className="prov-status">{fact.status}</span>
           {fact.confidence != null && (
             <span className="fact-confidence">{Math.round(fact.confidence * 100)}%</span>
@@ -39,7 +41,7 @@ export function ProvenanceChain({
         <p className="fact-summary">{fact.summary}</p>
         {fact.body && <p className="fact-body">{fact.body}</p>}
         <p className="prov-dates">
-          {fact.occurredAt && <>occurred {relativeTime(fact.occurredAt)} · </>}
+          {fact.occurredAt && <>occurred {relativeTime(fact.occurredAt)}, </>}
           created {relativeTime(fact.createdAt)}
         </p>
       </article>
@@ -80,19 +82,25 @@ export function ProvenanceChain({
 
       <footer className="prov-run">
         {extractionRun ? (
-          <>
-            extracted by <strong>{extractionRun.model}</strong> · prompt{' '}
-            {extractionRun.promptVersion} ·{' '}
-            {extractionRun.costUsd != null ? `$${extractionRun.costUsd.toFixed(4)}` : 'cost n/a'} ·{' '}
-            {relativeTime(extractionRun.createdAt)}
-          </>
+          <dl className="prov-run-meta">
+            <dt>extracted by</dt>
+            <dd>{extractionRun.model}</dd>
+            <dt>prompt</dt>
+            <dd>{extractionRun.promptVersion}</dd>
+            <dt>cost</dt>
+            <dd>
+              {extractionRun.costUsd != null ? `$${extractionRun.costUsd.toFixed(4)}` : 'n/a'}
+            </dd>
+            <dt>when</dt>
+            <dd>{relativeTime(extractionRun.createdAt)}</dd>
+          </dl>
         ) : (
           <>no extraction run recorded for this fact</>
         )}
       </footer>
 
       <p className="prov-graph-link">
-        <Link href={`/engagements/${engagementId}/admin/graph`}>View in entity graph →</Link>
+        <Link href={`/engagements/${engagementId}/admin/graph`}>View in entity graph</Link>
       </p>
     </div>
   );

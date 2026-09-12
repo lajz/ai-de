@@ -30,7 +30,7 @@ export default async function GraphPage({
     <section>
       <h1>Entity graph</h1>
       {graph.nodes.length === 0 ? (
-        <p>No entities or facts match these filters.</p>
+        <p className="empty-state">No entities or facts match these filters.</p>
       ) : (
         <GraphView engagementId={id} graph={graph} filters={filters} />
       )}

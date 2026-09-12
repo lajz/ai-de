@@ -2,7 +2,8 @@ import Link from 'next/link';
 
 import { AskPanel } from '../../../components/ask-panel';
 import { FactList } from '../../../components/fact-list';
-import { getFacts, loginUrl } from '../../../lib/api';
+import { SignInNotice } from '../../../components/sign-in-notice';
+import { getFacts } from '../../../lib/api';
 import { getSessionToken } from '../../../lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -13,9 +14,8 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
   if (!token) {
     return (
       <main>
-        <p>
-          You are not signed in. <a href={loginUrl()}>Sign in</a>.
-        </p>
+        <h1>Engagement</h1>
+        <SignInNotice />
       </main>
     );
   }
@@ -24,14 +24,16 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
 
   return (
     <main>
-      <p>
+      <nav className="breadcrumb">
         <Link href="/">← Engagements</Link>
-        {' · '}
+        <span className="breadcrumb-sep" aria-hidden="true">
+          /
+        </span>
         <Link href={`/engagements/${id}/admin/connectors`}>Admin</Link>
-      </p>
+      </nav>
       <h1>Engagement</h1>
       <p>
-        <code>{id}</code>
+        <span className="id-chip">{id}</span>
       </p>
       <AskPanel engagementId={id} />
       <h2>Facts</h2>
