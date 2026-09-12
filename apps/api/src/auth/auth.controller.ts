@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   Inject,
+  NotFoundException,
   Query,
   Req,
   Res,
@@ -56,6 +57,13 @@ export class AuthController {
    * Redirects to WorkOS AuthKit. A random `state` nonce is both sent to WorkOS
    * and stored in a short-lived cookie, so the callback can bind the response to
    * this browser (CSRF / login-confusion protection).
+   *
+   * Unchanged when `FakeWorkOsService` is bound (no `WORKOS_API_KEY`): it still
+   * redirects to the fake's `https://fake-workos.local/...` placeholder, which
+   * has nothing behind it — by design, so integration tests can exercise this
+   * exact redirect → `/auth/callback` seam via `FakeWorkOsService.register()`
+   * (see `apps/api/src/test/harness.ts`, `seam.integration.test.ts`). A real
+   * browser can't click through that; use `GET /auth/dev-login` instead.
    */
   @Public()
   @Get('login')
@@ -64,6 +72,23 @@ export class AuthController {
     const nonce = randomBytes(16).toString('base64url');
     res.cookie(OAUTH_STATE_COOKIE, nonce, this.cookieOpts({ maxAge: 600_000, path: '/auth' }));
     res.redirect(this.auth.loginUrl(nonce));
+  }
+
+  /**
+   * Dev-only convenience for a real browser hitting the local `tilt up` stack:
+   * mints a session for a fixed local tenant + user directly, skipping the
+   * (unreachable, by design) fake IdP redirect `GET /auth/login` uses. 404s
+   * unless `devLoginEnabled()` — never in production, and never once a real
+   * `WORKOS_API_KEY` is set.
+   */
+  @Public()
+  @Get('dev-login')
+  @ApiExcludeEndpoint()
+  async devLogin(@Req() req: Request, @Res() res: Response): Promise<void> {
+    if (!this.auth.devLoginEnabled()) throw new NotFoundException();
+    const session = await this.auth.completeDevLogin();
+    res.cookie(SESSION_COOKIE, session.token, this.cookieOpts({ path: '/' }));
+    res.redirect(req.headers.referer ?? '/');
   }
 
   /**

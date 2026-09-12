@@ -66,6 +66,16 @@ export const envSchema = z
     AWS_REGION: z.string().optional(),
 
     /**
+     * Dev/local convenience, shared with `apps/web` (`lib/session.ts`): when
+     * set, `AuthService` seeds a session under this exact token on every boot
+     * (only while `devLoginEnabled()` — never in production), so it survives
+     * an api restart instead of going stale with the rest of the in-memory
+     * session store. Unset ⇒ no auto-seeded session; sign in via
+     * `/auth/dev-login` as usual.
+     */
+    DEV_SESSION_TOKEN: z.string().optional(),
+
+    /**
      * SpiceDB (`@fde/authz`). Unset in dev/test → the in-memory `AuthzClient`
      * (`createAuthzClientFromEnv`). Required under `NODE_ENV=production` — the
      * in-memory client refuses to run there.

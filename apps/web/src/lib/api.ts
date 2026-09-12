@@ -23,6 +23,17 @@ export function loginUrl(): string {
   return `${apiBaseUrl()}/auth/login`;
 }
 
+/**
+ * Dev-only stand-in for `loginUrl()`: without a real WorkOS account, `/auth/login`
+ * redirects to a placeholder host with nothing behind it (see
+ * `apps/api/src/auth/fake-workos.service.ts`) — unreachable from a real browser.
+ * `/auth/dev-login` mints a session directly instead; it 404s outside dev, so the
+ * homepage only offers it when `NODE_ENV === 'development'` (`page.tsx`).
+ */
+export function devLoginUrl(): string {
+  return `${apiBaseUrl()}/auth/dev-login`;
+}
+
 /** A non-2xx response from `@fde/api`, carrying the upstream status. */
 export class ApiError extends Error {
   constructor(

@@ -44,13 +44,24 @@ export class SessionService {
   }
 
   create(input: NewSession): Session {
-    const session: Session = {
-      token: randomBytes(32).toString('base64url'),
-      createdAt: new Date(),
-      ...input,
-    };
-    this.byTokenHash.set(SessionService.hash(session.token).toString('hex'), session);
-    return session;
+    return this.store({ token: randomBytes(32).toString('base64url'), ...input });
+  }
+
+  /**
+   * Like `create`, but with a caller-supplied token instead of a random one.
+   * Dev-only: lets `AuthService`'s dev-login bootstrap re-seed the *same*
+   * `DEV_SESSION_TOKEN` on every boot, so it survives an api restart (which
+   * otherwise wipes this whole in-memory store) instead of going stale like
+   * every other session does.
+   */
+  createWithFixedToken(token: string, input: NewSession): Session {
+    return this.store({ token, ...input });
+  }
+
+  private store(session: Omit<Session, 'createdAt'>): Session {
+    const full: Session = { createdAt: new Date(), ...session };
+    this.byTokenHash.set(SessionService.hash(full.token).toString('hex'), full);
+    return full;
   }
 
   resolve(token: string | undefined): Session | undefined {
