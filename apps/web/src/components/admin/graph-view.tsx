@@ -8,7 +8,21 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { buildFlowGraph, graphFacets } from '../../lib/graph-layout';
+import { entityTypeColor, entityTypeLine, factTypeColor, factTypeWash } from '../../lib/type-color';
 import type { EngagementGraph, GraphNode } from '../../lib/types';
+
+/** Tracks the OS/browser color scheme so canvas node fills stay theme-correct. */
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    setDark(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return dark;
+}
 
 export function GraphView({
   engagementId,
@@ -20,8 +34,13 @@ export function GraphView({
   filters: { entityType?: string; predicate?: string };
 }) {
   const router = useRouter();
-  const layout = useMemo(() => buildFlowGraph(graph), [graph]);
+  const dark = usePrefersDark();
+  const layout = useMemo(() => buildFlowGraph(graph, dark), [graph, dark]);
   const facets = useMemo(() => graphFacets(graph), [graph]);
+  const factTypes = useMemo(
+    () => [...new Set(graph.nodes.filter((n) => n.kind === 'fact').map((n) => n.type))].sort(),
+    [graph],
+  );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
@@ -46,9 +65,10 @@ export function GraphView({
   return (
     <div className="graph-view">
       <div className="graph-filters">
-        <label>
+        <label className="field-label">
           Entity type
           <select
+            className="field-input"
             value={filters.entityType ?? ''}
             onChange={(e) => setFilter('entityType', e.target.value)}
           >
@@ -60,9 +80,10 @@ export function GraphView({
             ))}
           </select>
         </label>
-        <label>
+        <label className="field-label">
           Predicate
           <select
+            className="field-input"
             value={filters.predicate ?? ''}
             onChange={(e) => setFilter('predicate', e.target.value)}
           >
@@ -75,8 +96,37 @@ export function GraphView({
           </select>
         </label>
         <span className="graph-count">
-          {graph.nodes.length} nodes · {graph.edges.length} edges
+          <strong>{graph.nodes.length}</strong> nodes, <strong>{graph.edges.length}</strong> edges
         </span>
+      </div>
+
+      <div className="graph-legend">
+        {facets.entityTypes.map((t) => (
+          <span key={t} className="graph-legend-item">
+            <span
+              className="graph-legend-swatch"
+              style={{
+                background: entityTypeColor(t, dark),
+                border: `1px solid ${entityTypeLine(t, dark)}`,
+              }}
+              aria-hidden="true"
+            />
+            {t}
+          </span>
+        ))}
+        {factTypes.map((t) => (
+          <span key={t} className="graph-legend-item">
+            <span
+              className="graph-legend-swatch"
+              style={{
+                background: factTypeWash(t, dark),
+                border: `1px solid ${factTypeColor(t, dark)}`,
+              }}
+              aria-hidden="true"
+            />
+            {t}
+          </span>
+        ))}
       </div>
 
       {graph.truncated && (
@@ -121,7 +171,7 @@ export function GraphView({
           )}
           {selected.kind === 'fact' && (
             <Link href={`/engagements/${engagementId}/admin/lineage?factId=${selected.id}`}>
-              Trace provenance →
+              Trace provenance
             </Link>
           )}
         </aside>

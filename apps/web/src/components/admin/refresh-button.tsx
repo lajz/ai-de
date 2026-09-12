@@ -13,6 +13,7 @@ export function RefreshButton() {
     <p className="refresh">
       <button
         type="button"
+        className="btn"
         disabled={pending}
         onClick={() =>
           startTransition(() => {

@@ -5,6 +5,7 @@ import { ProvenanceChain } from '../../../../../components/admin/provenance-chai
 import { SignInNotice } from '../../../../../components/sign-in-notice';
 import { ApiError, getFactProvenance, getFacts } from '../../../../../lib/api';
 import { getSessionToken } from '../../../../../lib/session';
+import { factTypeColor } from '../../../../../lib/type-color';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,13 +50,16 @@ export default async function LineagePage({
               href={`/engagements/${id}/admin/lineage?factId=${f.id}`}
               aria-current={f.id === factId ? 'true' : undefined}
             >
-              <span className="fact-type">{f.type}</span> {f.summary}
+              <span className="fact-type" style={{ color: factTypeColor(f.type) }}>
+                {f.type}
+              </span>{' '}
+              {f.summary}
             </Link>
           </li>
         ))}
       </ul>
 
-      {!factId && <p>Pick a fact above to trace its provenance.</p>}
+      {!factId && <p className="empty-state">Pick a fact above to trace its provenance.</p>}
       {provenanceError != null && <AdminError status={provenanceError} />}
       {provenance && <ProvenanceChain engagementId={id} provenance={provenance} />}
     </section>

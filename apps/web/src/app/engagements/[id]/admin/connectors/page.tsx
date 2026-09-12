@@ -23,7 +23,7 @@ export default async function ConnectorsPage({ params }: { params: Promise<{ id:
     <section>
       <h1>Connectors</h1>
       {connectors.length === 0 ? (
-        <p>No connectors are registered.</p>
+        <p className="empty-state">No connectors are registered.</p>
       ) : (
         <ul className="connector-list">
           {connectors.map((c) => (

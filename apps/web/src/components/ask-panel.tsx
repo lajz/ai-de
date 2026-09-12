@@ -42,12 +42,17 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
       <form onSubmit={onSubmit}>
         <input
           type="text"
+          className="field-input"
           aria-label="question"
           placeholder="Ask a question about this engagement"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
         />
-        <button type="submit" disabled={pending || question.trim() === ''}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={pending || question.trim() === ''}
+        >
           {pending ? 'Asking…' : 'Ask'}
         </button>
       </form>

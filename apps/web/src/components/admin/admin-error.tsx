@@ -7,7 +7,7 @@ export function AdminError({ status }: { status: number }) {
         ? 'This capability is not configured for this deployment yet.'
         : `The request failed (${status}). Try again shortly.`;
   return (
-    <p className="admin-error" role="alert">
+    <p className="notice-banner" role="alert">
       {message}
     </p>
   );
