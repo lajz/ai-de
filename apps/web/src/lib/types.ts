@@ -86,6 +86,9 @@ export interface ProvenanceSource {
   externalId: string;
   kind: string;
   urlPermalink: string | null;
+  workspaceRef: string | null;
+  containerRef: string | null;
+  authorRef: string | null;
   occurredAt: string;
 }
 
@@ -145,6 +148,33 @@ export interface EngagementGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
   truncated: boolean;
+}
+
+// --- /admin: entity provenance -----------------------------------------------
+
+export interface EntityDerivationCounterpart {
+  kind: 'entity' | 'fact';
+  id: string;
+}
+
+export interface EntityDerivation {
+  relationshipId: string;
+  predicate: string;
+  direction: 'outgoing' | 'incoming';
+  counterpart: EntityDerivationCounterpart;
+  source: ProvenanceSource;
+}
+
+export interface EntityProvenanceFact {
+  id: string;
+  type: string;
+  summary: string;
+}
+
+export interface EntityProvenance {
+  entity: { id: string; type: string; displayName: string };
+  derivedFrom: EntityDerivation[];
+  facts: EntityProvenanceFact[];
 }
 
 export interface SyncState {

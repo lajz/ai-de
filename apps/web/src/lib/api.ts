@@ -2,6 +2,7 @@ import type {
   ConnectorConfig,
   Engagement,
   EngagementGraph,
+  EntityProvenance,
   Fact,
   FactProvenance,
   PipelineStatus,
@@ -120,6 +121,17 @@ export function getFactProvenance(
   factId: string,
 ): Promise<FactProvenance> {
   return apiJson<FactProvenance>(`/engagements/${engagementId}/facts/${factId}/provenance`, token);
+}
+
+export function getEntityProvenance(
+  token: string | undefined,
+  engagementId: string,
+  entityId: string,
+): Promise<EntityProvenance> {
+  return apiJson<EntityProvenance>(
+    `/engagements/${engagementId}/entities/${entityId}/provenance`,
+    token,
+  );
 }
 
 export function getGraph(

@@ -88,6 +88,9 @@ describe('ProvenanceChain', () => {
           externalId: 'ext-1',
           kind: 'transcript',
           urlPermalink: 'https://ex.com/t/1',
+          workspaceRef: 'ws-1',
+          containerRef: 'meeting-42',
+          authorRef: 'jane@example.com',
           occurredAt: '2026-09-01T00:00:00Z',
         },
         acl: {
@@ -114,6 +117,8 @@ describe('ProvenanceChain', () => {
     expect(html).toContain('we will standardize on Postgres');
     expect(html).toContain('chars 10');
     expect(html).toContain('granola');
+    expect(html).toContain('meeting-42');
+    expect(html).toContain('jane@example.com');
     expect(html).toContain('href="https://ex.com/t/1"');
     expect(html).toContain('2 rules');
     expect(html).toContain('slack_channel');
