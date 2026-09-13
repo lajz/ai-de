@@ -30,7 +30,7 @@ const facts: Fact[] = [
 
 describe('FactList', () => {
   it('renders each fact with its type, summary, body and a citation permalink', () => {
-    const html = renderToStaticMarkup(<FactList facts={facts} />);
+    const html = renderToStaticMarkup(<FactList engagementId="eng-1" facts={facts} />);
     expect(html).toContain('decision');
     expect(html).toContain('The team will standardize on Postgres.');
     expect(html).toContain('Chosen over DynamoDB');
@@ -38,8 +38,15 @@ describe('FactList', () => {
     expect(html).toContain('we will standardize on Postgres');
   });
 
+  it('links each fact to its full provenance chain', () => {
+    const html = renderToStaticMarkup(<FactList engagementId="eng-1" facts={facts} />);
+    expect(html).toContain('href="/engagements/eng-1/admin/lineage?factId=f1"');
+  });
+
   it('renders an empty state when there are no facts', () => {
-    expect(renderToStaticMarkup(<FactList facts={[]} />)).toContain('No facts extracted');
+    expect(renderToStaticMarkup(<FactList engagementId="eng-1" facts={[]} />)).toContain(
+      'No facts extracted',
+    );
   });
 });
 

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
   getConnectors,
+  getEntityProvenance,
   getGraph,
   getPipeline,
   putConnector,
@@ -78,6 +79,16 @@ describe('lib/api — /admin client', () => {
     expect((fetchMock.mock.calls[0] as [string])[0]).toMatch(/\/pipeline\?limit=5$/);
     await getPipeline('tok', 'eng-1');
     expect((fetchMock.mock.calls[1] as [string])[0]).toMatch(/\/pipeline$/);
+  });
+
+  it('getEntityProvenance GETs the entity provenance route', async () => {
+    const fetchMock = vi.fn(async () => okJson({ entity: {}, derivedFrom: [], facts: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getEntityProvenance('tok', 'eng-1', 'ent-1');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/engagements\/eng-1\/entities\/ent-1\/provenance$/);
+    expect(init.method ?? 'GET').toBe('GET');
   });
 
   it('maps a non-2xx to ApiError carrying the status', async () => {
@@ -165,5 +176,37 @@ describe('POST /api/admin/sync proxy', () => {
     });
     expect(unavailable.status).toBe(503);
     expect(await unavailable.json()).toMatchObject({ error: expect.stringContaining('Temporal') });
+  });
+});
+
+describe('GET /api/admin/entity-provenance proxy', () => {
+  async function get(qs: string) {
+    const { GET } = await import('./app/api/admin/entity-provenance/route');
+    return GET(new Request(`http://localhost/api/admin/entity-provenance?${qs}`));
+  }
+
+  it('rejects a request missing engagementId or entityId', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await get('entityId=ent-1')).status).toBe(400);
+    expect((await get('engagementId=e')).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards the query and relays the upstream body / a 403', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => okJson({ entity: { id: 'ent-1' }, derivedFrom: [], facts: [] })),
+    );
+    const ok = await get('engagementId=e&entityId=ent-1');
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ entity: { id: 'ent-1' } });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => okJson({}, false, 403)),
+    );
+    const denied = await get('engagementId=e&entityId=ent-1');
+    expect(denied.status).toBe(403);
   });
 });

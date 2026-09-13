@@ -11,6 +11,7 @@ import {
   ENTITY_TYPES,
   type EngagementId,
   type EntityType,
+  type NodeKind,
   PREDICATES,
   type Predicate,
   type TenantId,
@@ -21,8 +22,11 @@ import { AuthzClient } from '@fde/authz';
 import {
   CRYPTO_COLUMNS,
   selectConnectorSyncStates,
+  selectEntityForProvenance,
+  selectEntityProvenanceEdges,
   selectExtractionRun,
   selectFactForProvenance,
+  selectFactsByIds,
   selectGraphEdges,
   selectGraphEntities,
   selectGraphFacts,
@@ -63,6 +67,9 @@ export interface ProvenanceEvidence {
     externalId: string;
     kind: string;
     urlPermalink: string | null;
+    workspaceRef: string | null;
+    containerRef: string | null;
+    authorRef: string | null;
     occurredAt: string;
   };
   acl: AclSnapshotSummary | null;
@@ -86,6 +93,39 @@ export interface FactProvenance {
     costUsd: number | null;
     createdAt: string;
   } | null;
+}
+
+export interface EntityDerivationSource {
+  id: string;
+  connector: string;
+  externalId: string;
+  kind: string;
+  urlPermalink: string | null;
+  workspaceRef: string | null;
+  containerRef: string | null;
+  authorRef: string | null;
+  occurredAt: string;
+}
+
+export interface EntityDerivation {
+  relationshipId: string;
+  predicate: Predicate;
+  /** `outgoing`: the entity is the edge's `from`; `incoming`: it's the `to`. */
+  direction: 'outgoing' | 'incoming';
+  counterpart: { kind: NodeKind; id: string };
+  source: EntityDerivationSource;
+}
+
+export interface EntityProvenance {
+  entity: {
+    id: string;
+    type: string;
+    displayName: string;
+  };
+  /** every single-artifact-attested edge touching this entity, joined to its source */
+  derivedFrom: EntityDerivation[];
+  /** the fact-kind counterparts among `derivedFrom`, so the UI can pivot into a full provenance chain */
+  facts: { id: string; type: string; summary: string }[];
 }
 
 export interface GraphNode {
@@ -142,8 +182,8 @@ export interface PipelineStatus {
  * Same seam discipline as `RetrievalService`: no DB code of its own (reads `tx`
  * from `getRequestContext()`), `canViewEngagement`-gated under `AUTHZ_ENFORCE`,
  * 🔒 fields decrypted only *after* that gate, and every decrypting read writes a
- * `content_read` `access_log` row in the request transaction. `graph` and
- * `pipeline` touch no 🔒 column, so they log nothing.
+ * `content_read` `access_log` row in the request transaction. `getEntityProvenance`,
+ * `getGraph` and `getPipeline` touch no 🔒 column, so they log nothing.
  */
 @Injectable()
 export class LineageService {
@@ -193,6 +233,9 @@ export class LineageService {
           externalId: e.externalId,
           kind: e.kind,
           urlPermalink: e.urlPermalink,
+          workspaceRef: e.workspaceRef,
+          containerRef: e.containerRef,
+          authorRef: e.authorRef,
           occurredAt: e.occurredAt.toISOString(),
         },
         acl: await summarizeAcl(engagement.cipher, e),
@@ -219,6 +262,68 @@ export class LineageService {
             createdAt: run.createdAt.toISOString(),
           }
         : null,
+    };
+  }
+
+  /**
+   * Derivation detail for one entity: its own type/name, plus every
+   * single-artifact-attested `relationships` edge touching it (joined to that
+   * edge's source) and the fact-kind counterparts among those edges. Cleartext
+   * only — no `entities.attributes`/`.body` touched, so (like `getGraph`) this
+   * decrypts nothing and logs nothing.
+   */
+  async getEntityProvenance(entityId: string): Promise<EntityProvenance> {
+    const { tx, userId, tenantId } = getRequestContext();
+    const engagement = getEngagementContext();
+    await this.assertCanView(userId, tenantId, engagement.id);
+
+    const entity = await selectEntityForProvenance(tx, tenantId, engagement.id, entityId);
+    if (!entity) throw new NotFoundException('entity not found in this engagement');
+
+    const edgeRows = await selectEntityProvenanceEdges(tx, tenantId, engagement.id, entityId);
+
+    const counterpartOf = (
+      r: (typeof edgeRows)[number],
+    ): { kind: NodeKind; id: string; outgoing: boolean } =>
+      r.fromKind === 'entity' && r.fromId === entityId
+        ? { kind: r.toKind, id: r.toId, outgoing: true }
+        : { kind: r.fromKind, id: r.fromId, outgoing: false };
+
+    const factIds = [
+      ...new Set(
+        edgeRows
+          .map(counterpartOf)
+          .filter((c) => c.kind === 'fact')
+          .map((c) => c.id),
+      ),
+    ];
+    const factRows = await selectFactsByIds(tx, tenantId, engagement.id, factIds);
+
+    const derivedFrom: EntityDerivation[] = edgeRows.map((r) => {
+      const counterpart = counterpartOf(r);
+      return {
+        relationshipId: r.relationshipId,
+        predicate: r.predicate,
+        direction: counterpart.outgoing ? 'outgoing' : 'incoming',
+        counterpart: { kind: counterpart.kind, id: counterpart.id },
+        source: {
+          id: r.sourceId,
+          connector: r.connector,
+          externalId: r.externalId,
+          kind: r.kind,
+          urlPermalink: r.urlPermalink,
+          workspaceRef: r.workspaceRef,
+          containerRef: r.containerRef,
+          authorRef: r.authorRef,
+          occurredAt: r.occurredAt.toISOString(),
+        },
+      };
+    });
+
+    return {
+      entity: { id: entity.id, type: entity.type, displayName: entity.displayName },
+      derivedFrom,
+      facts: factRows.map((f) => ({ id: f.id, type: f.type, summary: f.summary })),
     };
   }
 

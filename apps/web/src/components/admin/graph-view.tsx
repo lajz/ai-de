@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { buildFlowGraph, graphFacets } from '../../lib/graph-layout';
 import { entityTypeColor, entityTypeLine, factTypeColor, factTypeWash } from '../../lib/type-color';
 import type { EngagementGraph, GraphNode } from '../../lib/types';
+import { EntityProvenancePanel } from './entity-provenance-panel';
 
 /** Tracks the OS/browser color scheme so canvas node fills stay theme-correct. */
 function usePrefersDark(): boolean {
@@ -166,13 +167,19 @@ export function GraphView({
               </>
             )}
           </dl>
-          {selected.externalRefs && selected.externalRefs.length > 0 && (
-            <pre className="graph-refs">{JSON.stringify(selected.externalRefs, null, 2)}</pre>
+          {selected.kind === 'entity' && (
+            <EntityProvenancePanel engagementId={engagementId} entityId={selected.id} />
           )}
           {selected.kind === 'fact' && (
             <Link href={`/engagements/${engagementId}/admin/lineage?factId=${selected.id}`}>
               Trace provenance
             </Link>
+          )}
+          {selected.externalRefs && selected.externalRefs.length > 0 && (
+            <details className="graph-refs-details">
+              <summary>Raw external refs</summary>
+              <pre className="graph-refs">{JSON.stringify(selected.externalRefs, null, 2)}</pre>
+            </details>
           )}
         </aside>
       )}

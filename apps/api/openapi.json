@@ -288,6 +288,30 @@
         "tags": ["admin"]
       }
     },
+    "/engagements/{id}/entities/{entityId}/provenance": {
+      "get": {
+        "operationId": "LineageController_entityProvenance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityProvenanceResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["admin"]
+      }
+    },
     "/engagements/{id}/graph": {
       "get": {
         "operationId": "LineageController_graph",
@@ -749,12 +773,37 @@
             "type": "string",
             "nullable": true
           },
+          "workspaceRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "e.g. a Slack/Nango workspace id"
+          },
+          "containerRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "e.g. a channel/doc/meeting id"
+          },
+          "authorRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "the artifact's author/speaker ref"
+          },
           "occurredAt": {
             "type": "string",
             "format": "date-time"
           }
         },
-        "required": ["id", "connector", "externalId", "kind", "urlPermalink", "occurredAt"]
+        "required": [
+          "id",
+          "connector",
+          "externalId",
+          "kind",
+          "urlPermalink",
+          "workspaceRef",
+          "containerRef",
+          "authorRef",
+          "occurredAt"
+        ]
       },
       "AclSummaryResponse": {
         "type": "object",
@@ -859,6 +908,103 @@
           }
         },
         "required": ["fact", "evidence", "extractionRun"]
+      },
+      "EntityProvenanceEntityResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "type", "displayName"]
+      },
+      "EntityDerivationCounterpartResponse": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["entity", "fact"]
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["kind", "id"]
+      },
+      "EntityDerivationResponse": {
+        "type": "object",
+        "properties": {
+          "relationshipId": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string",
+            "enum": [
+              "owns",
+              "accountable_for",
+              "informed_of",
+              "implemented_by",
+              "blocks",
+              "supersedes",
+              "relates_to",
+              "member_of",
+              "stakeholder_in"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["outgoing", "incoming"]
+          },
+          "counterpart": {
+            "$ref": "#/components/schemas/EntityDerivationCounterpartResponse"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProvenanceSourceResponse"
+          }
+        },
+        "required": ["relationshipId", "predicate", "direction", "counterpart", "source"]
+      },
+      "EntityProvenanceFactResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "type", "summary"]
+      },
+      "EntityProvenanceResponse": {
+        "type": "object",
+        "properties": {
+          "entity": {
+            "$ref": "#/components/schemas/EntityProvenanceEntityResponse"
+          },
+          "derivedFrom": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityDerivationResponse"
+            }
+          },
+          "facts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityProvenanceFactResponse"
+            }
+          }
+        },
+        "required": ["entity", "derivedFrom", "facts"]
       },
       "GraphNodeResponse": {
         "type": "object",

@@ -6,7 +6,7 @@ import {
   ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
-import { EVIDENCE_RELATIONS } from '@fde/core';
+import { EVIDENCE_RELATIONS, NODE_KINDS, PREDICATES } from '@fde/core';
 
 import { EngagementScope } from '../request-context/metadata.js';
 import { LineageService } from './lineage.service.js';
@@ -25,6 +25,12 @@ class ProvenanceSourceResponse {
   @ApiProperty({ type: String }) externalId!: string;
   @ApiProperty({ type: String }) kind!: string;
   @ApiProperty({ type: String, nullable: true }) urlPermalink!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: 'e.g. a Slack/Nango workspace id' })
+  workspaceRef!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: 'e.g. a channel/doc/meeting id' })
+  containerRef!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: "the artifact's author/speaker ref" })
+  authorRef!: string | null;
   @ApiProperty({ type: String, format: 'date-time' }) occurredAt!: string;
 }
 
@@ -62,6 +68,38 @@ class FactProvenanceResponse {
   @ApiProperty({ type: [ProvenanceEvidenceResponse] }) evidence!: ProvenanceEvidenceResponse[];
   @ApiProperty({ type: ExtractionRunResponse, nullable: true })
   extractionRun!: ExtractionRunResponse | null;
+}
+
+class EntityProvenanceEntityResponse {
+  @ApiProperty({ type: String }) id!: string;
+  @ApiProperty({ type: String }) type!: string;
+  @ApiProperty({ type: String }) displayName!: string;
+}
+
+class EntityDerivationCounterpartResponse {
+  @ApiProperty({ type: String, enum: [...NODE_KINDS] }) kind!: string;
+  @ApiProperty({ type: String }) id!: string;
+}
+
+class EntityDerivationResponse {
+  @ApiProperty({ type: String }) relationshipId!: string;
+  @ApiProperty({ type: String, enum: [...PREDICATES] }) predicate!: string;
+  @ApiProperty({ type: String, enum: ['outgoing', 'incoming'] }) direction!: string;
+  @ApiProperty({ type: EntityDerivationCounterpartResponse })
+  counterpart!: EntityDerivationCounterpartResponse;
+  @ApiProperty({ type: ProvenanceSourceResponse }) source!: ProvenanceSourceResponse;
+}
+
+class EntityProvenanceFactResponse {
+  @ApiProperty({ type: String }) id!: string;
+  @ApiProperty({ type: String }) type!: string;
+  @ApiProperty({ type: String }) summary!: string;
+}
+
+class EntityProvenanceResponse {
+  @ApiProperty({ type: EntityProvenanceEntityResponse }) entity!: EntityProvenanceEntityResponse;
+  @ApiProperty({ type: [EntityDerivationResponse] }) derivedFrom!: EntityDerivationResponse[];
+  @ApiProperty({ type: [EntityProvenanceFactResponse] }) facts!: EntityProvenanceFactResponse[];
 }
 
 class GraphNodeResponse {
@@ -123,8 +161,8 @@ class PipelineStatusResponse {
 /**
  * `/admin` data-lineage read views. Engagement-scoped, `canViewEngagement`-gated
  * under `AUTHZ_ENFORCE`. `provenance` decrypts 🔒 quote / body / ACL rules
- * post-gate and logs a `content_read`; `graph` and `pipeline` return cleartext /
- * metadata only.
+ * post-gate and logs a `content_read`; `entityProvenance`, `graph` and
+ * `pipeline` return cleartext / metadata only.
  */
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -140,6 +178,16 @@ export class LineageController {
     @Param('factId', new ParseUUIDPipe()) factId: string,
   ): Promise<FactProvenanceResponse> {
     return this.lineage.getFactProvenance(factId);
+  }
+
+  @Get(':id/entities/:entityId/provenance')
+  @EngagementScope('id')
+  @ApiOkResponse({ type: EntityProvenanceResponse })
+  async entityProvenance(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @Param('entityId', new ParseUUIDPipe()) entityId: string,
+  ): Promise<EntityProvenanceResponse> {
+    return this.lineage.getEntityProvenance(entityId);
   }
 
   @Get(':id/graph')

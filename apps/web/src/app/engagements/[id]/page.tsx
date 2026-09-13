@@ -37,7 +37,7 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
       </p>
       <AskPanel engagementId={id} />
       <h2>Facts</h2>
-      <FactList facts={facts} />
+      <FactList engagementId={id} facts={facts} />
     </main>
   );
 }

@@ -1,11 +1,18 @@
+import Link from 'next/link';
 import type { CSSProperties } from 'react';
 
 import type { Fact } from '../lib/types';
 import { factTypeColor } from '../lib/type-color';
 import { safeHttpUrl } from '../lib/url';
 
-/** Read-only render of an engagement's extracted facts + their source citations. */
-export function FactList({ facts }: { facts: Fact[] }) {
+/**
+ * Read-only render of an engagement's extracted facts + their source
+ * citations. Every card links onward to that fact's full provenance chain
+ * (`/admin/lineage?factId=`) — the citation here is just the quote + a
+ * permalink; the chain has the ACL summary and extraction run too, and is
+ * reachable from any viewer, not only an admin role.
+ */
+export function FactList({ engagementId, facts }: { engagementId: string; facts: Fact[] }) {
   if (facts.length === 0) {
     return <p className="empty-state">No facts extracted for this engagement yet.</p>;
   }
@@ -45,6 +52,11 @@ export function FactList({ facts }: { facts: Fact[] }) {
               })}
             </ul>
           )}
+          <p className="fact-foot">
+            <Link href={`/engagements/${engagementId}/admin/lineage?factId=${fact.id}`}>
+              Full provenance
+            </Link>
+          </p>
         </li>
       ))}
     </ul>

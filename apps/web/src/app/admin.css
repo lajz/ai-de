@@ -262,7 +262,9 @@ main.admin {
   margin-top: 0.3rem;
 }
 
-.prov-source {
+/* shared source citation presentation — provenance chain evidence lines +
+   the entity derivation panel; see components/source-badge.tsx */
+.source-badge {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -272,9 +274,14 @@ main.admin {
   margin: 0.5rem 0;
 }
 
-.prov-source-connector {
+.source-badge-connector {
   font-weight: 600;
   color: var(--ink);
+}
+
+.source-badge-container,
+.source-badge-author {
+  font-family: var(--font-data);
 }
 
 .acl-chip {
@@ -423,13 +430,67 @@ main.admin {
   color: var(--muted);
 }
 
+.graph-refs-details {
+  margin-top: var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.graph-refs-details summary {
+  cursor: pointer;
+}
+
 .graph-refs {
   font-size: 0.75rem;
   overflow-x: auto;
   background: var(--surface-sunken);
   padding: var(--space-2);
   border-radius: var(--radius-tile);
-  margin: var(--space-3) 0;
+  margin: var(--space-2) 0 0;
+}
+
+.entity-derivations-status {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.entity-derivations {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.entity-derivation {
+  list-style: none;
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+}
+
+.entity-derivation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  margin-bottom: 0.2rem;
+}
+
+.entity-derivation-predicate {
+  font-weight: 600;
+  font-family: var(--font-data);
+  font-size: 0.8125rem;
+}
+
+.entity-derivation-direction {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.entity-derivation-counterpart {
+  color: var(--muted);
+  font-family: var(--font-data);
+  font-size: 0.8125rem;
 }
 
 /* ---------------------------------------------------------------------------
