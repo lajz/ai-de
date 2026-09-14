@@ -427,6 +427,12 @@ input[type='checkbox'] {
   color: var(--ink);
 }
 
+.citation-relation {
+  margin: 0 0 0.15rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
 .no-permalink {
   color: var(--muted);
 }

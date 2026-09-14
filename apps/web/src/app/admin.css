@@ -135,13 +135,20 @@ main.admin {
    Lineage / provenance — the signature chain-of-custody rail
 --------------------------------------------------------------------------- */
 
+.lineage-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
 .lineage-picker {
   list-style: none;
   max-height: 12rem;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-tile);
-  margin-bottom: var(--space-5);
+  width: 100%;
 }
 
 .lineage-picker li {
@@ -159,6 +166,7 @@ main.admin {
   color: var(--ink);
   text-decoration: none;
   font-size: 0.875rem;
+  border-left: 3px solid transparent;
 }
 
 .lineage-picker a:hover {
@@ -167,42 +175,53 @@ main.admin {
 
 .lineage-picker a[aria-current] {
   background: var(--accent-wash);
+  border-left-color: var(--accent);
   font-weight: 600;
 }
 
+.lineage-detail {
+  min-width: 0;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+@media (min-width: 56rem) {
+  main.admin:has(.lineage-layout) {
+    max-width: 68rem;
+  }
+
+  .lineage-layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .lineage-picker {
+    flex: 0 0 18rem;
+    max-height: none;
+    position: sticky;
+    top: var(--space-4);
+  }
+
+  .lineage-detail {
+    flex: 1 1 auto;
+  }
+}
+
 .provenance {
-  position: relative;
   margin-top: var(--space-4);
-  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
 }
 
-.provenance::before {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 0.6rem;
-  bottom: 0.6rem;
-  width: 2px;
-  background: var(--line-strong);
-}
-
-.prov-fact,
-.prov-run {
-  position: relative;
-  padding: 0 0 var(--space-5);
-}
-
-.prov-fact::before,
-.prov-run::before {
-  content: '';
-  position: absolute;
-  left: calc(-1 * var(--space-5) + 1px);
-  top: 0.4rem;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--paper);
+.prov-section-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--accent);
+  line-height: 1.4;
 }
 
 .prov-fact-head {
@@ -218,30 +237,21 @@ main.admin {
   text-transform: capitalize;
 }
 
+.prov-fact-note {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.4rem 0 0;
+}
+
 .prov-evidence {
   list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
 .prov-ev {
-  position: relative;
   list-style: none;
-  padding: 0 0 var(--space-5);
-}
-
-.prov-ev::before {
-  content: '';
-  position: absolute;
-  left: calc(-1 * var(--space-5) + 1px);
-  top: 0.4rem;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background: var(--success);
-  border: 2px solid var(--paper);
-}
-
-.prov-ev-contradicts::before {
-  background: var(--error);
 }
 
 .prov-ev-quote {
@@ -255,11 +265,26 @@ main.admin {
   color: var(--ink);
 }
 
-.prov-ev-meta {
-  display: block;
+.prov-ev-sentence {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+.prov-ev-relation-good {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.prov-ev-relation-bad {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.prov-ev-span {
+  font-family: var(--font-data);
   font-size: 0.75rem;
   color: var(--muted);
-  margin-top: 0.3rem;
+  margin: 0.2rem 0 0;
 }
 
 /* shared source citation presentation — provenance chain evidence lines +
@@ -284,23 +309,36 @@ main.admin {
   font-family: var(--font-data);
 }
 
-.acl-chip {
-  display: inline-flex;
-  align-items: center;
+.prov-access-summary {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+.prov-access-detail {
+  margin-top: 0.3rem;
   font-size: 0.75rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
   color: var(--muted);
 }
 
-.acl-chip-none {
-  border-style: dashed;
+.prov-access-detail summary {
+  cursor: pointer;
+}
+
+.prov-access-detail p {
+  margin: 0.3rem 0 0;
+  max-width: none;
 }
 
 .prov-run {
   font-size: 0.875rem;
   color: var(--muted);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-tile);
+  padding: var(--space-3) var(--space-4);
+}
+
+.prov-run p {
+  margin: 0;
 }
 
 .prov-run-meta {
@@ -467,29 +505,25 @@ main.admin {
   padding-top: var(--space-3);
 }
 
-.entity-derivation-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
+.entity-derivation-sentence {
   font-size: 0.875rem;
-  margin-bottom: 0.2rem;
+  margin: 0 0 0.3rem;
 }
 
-.entity-derivation-predicate {
-  font-weight: 600;
-  font-family: var(--font-data);
-  font-size: 0.8125rem;
-}
-
-.entity-derivation-direction {
+.entity-derivation-predicate-word {
   color: var(--muted);
-  font-size: 0.8125rem;
+}
+
+.entity-derivation-predicate-raw {
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface-sunken);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-tile);
 }
 
 .entity-derivation-counterpart {
   color: var(--muted);
-  font-family: var(--font-data);
   font-size: 0.8125rem;
 }
 

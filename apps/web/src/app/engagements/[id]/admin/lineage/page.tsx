@@ -43,25 +43,29 @@ export default async function LineagePage({
   return (
     <section>
       <h1>Lineage</h1>
-      <ul className="lineage-picker">
-        {facts.map((f) => (
-          <li key={f.id}>
-            <Link
-              href={`/engagements/${id}/admin/lineage?factId=${f.id}`}
-              aria-current={f.id === factId ? 'true' : undefined}
-            >
-              <span className="fact-type" style={{ color: factTypeColor(f.type) }}>
-                {f.type}
-              </span>{' '}
-              {f.summary}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <div className="lineage-layout">
+        <ul className="lineage-picker">
+          {facts.map((f) => (
+            <li key={f.id}>
+              <Link
+                href={`/engagements/${id}/admin/lineage?factId=${f.id}`}
+                aria-current={f.id === factId ? 'true' : undefined}
+              >
+                <span className="fact-type" style={{ color: factTypeColor(f.type) }}>
+                  {f.type}
+                </span>{' '}
+                {f.summary}
+              </Link>
+            </li>
+          ))}
+        </ul>
 
-      {!factId && <p className="empty-state">Pick a fact above to trace its provenance.</p>}
-      {provenanceError != null && <AdminError status={provenanceError} />}
-      {provenance && <ProvenanceChain engagementId={id} provenance={provenance} />}
+        <div className="lineage-detail">
+          {!factId && <p className="empty-state">Pick a fact to trace its provenance.</p>}
+          {provenanceError != null && <AdminError status={provenanceError} />}
+          {provenance && <ProvenanceChain engagementId={id} provenance={provenance} />}
+        </div>
+      </div>
     </section>
   );
 }

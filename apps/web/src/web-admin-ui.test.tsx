@@ -2,12 +2,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ConnectorCard } from './components/admin/connector-card';
+import { EntityProvenanceView } from './components/admin/entity-provenance-panel';
 import { PipelineView } from './components/admin/pipeline-view';
 import { ProvenanceChain } from './components/admin/provenance-chain';
 import { saveConnector, triggerSync } from './lib/admin-client';
 import { buildFlowGraph, graphFacets } from './lib/graph-layout';
 import { relativeTime } from './lib/relative-time';
-import type { ConnectorConfig, EngagementGraph, FactProvenance, PipelineStatus } from './lib/types';
+import type {
+  ConnectorConfig,
+  EngagementGraph,
+  EntityProvenance,
+  FactProvenance,
+  PipelineStatus,
+} from './lib/types';
 
 const connector: ConnectorConfig = {
   connector: 'granola',
@@ -109,10 +116,13 @@ describe('ProvenanceChain', () => {
     },
   };
 
-  it('renders the fact, the evidence quote + source + ACL chip and the run footer', () => {
+  it('renders the fact, the evidence quote + source + ACL summary and the run footer under labeled sections', () => {
     const html = renderToStaticMarkup(
       <ProvenanceChain engagementId="eng-1" provenance={provenance} />,
     );
+    expect(html).toContain('What was extracted');
+    expect(html).toContain('Evidence');
+    expect(html).toContain('How this was extracted');
     expect(html).toContain('Standardize on Postgres');
     expect(html).toContain('we will standardize on Postgres');
     expect(html).toContain('chars 10');
@@ -120,10 +130,167 @@ describe('ProvenanceChain', () => {
     expect(html).toContain('meeting-42');
     expect(html).toContain('jane@example.com');
     expect(html).toContain('href="https://ex.com/t/1"');
+    expect(html).toContain('Visible to members of that slack channel.');
     expect(html).toContain('2 rules');
     expect(html).toContain('slack_channel');
     expect(html).toContain('claude-sonnet-5');
     expect(html).toContain('extract-v3');
+  });
+
+  it('marks a verbatim quote as quoted directly and a condensed one as an extraction summary', () => {
+    const verbatimHtml = renderToStaticMarkup(
+      <ProvenanceChain engagementId="eng-1" provenance={provenance} />,
+    );
+    expect(verbatimHtml).toContain('quoted directly from the source');
+
+    const condensed: FactProvenance = {
+      ...provenance,
+      evidence: [{ ...provenance.evidence[0], quote: 'the team discussed database options' }],
+    };
+    const condensedHtml = renderToStaticMarkup(
+      <ProvenanceChain engagementId="eng-1" provenance={condensed} />,
+    );
+    expect(condensedHtml).toContain('the extraction condensed this');
+  });
+
+  it('renders a plain-language sentence for a missing or empty ACL', () => {
+    const noAcl: FactProvenance = {
+      ...provenance,
+      evidence: [{ ...provenance.evidence[0], acl: null }],
+    };
+    expect(
+      renderToStaticMarkup(<ProvenanceChain engagementId="eng-1" provenance={noAcl} />),
+    ).toContain('Who could see this wasn');
+
+    const emptyAcl: FactProvenance = {
+      ...provenance,
+      evidence: [
+        {
+          ...provenance.evidence[0],
+          acl: { ruleCount: 0, principalKinds: [], capturedAt: null, ttlSeconds: null },
+        },
+      ],
+    };
+    expect(
+      renderToStaticMarkup(<ProvenanceChain engagementId="eng-1" provenance={emptyAcl} />),
+    ).toContain('No extra access rule beyond the engagement');
+  });
+});
+
+describe('EntityProvenanceView', () => {
+  const derivedFact: FactProvenance['fact'] = {
+    id: 'f1',
+    type: 'decision',
+    summary: 'Standardize on Postgres',
+    body: null,
+    status: 'open',
+    confidence: null,
+    occurredAt: null,
+    createdAt: '2026-09-01T00:00:00Z',
+  };
+  const source: EntityProvenance['derivedFrom'][number]['source'] = {
+    id: 's1',
+    connector: 'granola',
+    externalId: 'ext-1',
+    kind: 'transcript',
+    urlPermalink: null,
+    workspaceRef: null,
+    containerRef: null,
+    authorRef: null,
+    occurredAt: '2026-09-01T00:00:00Z',
+  };
+
+  it('renders a loading state', () => {
+    const html = renderToStaticMarkup(
+      <EntityProvenanceView engagementId="eng-1" entityLabel="Ada" state={{ status: 'loading' }} />,
+    );
+    expect(html).toContain('Derived from');
+    expect(html).toContain('Loading derivation');
+  });
+
+  it('renders an error state', () => {
+    const html = renderToStaticMarkup(
+      <EntityProvenanceView engagementId="eng-1" entityLabel="Ada" state={{ status: 'error' }} />,
+    );
+    expect(html).toContain('Could not load how this entity was derived');
+  });
+
+  it('renders the empty-derivation state', () => {
+    const html = renderToStaticMarkup(
+      <EntityProvenanceView
+        engagementId="eng-1"
+        entityLabel="Ada"
+        state={{
+          status: 'ready',
+          data: {
+            entity: { id: 'e1', type: 'person', displayName: 'Ada' },
+            derivedFrom: [],
+            facts: [],
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('No single-source derivation recorded.');
+  });
+
+  it('reads outgoing derivations as "entity predicate counterpart"', () => {
+    const html = renderToStaticMarkup(
+      <EntityProvenanceView
+        engagementId="eng-1"
+        entityLabel="Ada"
+        state={{
+          status: 'ready',
+          data: {
+            entity: { id: 'e1', type: 'person', displayName: 'Ada' },
+            derivedFrom: [
+              {
+                relationshipId: 'r1',
+                predicate: 'decided_by',
+                direction: 'outgoing',
+                counterpart: { kind: 'fact', id: 'f1' },
+                source,
+              },
+            ],
+            facts: [derivedFact],
+          },
+        }}
+      />,
+    );
+    const adaIndex = html.indexOf('Ada');
+    const factLinkIndex = html.indexOf('decision: Standardize on Postgres');
+    expect(adaIndex).toBeGreaterThanOrEqual(0);
+    expect(factLinkIndex).toBeGreaterThan(adaIndex);
+    expect(html).toContain('decided by');
+    expect(html).toContain('decided_by');
+  });
+
+  it('reads incoming derivations as "counterpart predicate entity"', () => {
+    const html = renderToStaticMarkup(
+      <EntityProvenanceView
+        engagementId="eng-1"
+        entityLabel="Ada"
+        state={{
+          status: 'ready',
+          data: {
+            entity: { id: 'e1', type: 'person', displayName: 'Ada' },
+            derivedFrom: [
+              {
+                relationshipId: 'r2',
+                predicate: 'decided_by',
+                direction: 'incoming',
+                counterpart: { kind: 'fact', id: 'f1' },
+                source,
+              },
+            ],
+            facts: [derivedFact],
+          },
+        }}
+      />,
+    );
+    const factLinkIndex = html.indexOf('decision: Standardize on Postgres');
+    const adaIndex = html.indexOf('Ada', factLinkIndex);
+    expect(factLinkIndex).toBeGreaterThanOrEqual(0);
+    expect(adaIndex).toBeGreaterThan(factLinkIndex);
   });
 });
 
