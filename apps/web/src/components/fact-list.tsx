@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 
 import type { Fact } from '../lib/types';
+import { describeQuoteRelation } from '../lib/quote-relation';
 import { factTypeColor } from '../lib/type-color';
 import { safeHttpUrl } from '../lib/url';
 
@@ -37,8 +38,16 @@ export function FactList({ engagementId, facts }: { engagementId: string; facts:
             <ul className="citations">
               {fact.citations.map((c, i) => {
                 const href = safeHttpUrl(c.permalink);
+                const relation = describeQuoteRelation(c.quote, fact);
                 return (
                   <li key={`${fact.id}-${i}`} className="citation">
+                    {c.quote && (
+                      <p className="citation-relation">
+                        {relation === 'verbatim'
+                          ? 'Quoted directly from the source:'
+                          : 'The extraction condensed this from the source:'}
+                      </p>
+                    )}
                     {c.quote && <q>{c.quote}</q>}{' '}
                     {href ? (
                       <a href={href} target="_blank" rel="noreferrer">

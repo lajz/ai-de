@@ -168,7 +168,11 @@ export function GraphView({
             )}
           </dl>
           {selected.kind === 'entity' && (
-            <EntityProvenancePanel engagementId={engagementId} entityId={selected.id} />
+            <EntityProvenancePanel
+              engagementId={engagementId}
+              entityId={selected.id}
+              entityLabel={selected.label}
+            />
           )}
           {selected.kind === 'fact' && (
             <Link href={`/engagements/${engagementId}/admin/lineage?factId=${selected.id}`}>
