@@ -103,7 +103,13 @@ export async function orchestrate(
       console.log(
         `--reset: deleting existing engagement ${existing} (cascades every dependent row)…`,
       );
-      await db.delete(engagements).where(eq(engagements.id, existing));
+      // `withTenant`, unlike `ensureDevTenant`'s bare query: `engagements` (unlike
+      // `tenants`) is a normal RLS-governed table, so this gets tenant scoping
+      // from the role/policy, not just `assertLocalDatabase`'s hostname check —
+      // real defense in depth, not just a second check of the same thing.
+      await withTenant(db, tenantId, (tx) =>
+        tx.delete(engagements).where(eq(engagements.id, existing)),
+      );
     }
 
     const engagementId = await createEngagement(db, provider, tenantId, definition.endCustomerName);

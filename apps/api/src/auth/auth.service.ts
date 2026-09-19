@@ -62,11 +62,13 @@ export class AuthService implements OnModuleInit {
     } catch (err) {
       // Best-effort: a DB hiccup on boot shouldn't crash the app over a dev
       // convenience. /auth/dev-login remains available as the manual fallback.
-      // Logged with the stack (not just `.message`) so a real bug here —
-      // e.g. a schema mismatch, not a transient connection failure — is
-      // still visible in boot logs rather than reading as routine.
+      // `.message` only, not `.stack` — a Postgres connection error's message
+      // can embed the connection string, and this always lands in plain boot
+      // logs. `.message` alone still distinguishes a real bug from a
+      // transient hiccup (a `TypeError`/schema-mismatch message reads
+      // nothing like a connection failure's).
       const error = err instanceof Error ? err : new Error(String(err));
-      this.logger.warn(`could not seed DEV_SESSION_TOKEN: ${error.stack ?? error.message}`);
+      this.logger.warn(`could not seed DEV_SESSION_TOKEN: ${error.message}`);
     }
   }
 
@@ -76,16 +78,20 @@ export class AuthService implements OnModuleInit {
   }
 
   /**
-   * Two independent gates, both required: the `WORKOS` provider must be the
-   * in-memory fake (i.e. never in production, where `WORKOS_API_KEY` is
-   * required — `config/env.ts` — and the real `WorkOsService` is bound
-   * instead), AND `ENABLE_DEV_LOGIN=true` must be set explicitly. The second
-   * gate exists so this admin-granting bypass is something a worktree turns
-   * on, not something it gets for free from an incomplete `.env`. Gates
-   * `completeDevLogin` / `AuthController#login`'s dev bypass.
+   * Three independent gates, all required: `NODE_ENV === 'development'` —
+   * checked directly, not inferred from the other two, so a `test` or any
+   * other non-production environment that forgot `WORKOS_API_KEY` doesn't
+   * get an admin-granting login bypass for free; the `WORKOS` provider must
+   * be the in-memory fake (redundant with the `NODE_ENV` check today, since
+   * `WorkOsModule` only falls back to it outside production, but kept as a
+   * second independent check rather than relying on one); and
+   * `ENABLE_DEV_LOGIN=true` must be set explicitly, so this is something a
+   * worktree turns on, not something it gets from an incomplete `.env`.
+   * Gates `completeDevLogin` / `AuthController#login`'s dev bypass.
    */
   devLoginEnabled(): boolean {
     return (
+      this.config.get('NODE_ENV', { infer: true }) === 'development' &&
       this.workos instanceof FakeWorkOsService &&
       this.config.get('ENABLE_DEV_LOGIN', { infer: true }) === 'true'
     );
