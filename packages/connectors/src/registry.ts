@@ -4,6 +4,8 @@ import { GranolaConnector } from './granola/granola-connector.js';
 import { loadGranolaClient } from './granola/load-granola-client.js';
 import { LinearConnector } from './linear/linear-connector.js';
 import { loadLinearClientFactory } from './linear/load-linear-client.js';
+import { GitHubConnector } from './github/github-connector.js';
+import { loadGitHubClientFactory } from './github/load-github-client.js';
 
 export interface ConnectorBuildContext {
   /** the engagement's retention policy — a connector derives its effective policy from it */
@@ -49,10 +51,16 @@ export class ConnectorRegistry {
  *   by self-hosted Nango via `ConnectorContext.getCredential` (wired in
  *   `apps/workers`). `loadLinearClientFactory(env)` selects `HttpLinearClient`
  *   when `NANGO_SECRET_KEY` is set, `FakeLinearClient` otherwise.
+ * - **GitHub** — `authKind: 'nango-oauth'`, same shape as Linear. One
+ *   connection is bound to a single repo, learned from
+ *   `ConnectorCredential.metadata.repo` (see `GitHubConnector`'s header
+ *   comment). `loadGitHubClientFactory(env)` selects `HttpGitHubClient` when
+ *   `NANGO_SECRET_KEY` is set, `FakeGitHubClient` otherwise.
  */
 export function createDefaultConnectorRegistry(env: NodeJS.ProcessEnv): ConnectorRegistry {
   const granolaClient = loadGranolaClient(env);
   const linearClientFactory = loadLinearClientFactory(env);
+  const githubClientFactory = loadGitHubClientFactory(env);
   return new ConnectorRegistry({
     granola: (ctx) =>
       new GranolaConnector({
@@ -64,6 +72,12 @@ export function createDefaultConnectorRegistry(env: NodeJS.ProcessEnv): Connecto
         clientFactory: linearClientFactory,
         engagementRetentionPolicy: ctx.engagementRetentionPolicy,
         ...(env.LINEAR_WEBHOOK_SECRET ? { webhookSecret: env.LINEAR_WEBHOOK_SECRET } : {}),
+      }),
+    github: (ctx) =>
+      new GitHubConnector({
+        clientFactory: githubClientFactory,
+        engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+        ...(env.GITHUB_WEBHOOK_SECRET ? { webhookSecret: env.GITHUB_WEBHOOK_SECRET } : {}),
       }),
   });
 }

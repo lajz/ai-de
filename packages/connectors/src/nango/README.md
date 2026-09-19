@@ -70,3 +70,65 @@ the platform's own receiver with that secret. Alternatively Nango can proxy +
 verify provider webhooks and forward a normalized event — if you go that route,
 the receiver trusts Nango's signature instead and `LINEAR_WEBHOOK_SECRET` is
 unused. M3 ships the direct path; the Nango-proxy path is a config choice.
+
+## GitHub
+
+Same Nango custody model as Linear, one `authKind: 'nango-oauth'` connector
+alongside it — `providerConfigKey` = `github`. Two differences from Linear are
+worth calling out up front:
+
+- **Repo scope, not workspace scope.** A GitHub connection is bound to exactly
+  one repo (`connector_config.externalScopeRef` holds `owner/repo` — the same
+  column, the same partial-unique-index security property the webhook receiver
+  already relies on for Linear). `GitHubConnector` itself never reads
+  `connector_config` directly (`LinearConnector` doesn't either); instead it
+  reads the bound repo off **`NangoConnection.metadata.repo`** — set that key
+  on the connection at connect time (Nango's Connect flow, or the dashboard,
+  lets you attach arbitrary connection metadata). This is the same metadata
+  channel Nango already exposes for exactly this ("workspace id, region, …" per
+  the `NangoConnection` doc comment above) — no schema change, no change to
+  `ConnectorContext`, `apps/workers/.../connector-sync.ts`, or
+  `WebhookLandingService` was needed to add GitHub.
+- **A GitHub App, not a plain OAuth App, is the recommended integration type.**
+  A GitHub App can be installed on a specific repo (or a chosen subset of an
+  org's repos) with fine-grained, read-only permissions (`pull_requests: read`,
+  `metadata: read`, plus `members: read` if you want collaborator-list ACL
+  resolution) — a materially better fit for "one engagement, one repo" than an
+  OAuth App, which authorizes as a _user_ against everything that user can see.
+  Nango supports both integration types identically from this package's point
+  of view (`HttpGitHubClient` only ever sees a bearer token); nothing here is
+  GitHub-App-specific except the setup step below.
+
+### One-time local setup
+
+1. Start Nango (same as the Linear setup above).
+2. Create a **GitHub App** (<https://github.com/settings/apps/new>): webhook
+   URL can point anywhere for now (v1 does not use Nango-proxied GitHub
+   webhooks — see below), permissions **Repository → Pull requests: Read-only**
+   and **Repository → Metadata: Read-only** (add **Members: Read-only** on the
+   org if you want ACL collaborator resolution), and install it on the target
+   repo. Note the App id, client id/secret, and private key.
+3. In the Nango dashboard → **Integrations** → add **GitHub App**, set
+   **Unique Key** (`providerConfigKey`) to `github`, and paste the App
+   credentials.
+4. Create a connection for the engagement: run the Connect flow (or the
+   dashboard) against the target installation, **then set that connection's
+   metadata to `{"repo": "owner/repo"}`** — the one manual step this connector
+   needs beyond what Linear's setup already does. Copy the resulting
+   **connection id**.
+5. Attach it to the engagement: `PUT /engagements/:id/connectors/github` with
+   `{ "enabled": true, "credential": "<connection id>", "externalScopeRef": "owner/repo" }`
+   — the same generic `PUT` Linear uses; `externalScopeRef` is what the webhook
+   receiver looks up by (see `packages/db/src/schema/connector-config.ts`), and
+   should match the `repo` you set on the connection's metadata in step 4. Then
+   `POST /engagements/:id/connectors/github/sync` with `{ "mode": "backfill" }`.
+
+### Webhooks
+
+`GitHubConnector.handleWebhook` verifies the `x-hub-signature-256` header
+(`sha256=<hex>`, HMAC-256 over the raw body) against `GITHUB_WEBHOOK_SECRET` —
+GitHub's actual scheme, different from Linear's raw-hex `linear-signature`.
+Point the repo's webhook (or the GitHub App's webhook, if delivering at the App
+level) at the platform's own receiver (`webhooks/github`) with that secret, and
+subscribe to the **Pull requests** event. As with Linear, Nango can
+alternatively proxy + verify provider webhooks; v1 ships the direct path.

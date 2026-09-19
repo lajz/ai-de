@@ -13,9 +13,11 @@ import type {
 import { artifactEmit, checkpointEmit } from '@fde/core';
 import {
   ConnectorRegistry,
+  FakeGitHubClient,
   FakeGranolaClient,
   FakeLinearClient,
   FakeNangoClient,
+  GitHubConnector,
   GranolaConnector,
   LinearConnector,
 } from '@fde/connectors';
@@ -57,7 +59,13 @@ describe.skipIf(!url)('connectorSync activities (integration)', () => {
   let handle: { db: Database; close: () => Promise<void> };
   const tenantId = randomUUID() as TenantId;
 
-  const nango = new FakeNangoClient({ accessToken: 'tok-linear-123' });
+  // `metadata.repo` is how `GitHubConnector` learns its bound repo (see its
+  // header comment) — the same Nango connection-metadata channel `workspace`
+  // already exercises for Linear; both live on this one fake connection.
+  const nango = new FakeNangoClient({
+    accessToken: 'tok-linear-123',
+    metadata: { workspace: 'ws-fake', repo: 'acme/orion' },
+  });
   const registry = new ConnectorRegistry({
     granola: (ctx) =>
       new GranolaConnector({
@@ -67,6 +75,11 @@ describe.skipIf(!url)('connectorSync activities (integration)', () => {
     linear: (ctx) =>
       new LinearConnector({
         clientFactory: () => new FakeLinearClient(),
+        engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+      }),
+    github: (ctx) =>
+      new GitHubConnector({
+        clientFactory: () => new FakeGitHubClient(),
         engagementRetentionPolicy: ctx.engagementRetentionPolicy,
       }),
   });
@@ -228,6 +241,42 @@ describe.skipIf(!url)('connectorSync activities (integration)', () => {
     await expect(
       run({ tenantId, engagementId, connectorId: 'linear', mode: 'backfill' }),
     ).rejects.toThrow(/no Nango connection id/);
+  });
+
+  it('github (nango-oauth, repo scope via metadata.repo): decrypts the connection id, calls Nango, ingests PRs with the token', async () => {
+    const engagementId = await seedEngagement();
+
+    // same shape as the Linear case above — `PUT /admin/.../connectors/github`
+    // additionally writes `externalScopeRef` (`owner/repo`), which the webhook
+    // path looks up by; the backfill/incremental path here never reads it —
+    // `GitHubConnector` instead learns the repo from the Nango connection's
+    // own `metadata.repo` (see its header comment for why).
+    await withEngagement(handle.db, provider, { tenantId, engagementId }, async (tx) => {
+      const credentialRef = await getCipher().encryptString(
+        'connector_config.credential_ref',
+        'nango-conn-github-1',
+      );
+      await upsertConnectorConfig(
+        tx,
+        { tenantId, engagementId, connector: 'github' },
+        { enabled: true, credentialRef, externalScopeRef: 'acme/orion' },
+      );
+    });
+
+    const before = nango.calls.length;
+    const res = await run({ tenantId, engagementId, connectorId: 'github', mode: 'backfill' });
+
+    expect(nango.calls.slice(before)).toContainEqual(['nango-conn-github-1', 'github']);
+    expect(res.sourceCount).toBe(3);
+
+    const prRows = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ kind: sources.kind, connector: sources.connector })
+        .from(sources)
+        .where(and(eq(sources.engagementId, engagementId), eq(sources.connector, 'github'))),
+    );
+    expect(prRows).toHaveLength(3);
+    expect(prRows.every((r) => r.kind === 'issue')).toBe(true);
   });
 });
 
