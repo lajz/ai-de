@@ -9,8 +9,8 @@ export function SignInNotice() {
       </p>
       {process.env.NODE_ENV === 'development' && (
         <p className="empty-state">
-          No WorkOS account here — <a href={devLoginUrl()}>Dev sign in</a> mints a local
-          session directly instead of the (unreachable) WorkOS redirect above.
+          No WorkOS account here — <a href={devLoginUrl()}>Dev sign in</a> mints a local session
+          directly instead of the (unreachable) WorkOS redirect above.
         </p>
       )}
     </>
