@@ -12,6 +12,7 @@ import { MeController } from './me/me.controller.js';
 import { RequestContextModule } from './request-context/request-context.module.js';
 import { RetrievalModule } from './retrieval/retrieval.module.js';
 import { TemporalModule } from './temporal/temporal.module.js';
+import { WebhooksModule } from './webhooks/webhooks.module.js';
 
 /**
  * The API composition root. `RequestContextModule` registers the app-wide
@@ -20,7 +21,9 @@ import { TemporalModule } from './temporal/temporal.module.js';
  * `/engagements/:id/audit` + the `retrieval` read path). `AdminModule` /
  * `LineageModule` add the `/admin` connector-config + data-lineage surface, and
  * `TemporalModule` the optional workflow client that backs connector sync. SSO +
- * the WorkOS webhook live in `AuthModule` (imported via `RequestContextModule`).
+ * the WorkOS webhook live in `AuthModule` (imported via `RequestContextModule`);
+ * `WebhooksModule` holds the connector-agnostic inbound webhook receivers
+ * (`webhooks/linear` today).
  */
 @Module({
   imports: [
@@ -33,6 +36,7 @@ import { TemporalModule } from './temporal/temporal.module.js';
     TemporalModule,
     AdminModule,
     LineageModule,
+    WebhooksModule,
   ],
   controllers: [HealthController, MeController, EngagementsController],
 })

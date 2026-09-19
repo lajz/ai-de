@@ -15,6 +15,8 @@ import { rawArtifactSchema } from '@fde/core';
 import { decryptRow, encryptRow, type KeyProvider } from '@fde/crypto';
 import {
   aclSnapshots,
+  buildConnectorSource,
+  connectorContentHash,
   connectorSyncState,
   CRYPTO_COLUMNS,
   engagements,
@@ -29,7 +31,6 @@ import {
 import { resolveNormalizedRecords } from '@fde/identity';
 import { type ConnectorRegistry, type NangoClient } from '@fde/connectors';
 
-import { buildConnectorSource, connectorContentHash } from './connector-source.js';
 import { withEngagementActivity, type EngagementActivityContext } from './engagement-context.js';
 
 export interface ConnectorSyncActivitiesDeps {

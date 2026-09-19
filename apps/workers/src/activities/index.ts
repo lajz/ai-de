@@ -82,7 +82,7 @@ export {
   type BuildConnectorSourceInput,
   type BuiltConnectorSource,
   type ConnectorSourceRow,
-} from './connector-source.js';
+} from '@fde/db';
 export {
   createExtractionActivities,
   type ExtractionActivitiesDeps,

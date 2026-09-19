@@ -8,6 +8,7 @@ import type { EngagementId, TenantId, UserId } from '@fde/core';
 import { InMemoryAuthzClient } from '@fde/authz';
 import type { ConnectorRegistry } from '@fde/connectors';
 import type { EngagementCipher } from '@fde/crypto';
+import { ConnectorScopeConflictError } from '@fde/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
@@ -20,7 +21,7 @@ const userId = randomUUID() as UserId;
 const engagementId = randomUUID() as EngagementId;
 
 /** drizzle-shaped fake: each `.select()` consumes the next queued rowset; upserts are recorded. */
-function fakeTx(selectResults: unknown[][]) {
+function fakeTx(selectResults: unknown[][], upsertError?: unknown) {
   const inserts: { values: Record<string, unknown>; set: Record<string, unknown> }[] = [];
   let i = 0;
   const chain = (rows: unknown[]): Record<string, unknown> => {
@@ -38,7 +39,7 @@ function fakeTx(selectResults: unknown[][]) {
       values: (values: Record<string, unknown>) => ({
         onConflictDoUpdate: (cfg: { set: Record<string, unknown> }) => {
           inserts.push({ values, set: cfg.set });
-          return Promise.resolve();
+          return upsertError ? Promise.reject(upsertError) : Promise.resolve();
         },
       }),
     }),
@@ -114,6 +115,7 @@ describe('AdminService.listConnectors', () => {
       enabled: true,
       effectiveRetention: 'full-retention',
       hasCredential: true,
+      externalScopeRef: null,
       sync: { status: 'idle', lastRunAt: '2026-03-01T00:00:00.000Z', cursorPresent: true },
     });
   });
@@ -209,6 +211,44 @@ describe('AdminService.putConnector', () => {
     await expect(
       run(fakeTx([]).tx, () => svc.putConnector('granola', { retentionOverrideProvided: false })),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('writes externalScopeRef into the upsert when provided', async () => {
+    const svc = await adminSvc();
+    const { tx, inserts } = fakeTx([engRow, [], []]);
+    await run(tx, () =>
+      svc.putConnector('granola', {
+        retentionOverrideProvided: false,
+        externalScopeRefProvided: true,
+        externalScopeRef: 'linear-org-1',
+      }),
+    );
+    expect(inserts[0]!.values.externalScopeRef).toBe('linear-org-1');
+    expect(inserts[0]!.set.externalScopeRef).toBe('linear-org-1');
+  });
+
+  it('omits externalScopeRef from the upsert when the body never mentioned it', async () => {
+    const svc = await adminSvc();
+    const { tx, inserts } = fakeTx([engRow, [], []]);
+    await run(tx, () =>
+      svc.putConnector('granola', { enabled: true, retentionOverrideProvided: false }),
+    );
+    expect(inserts[0]!.set).not.toHaveProperty('externalScopeRef');
+  });
+
+  it('409s when the scope ref is already claimed by another engagement', async () => {
+    const svc = await adminSvc();
+    const conflict = new ConnectorScopeConflictError('granola', 'linear-org-1');
+    const { tx } = fakeTx([], conflict);
+    await expect(
+      run(tx, () =>
+        svc.putConnector('granola', {
+          retentionOverrideProvided: false,
+          externalScopeRefProvided: true,
+          externalScopeRef: 'linear-org-1',
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });
 
