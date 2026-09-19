@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { SignInNotice } from '../components/sign-in-notice';
 import { ApiError, getEngagements } from '../lib/api';
 import { getSessionToken } from '../lib/session';
+import type { Engagement } from '../lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export default async function HomePage() {
     );
   }
 
-  let engagements;
+  let engagements: Engagement[];
   try {
     engagements = await getEngagements(token);
   } catch (err) {

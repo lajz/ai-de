@@ -8,8 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { AuthzClient, type TenantRole } from '@fde/authz';
 import type { TenantId, UserId } from '@fde/core';
-import { type Database, tenants } from '@fde/db';
-import { eq } from 'drizzle-orm';
+import { type Database, ensureDevTenant } from '@fde/db';
 
 import type { Env } from '../config/env.js';
 import { DB } from '../db/db.module.js';
@@ -19,8 +18,6 @@ import { type Session, SessionService } from './session.service.js';
 import { UsersService } from './users.service.js';
 import { WORKOS, type WorkOsPort, type WorkOsUser } from './workos.types.js';
 
-/** Fixed local tenant `completeDevLogin` provisions itself, by name (find-or-create). */
-const DEV_TENANT_NAME = 'Local Dev Tenant';
 const DEV_WORKOS_USER: WorkOsUser = {
   id: 'dev-user',
   email: 'dev@localhost',
@@ -65,7 +62,11 @@ export class AuthService implements OnModuleInit {
     } catch (err) {
       // Best-effort: a DB hiccup on boot shouldn't crash the app over a dev
       // convenience. /auth/dev-login remains available as the manual fallback.
-      this.logger.warn(`could not seed DEV_SESSION_TOKEN: ${(err as Error).message}`);
+      // Logged with the stack (not just `.message`) so a real bug here —
+      // e.g. a schema mismatch, not a transient connection failure — is
+      // still visible in boot logs rather than reading as routine.
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.warn(`could not seed DEV_SESSION_TOKEN: ${error.stack ?? error.message}`);
     }
   }
 
@@ -75,13 +76,19 @@ export class AuthService implements OnModuleInit {
   }
 
   /**
-   * True only when the `WORKOS` provider is the in-memory fake — i.e. never in
-   * production, where `WORKOS_API_KEY` is required (`config/env.ts`) and the
-   * real `WorkOsService` is bound instead. Gates `completeDevLogin` /
-   * `AuthController#login`'s dev bypass.
+   * Two independent gates, both required: the `WORKOS` provider must be the
+   * in-memory fake (i.e. never in production, where `WORKOS_API_KEY` is
+   * required — `config/env.ts` — and the real `WorkOsService` is bound
+   * instead), AND `ENABLE_DEV_LOGIN=true` must be set explicitly. The second
+   * gate exists so this admin-granting bypass is something a worktree turns
+   * on, not something it gets for free from an incomplete `.env`. Gates
+   * `completeDevLogin` / `AuthController#login`'s dev bypass.
    */
   devLoginEnabled(): boolean {
-    return this.workos instanceof FakeWorkOsService;
+    return (
+      this.workos instanceof FakeWorkOsService &&
+      this.config.get('ENABLE_DEV_LOGIN', { infer: true }) === 'true'
+    );
   }
 
   /**
@@ -126,7 +133,7 @@ export class AuthService implements OnModuleInit {
 
   /** `ensureDevTenant` + upsert + `admin` grant — shared by `completeDevLogin` and `onModuleInit`. */
   private async provisionDevUser(): Promise<{ tenantId: TenantId; userId: UserId }> {
-    const tenantId = await this.ensureDevTenant();
+    const tenantId = await ensureDevTenant(this.db);
     const userId = await this.provisionUser(tenantId, DEV_WORKOS_USER, 'admin');
     return { tenantId, userId };
   }
@@ -151,29 +158,5 @@ export class AuthService implements OnModuleInit {
       this.logger.warn('authz: could not seed tenant membership on login');
     }
     return userId;
-  }
-
-  /**
-   * Find-or-create `DEV_TENANT_NAME`. Deliberately a bare query against `this.db`
-   * — NOT wrapped in `withTenant` — because tenant provisioning needs the pool's
-   * unrestricted local-dev role: `app_rw` has insert/update/delete revoked on
-   * `tenants` (`packages/db/sql/harden-rls.sql`), so this only works because the
-   * pool connects as a superuser/table owner in local dev (`packages/db/src/rls.ts`
-   * documents the same thing for `withTenant`'s `SET LOCAL ROLE app_rw`). Same
-   * pattern the integration tests use to seed tenants directly.
-   */
-  private async ensureDevTenant(): Promise<TenantId> {
-    const existing = await this.db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .where(eq(tenants.name, DEV_TENANT_NAME))
-      .limit(1);
-    if (existing[0]) return existing[0].id as TenantId;
-
-    const [created] = await this.db
-      .insert(tenants)
-      .values({ name: DEV_TENANT_NAME, cmkKeyRef: 'dev:local' })
-      .returning({ id: tenants.id });
-    return created!.id as TenantId;
   }
 }

@@ -66,6 +66,17 @@ export const envSchema = z
     AWS_REGION: z.string().optional(),
 
     /**
+     * Explicit opt-in for the `/auth/dev-login` bypass (`AuthService#devLoginEnabled`).
+     * That bypass already refuses to run once a real `WORKOS_API_KEY` is set (it only
+     * ever binds when `WorkOsModule` falls back to `FakeWorkOsService`) — this is a
+     * second, independent gate on top of that: an admin-granting login shortcut
+     * shouldn't be live just because a worktree's `.env` happens not to have a WorkOS
+     * key yet. Defaults to `false`; the refinement below also refuses `true` outright
+     * under `NODE_ENV=production`, belt-and-suspenders with the `WorkOsModule` check.
+     */
+    ENABLE_DEV_LOGIN: z.enum(['true', 'false']).default('false'),
+
+    /**
      * Dev/local convenience, shared with `apps/web` (`lib/session.ts`): when
      * set, `AuthService` seeds a session under this exact token on every boot
      * (only while `devLoginEnabled()` — never in production), so it survives
@@ -127,6 +138,13 @@ export const envSchema = z
           code: z.ZodIssueCode.custom,
           path: ['FDE_FAKE_KMS'],
           message: 'FDE_FAKE_KMS=true is not allowed when NODE_ENV=production',
+        });
+      }
+      if (env.ENABLE_DEV_LOGIN === 'true') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ENABLE_DEV_LOGIN'],
+          message: 'ENABLE_DEV_LOGIN=true is not allowed when NODE_ENV=production',
         });
       }
       for (const key of ['SPICEDB_ENDPOINT', 'SPICEDB_TOKEN'] as const) {

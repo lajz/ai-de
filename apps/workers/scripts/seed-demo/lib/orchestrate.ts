@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { Connection, WorkflowClient } from '@temporalio/client';
 import { MockActivityEnvironment } from '@temporalio/testing';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 
 import type { EngagementId, TenantId } from '@fde/core';
 import {
@@ -17,9 +17,9 @@ import { FakeKeyProvider, getCipher } from '@fde/crypto';
 import {
   createDbClient,
   engagements,
+  ensureDevTenant,
   facts,
   sources,
-  tenants,
   upsertConnectorConfig,
   withEngagement,
   withTenant,
@@ -50,8 +50,30 @@ import type { DemoDefinition } from './types.js';
  * queue.
  */
 
-/** Fixed local tenant every dev-login session resolves to — see `apps/api/src/auth/auth.service.ts`. */
-const DEV_TENANT_NAME = 'Local Dev Tenant';
+/**
+ * `ensureDevTenant` and `--reset`'s `db.delete(engagements)` both run as bare
+ * queries against `db` — no `withTenant`, no RLS — the same elevated
+ * local-dev-role pattern `ensureDevTenant`'s own doc comment explains. That's
+ * fine pointed at a disposable local Postgres; it's not something this script
+ * should be able to do against anything else. Refuses to run at all unless
+ * `DATABASE_URL` names a host that is unambiguously local.
+ */
+function assertLocalDatabase(databaseUrl: string): void {
+  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'host.docker.internal']);
+  let hostname: string;
+  try {
+    hostname = new URL(databaseUrl).hostname;
+  } catch {
+    throw new Error(`DATABASE_URL is not a valid URL: ${databaseUrl}`);
+  }
+  if (!LOCAL_HOSTS.has(hostname)) {
+    throw new Error(
+      `refusing to run seed-demo against DATABASE_URL host '${hostname}' — this script writes ` +
+        `outside RLS (see ensureDevTenant) and deletes engagement rows on --reset, so it only ` +
+        `runs against a local Postgres (${[...LOCAL_HOSTS].join(', ')}).`,
+    );
+  }
+}
 
 export interface OrchestrateOptions {
   /** delete and fully rebuild this demo's engagement if it already exists */
@@ -64,6 +86,7 @@ export async function orchestrate(
 ): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required — is the local Postgres up?');
+  assertLocalDatabase(databaseUrl);
 
   const { db, close } = createDbClient({ url: databaseUrl });
   const provider = new FakeKeyProvider();
@@ -123,8 +146,12 @@ export async function orchestrate(
       connectors: registry,
       nango,
     });
+    // Hoisted out of `runSync` — one shared environment for both connector
+    // syncs below, rather than a fresh one (with no observable state of its
+    // own beyond running an activity) per call.
+    const activityEnv = new MockActivityEnvironment();
     const runSync = (connectorId: string): Promise<RunConnectorSyncResult> =>
-      new MockActivityEnvironment().run(
+      activityEnv.run(
         acts.runConnectorSyncActivity as never,
         {
           tenantId,
@@ -185,21 +212,6 @@ export async function orchestrate(
   } finally {
     await close();
   }
-}
-
-async function ensureDevTenant(db: Database): Promise<TenantId> {
-  const existing = await db
-    .select({ id: tenants.id })
-    .from(tenants)
-    .where(eq(tenants.name, DEV_TENANT_NAME))
-    .limit(1);
-  if (existing[0]) return existing[0].id as TenantId;
-
-  const [created] = await db
-    .insert(tenants)
-    .values({ name: DEV_TENANT_NAME, cmkKeyRef: 'dev:local' })
-    .returning({ id: tenants.id });
-  return created!.id as TenantId;
 }
 
 async function findExistingEngagement(
@@ -351,9 +363,14 @@ async function findDecisionFactId(
     );
   }
 
-  const [factRow] = await withTenant(db, tenantId, (tx) =>
+  // No `.limit(1)`: extraction can legitimately yield more than one fact of
+  // `marker.factType` from a single transcript. Ordering by confidence
+  // (highest first, ties broken by earliest created) makes the pick
+  // deterministic instead of whatever order Postgres happens to return, and
+  // a multi-match is surfaced instead of silently picking one.
+  const factRows = await withTenant(db, tenantId, (tx) =>
     tx
-      .select({ id: facts.id, summary: facts.summary })
+      .select({ id: facts.id, summary: facts.summary, confidence: facts.confidence })
       .from(facts)
       .where(
         and(
@@ -362,13 +379,21 @@ async function findDecisionFactId(
           eq(facts.type, marker.factType),
         ),
       )
-      .limit(1),
+      .orderBy(desc(facts.confidence), asc(facts.createdAt)),
   );
+  const [factRow] = factRows;
   if (!factRow) {
     throw new Error(
       `extraction of '${marker.sourceDocExternalId}' did not produce a '${marker.factType}' fact — inspect ` +
         `the transcript or rerun. This is real LLM output and isn't 100% guaranteed on every run; the script ` +
         `refuses to fall back to a dangling marker (the exact bug this demo dataset exists to prove is fixed).`,
+    );
+  }
+  if (factRows.length > 1) {
+    console.warn(
+      `  ⚠ extraction produced ${factRows.length} '${marker.factType}' facts for this source — ` +
+        `picking the highest-confidence one (${factRow.id}). Consider tightening the transcript ` +
+        `fixture if the marker should be unambiguous.`,
     );
   }
   console.log(`    "${factRow.summary}"`);

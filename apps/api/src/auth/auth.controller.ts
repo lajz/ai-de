@@ -37,6 +37,25 @@ function safeEqual(a: string, b: string): boolean {
   return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
+/**
+ * Where `devLogin` sends the browser after minting a session: back to
+ * whatever page linked here, but only if that page is actually this app.
+ * `Referer` is attacker-controlled — any linking page, or a bare HTTP
+ * client, can set it to anything — so `res.redirect(req.headers.referer)`
+ * unchecked is an open redirect gated only by `devLoginEnabled()`. Falls
+ * back to `/` for a missing, unparseable, or cross-origin referer.
+ */
+function safeDevLoginRedirect(req: Request): string {
+  const referer = req.headers.referer;
+  if (!referer) return '/';
+  try {
+    const url = new URL(referer);
+    return url.host === req.headers.host ? `${url.pathname}${url.search}` : '/';
+  } catch {
+    return '/';
+  }
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -88,7 +107,7 @@ export class AuthController {
     if (!this.auth.devLoginEnabled()) throw new NotFoundException();
     const session = await this.auth.completeDevLogin();
     res.cookie(SESSION_COOKIE, session.token, this.cookieOpts({ path: '/' }));
-    res.redirect(req.headers.referer ?? '/');
+    res.redirect(safeDevLoginRedirect(req));
   }
 
   /**
