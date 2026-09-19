@@ -6,6 +6,8 @@ import { FakeKeyProvider, getCipher } from '@fde/crypto';
 import {
   createDbClient,
   engagements,
+  entities,
+  relationships,
   selectConnectorConfigByScopeRef,
   sources,
   tenants,
@@ -14,6 +16,7 @@ import {
   withTenant,
   type Database,
 } from '@fde/db';
+import { ZERO_TALLY } from '@fde/identity';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -28,7 +31,17 @@ const url = process.env.DATABASE_URL;
 const WEBHOOK_SECRET = 'whsec_test';
 const sign = (raw: Buffer) => createHmac('sha256', WEBHOOK_SECRET).update(raw).digest('hex');
 
-function issueWebhookPayload(id: string, organizationId = 'org-acme'): Buffer {
+interface IssueWebhookOverrides {
+  description?: string | null;
+  assignee?: { id: string; name?: string; email?: string };
+  creator?: { id: string; name?: string; email?: string };
+}
+
+function issueWebhookPayload(
+  id: string,
+  organizationId = 'org-acme',
+  overrides: IssueWebhookOverrides = {},
+): Buffer {
   return Buffer.from(
     JSON.stringify({
       action: 'update',
@@ -38,11 +51,13 @@ function issueWebhookPayload(id: string, organizationId = 'org-acme'): Buffer {
         id,
         identifier: 'ENG-9',
         title: 'From a webhook',
-        description: null,
+        description: overrides.description ?? null,
         url: `https://linear.app/acme/issue/ENG-9`,
         createdAt: '2026-09-05T00:00:00.000Z',
         updatedAt: '2026-09-05T01:00:00.000Z',
         state: { name: 'Done' },
+        ...(overrides.assignee ? { assignee: overrides.assignee } : {}),
+        ...(overrides.creator ? { creator: overrides.creator } : {}),
       },
     }),
   );
@@ -102,6 +117,19 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
         .where(and(eq(sources.engagementId, engagementId), eq(sources.connector, 'linear'))),
     );
 
+  const graphOf = (engagementId: EngagementId) =>
+    withTenant(handle.db, tenantId, async (tx) => {
+      const ents = await tx
+        .select({ id: entities.id, type: entities.type, displayName: entities.displayName })
+        .from(entities)
+        .where(eq(entities.engagementId, engagementId));
+      const rels = await tx
+        .select({ predicate: relationships.predicate, sourceId: relationships.sourceId })
+        .from(relationships)
+        .where(eq(relationships.engagementId, engagementId));
+      return { ents, rels };
+    });
+
   beforeAll(async () => {
     handle = createDbClient({ url: url!, max: 1 });
     await handle.db.insert(tenants).values({ id: tenantId, name: 'T', cmkKeyRef: 'fake:cmk' });
@@ -132,7 +160,11 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
       externalScopeRef: scopeRef,
       artifacts,
     });
-    expect(result).toEqual({ matched: true, landed: 1 });
+    expect(result).toEqual({
+      matched: true,
+      landed: 1,
+      graph: { ...ZERO_TALLY, entitiesUpserted: 1 },
+    });
 
     const rows = await sourceRows(engagementId);
     expect(rows).toEqual([{ id: expect.any(String), externalId: 'iss-hook-1' }]);
@@ -159,9 +191,13 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
     };
 
     const first = await land();
-    expect(first).toEqual({ matched: true, landed: 1 });
+    expect(first).toEqual({
+      matched: true,
+      landed: 1,
+      graph: { ...ZERO_TALLY, entitiesUpserted: 1 },
+    });
     const second = await land();
-    expect(second).toEqual({ matched: true, landed: 0 });
+    expect(second).toEqual({ matched: true, landed: 0, graph: ZERO_TALLY });
 
     expect(await sourceRows(engagementId)).toHaveLength(1);
   });
@@ -181,7 +217,7 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
       externalScopeRef: scopeRef,
       artifacts,
     });
-    expect(result).toEqual({ matched: false, landed: 0 });
+    expect(result).toEqual({ matched: false, landed: 0, graph: ZERO_TALLY });
     expect(await selectConnectorConfigByScopeRef(handle.db, 'linear', scopeRef)).toBeUndefined();
   });
 
@@ -200,5 +236,84 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
     ).rejects.toThrow(/signature/);
 
     expect(await sourceRows(engagementId)).toHaveLength(0);
+  });
+
+  it('lands the work_item entity plus owns/informed_of edges, and defers the decision-marker edge', async () => {
+    const engagementId = await seedEngagement();
+    const scopeRef = `org-${randomUUID()}`;
+    await claimScope(engagementId, scopeRef);
+
+    const raw = issueWebhookPayload('iss-hook-graph-1', scopeRef, {
+      // no `fde` decision fact with this id exists in the graph — the edge is
+      // deferred, not an error, same as `persistGraph`'s own contract.
+      description: 'Ships the plan.\n\nfde:decision:dec-unseen',
+      assignee: { id: 'lin-alice', name: 'Alice', email: 'alice@acme.test' },
+      creator: { id: 'lin-bob', name: 'Bob', email: 'bob@acme.test' },
+    });
+    const artifacts = await connector().handleWebhook({
+      headers: { 'linear-signature': sign(raw) },
+      rawBody: raw,
+      connectorId: 'linear',
+    });
+
+    const result = await service.landWebhookArtifacts({
+      connectorId: 'linear',
+      connector: connector(),
+      externalScopeRef: scopeRef,
+      artifacts,
+    });
+    expect(result).toEqual({
+      matched: true,
+      landed: 1,
+      graph: {
+        entitiesResolved: 2, // assignee + creator, resolved as `person` via @fde/identity
+        entitiesUpserted: 1, // the work_item
+        relationshipsUpserted: 2, // owns (assignee) + informed_of (creator)
+        relationshipsDeferred: 1, // the decision-marker edge — no `dec-unseen` fact yet
+        matchCandidatesQueued: 0,
+      },
+    });
+
+    const g = await graphOf(engagementId);
+    expect(g.ents.filter((e) => e.type === 'work_item')).toHaveLength(1);
+    expect(g.ents.filter((e) => e.type === 'person')).toHaveLength(2);
+    expect(g.rels.map((r) => r.predicate).sort()).toEqual(['informed_of', 'owns']);
+    const sourceId = (await sourceRows(engagementId))[0]!.id;
+    expect(g.rels.every((r) => r.sourceId === sourceId)).toBe(true);
+  });
+
+  it('redelivering the same payload does not create duplicate relationship edges', async () => {
+    const engagementId = await seedEngagement();
+    const scopeRef = `org-${randomUUID()}`;
+    await claimScope(engagementId, scopeRef);
+
+    const raw = issueWebhookPayload('iss-hook-graph-2', scopeRef, {
+      assignee: { id: 'lin-carol', name: 'Carol', email: 'carol@acme.test' },
+    });
+    const land = async () => {
+      const artifacts = await connector().handleWebhook({
+        headers: { 'linear-signature': sign(raw) },
+        rawBody: raw,
+        connectorId: 'linear',
+      });
+      return service.landWebhookArtifacts({
+        connectorId: 'linear',
+        connector: connector(),
+        externalScopeRef: scopeRef,
+        artifacts,
+      });
+    };
+
+    await land();
+    const before = await graphOf(engagementId);
+    expect(before.rels).toHaveLength(1);
+
+    const second = await land();
+    // the source deduped, so the graph step is skipped entirely on redelivery
+    expect(second.graph).toEqual(ZERO_TALLY);
+
+    const after = await graphOf(engagementId);
+    expect(after.ents).toHaveLength(before.ents.length);
+    expect(after.rels).toHaveLength(before.rels.length);
   });
 });
