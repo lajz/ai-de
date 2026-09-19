@@ -12,8 +12,12 @@ import type {
 import { encryptRow, type EngagementCipher } from '@fde/crypto';
 
 import type { DbTransaction } from './client.js';
+import { facts } from './schema/facts.js';
 import { entities, relationships } from './schema/graph.js';
 import { CRYPTO_COLUMNS } from './schema/tables.js';
+
+/** A fact's own row id, in canonical UUID text form — the only shape `resolveEndpointRef` accepts for an `fde:` ref. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Graph-write helpers for `ConnectorSync` — the persist step for the canonical
@@ -213,11 +217,23 @@ export type ResolvedEndpoint = { kind: 'entity' | 'fact'; id: string };
  * Resolve a connector `ExternalRef` to the graph node it names, for stamping a
  * `relationship` endpoint.
  *
- * v1 is **entity-only**: it looks the ref up among `entities.external_refs`
- * (exact `{connector, externalId}` containment, tenant + engagement scoped).
- * `facts` carry no external ref in the current schema, so a `fact` endpoint is
- * never resolvable here — when facts gain origin refs this gains a second lookup.
- * A ref that matches nothing returns `null`; the caller defers that edge.
+ * Two lookups:
+ *
+ * - `entities.external_refs` (exact `{connector, externalId}` containment,
+ *   tenant + engagement scoped) — every connector-sourced endpoint.
+ * - `facts.id`, only for `connector: 'fde'` refs whose `externalId` is a UUID.
+ *   Facts carry no external-ref array of their own (unlike entities); a fact's
+ *   own row id IS the portable identifier a human (or a connector-side marker,
+ *   e.g. `LinearConnector`'s `fde:decision:<id>` convention) references once
+ *   the fact exists. A non-UUID `externalId` — e.g. a marker token written
+ *   before any matching fact was ever extracted — matches nothing without
+ *   touching the DB with a value Postgres would reject as a UUID literal.
+ *
+ * A ref that matches neither returns `null`; the caller defers that edge (no
+ * reconciliation pass retries it later — a documented follow-up. In practice
+ * this only bites a `connector: 'fde'` ref that predates its fact: sync order
+ * — extract first, then reference the fact's id in the downstream ticket —
+ * avoids it).
  */
 export async function resolveEndpointRef(
   tx: DbTransaction,
@@ -225,7 +241,7 @@ export async function resolveEndpointRef(
   engagementId: EngagementId,
   ref: ExternalRef,
 ): Promise<ResolvedEndpoint | null> {
-  const [hit] = await tx
+  const [entityHit] = await tx
     .select({ id: entities.id })
     .from(entities)
     .where(
@@ -236,5 +252,22 @@ export async function resolveEndpointRef(
       ),
     )
     .limit(1);
-  return hit ? { kind: 'entity', id: hit.id } : null;
+  if (entityHit) return { kind: 'entity', id: entityHit.id };
+
+  if (ref.connector === 'fde' && UUID_RE.test(ref.externalId)) {
+    const [factHit] = await tx
+      .select({ id: facts.id })
+      .from(facts)
+      .where(
+        and(
+          eq(facts.tenantId, tenantId),
+          eq(facts.engagementId, engagementId),
+          eq(facts.id, ref.externalId),
+        ),
+      )
+      .limit(1);
+    if (factHit) return { kind: 'fact', id: factHit.id };
+  }
+
+  return null;
 }

@@ -7,7 +7,8 @@
     "dev": "tsx src/worker.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/worker.js",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "seed:demo": "tsx scripts/seed-demo/seed-demo.ts"
   },
   "dependencies": {
     "@fde/connectors": "workspace:*",
