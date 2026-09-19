@@ -35,6 +35,13 @@ class ConnectorResponse {
   @ApiProperty({ type: String, enum: [...RETENTION_POLICIES] }) effectiveRetention!: string;
   @ApiProperty({ type: Boolean, description: 'a credential is stored — never the secret itself' })
   hasCredential!: boolean;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'the external workspace/org/repo this engagement claims (a Linear organization id, later a GitHub owner/repo) — null when unclaimed',
+  })
+  externalScopeRef!: string | null;
   @ApiProperty({ type: ConnectorSyncResponse }) sync!: ConnectorSyncResponse;
 }
 
@@ -53,6 +60,13 @@ class PutConnectorBody {
       'cleartext secret (bearer token / Nango connection id) — encrypted at rest, never returned',
   })
   credential?: string;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'the external workspace/org/repo this connection targets (a Linear organization id, later a GitHub owner/repo) — must be globally unique per connector; null releases the claim',
+  })
+  externalScopeRef?: string | null;
 }
 
 class SyncBody {

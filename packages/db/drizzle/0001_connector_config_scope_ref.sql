@@ -1,0 +1,3 @@
+ALTER TABLE "connector_config" ADD COLUMN "external_scope_ref" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "connector_config_scope_uq" ON "connector_config" USING btree ("connector","external_scope_ref") WHERE "connector_config"."external_scope_ref" is not null;--> statement-breakpoint
+CREATE POLICY "connector_config_scope_lookup" ON "connector_config" AS PERMISSIVE FOR SELECT TO "app_rw" USING ("connector_config"."external_scope_ref" is not null);

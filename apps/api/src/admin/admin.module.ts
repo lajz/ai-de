@@ -12,7 +12,9 @@ import { CONNECTOR_REGISTRY } from './admin.tokens.js';
  * `GRANOLA_API_KEY` is set, `FakeGranolaClient` otherwise — same real-vs-fake
  * flip as `@fde/workers`). `TemporalModule` is `@Global`, imported here for
  * clarity. Tests bind fakes over `CONNECTOR_REGISTRY` / `AuthzClient` /
- * `TemporalConnectorSync`.
+ * `TemporalConnectorSync`. `CONNECTOR_REGISTRY` is exported so the webhook
+ * receiver (`apps/api/src/webhooks`) shares this one process-wide registry
+ * rather than building a second one.
  */
 @Module({
   imports: [TemporalModule],
@@ -24,5 +26,6 @@ import { CONNECTOR_REGISTRY } from './admin.tokens.js';
     },
     AdminService,
   ],
+  exports: [CONNECTOR_REGISTRY],
 })
 export class AdminModule {}

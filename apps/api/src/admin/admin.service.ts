@@ -18,6 +18,7 @@ import { ConnectorRegistry } from '@fde/connectors';
 import { encryptRow } from '@fde/crypto';
 import {
   type ConnectorConfigPatch,
+  ConnectorScopeConflictError,
   CRYPTO_COLUMNS,
   selectConnectorConfigs,
   selectConnectorSyncStates,
@@ -42,6 +43,8 @@ export interface ConnectorView {
   enabled: boolean;
   effectiveRetention: RetentionPolicy;
   hasCredential: boolean;
+  /** the external workspace/org/repo this engagement's connection is bound to, or null if unclaimed */
+  externalScopeRef: string | null;
   sync: ConnectorSyncView;
 }
 
@@ -53,6 +56,10 @@ export interface PutConnectorInput {
   credential?: string;
   /** true when the request body carried a `retentionOverride` key at all */
   retentionOverrideProvided: boolean;
+  /** `null` releases the claim; a non-null value must be globally unique per connector — see `putConnector` */
+  externalScopeRef?: string | null;
+  /** true when the request body carried an `externalScopeRef` key at all */
+  externalScopeRefProvided?: boolean;
 }
 
 /**
@@ -107,12 +114,20 @@ export class AdminService {
       );
       patch.credentialRef = credentialRef;
     }
+    if (input.externalScopeRefProvided) patch.externalScopeRef = input.externalScopeRef ?? null;
 
-    await upsertConnectorConfig(
-      tx,
-      { tenantId, engagementId: engagement.id, connector: connectorId },
-      patch,
-    );
+    try {
+      await upsertConnectorConfig(
+        tx,
+        { tenantId, engagementId: engagement.id, connector: connectorId },
+        patch,
+      );
+    } catch (err) {
+      if (err instanceof ConnectorScopeConflictError) {
+        throw new ConflictException(err.message);
+      }
+      throw err;
+    }
 
     const view = (await this.buildViews()).find((c) => c.connector === connectorId);
     // registry.has() passed above, so the row is always in the list.
@@ -176,6 +191,7 @@ export class AdminService {
         enabled: cfg?.enabled ?? false,
         effectiveRetention: connector.retentionPolicy,
         hasCredential: cfg?.credentialRef != null,
+        externalScopeRef: cfg?.externalScopeRef ?? null,
         sync: {
           status: state?.status ?? null,
           lastRunAt: state?.lastRunAt ? state.lastRunAt.toISOString() : null,
@@ -220,7 +236,10 @@ export function parsePutConnectorBody(body: unknown): PutConnectorInput {
     throw new BadRequestException('request body is required');
   }
   const b = body as Record<string, unknown>;
-  const out: PutConnectorInput = { retentionOverrideProvided: 'retentionOverride' in b };
+  const out: PutConnectorInput = {
+    retentionOverrideProvided: 'retentionOverride' in b,
+    externalScopeRefProvided: 'externalScopeRef' in b,
+  };
 
   if (b.enabled !== undefined) {
     if (typeof b.enabled !== 'boolean') throw new BadRequestException('enabled must be a boolean');
@@ -240,6 +259,13 @@ export function parsePutConnectorBody(body: unknown): PutConnectorInput {
       throw new BadRequestException('credential must be a non-empty string');
     }
     out.credential = b.credential;
+  }
+  if (out.externalScopeRefProvided) {
+    const ref = b.externalScopeRef;
+    if (ref !== null && (typeof ref !== 'string' || ref.trim() === '')) {
+      throw new BadRequestException('externalScopeRef must be null or a non-empty string');
+    }
+    out.externalScopeRef = ref as string | null;
   }
   return out;
 }
