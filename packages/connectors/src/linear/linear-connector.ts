@@ -17,6 +17,7 @@ import {
   type SyncEmit,
 } from '@fde/core';
 
+import { extractDecisionRefs } from '../decision-marker.js';
 import { type LinearClientFactory } from './load-linear-client.js';
 import {
   LINEAR_ACL_TTL_SECONDS,
@@ -48,27 +49,10 @@ export interface LinearConnectorOptions {
   webhookSecret?: string;
 }
 
-/**
- * Marker convention linking a Linear issue back to a decision fact: a literal
- * `fde:decision:<id>` token anywhere in the issue description. No NLP, no
- * heuristics — the link is explicit or it is absent. `<id>` is matched against
- * the decision fact's external ref during graph load; an unresolved marker is
- * dropped there, not here.
- *
- * Follow-up: also accept an `fde` fact permalink URL once the web app's fact
- * routes are stable.
- */
-const DECISION_MARKER = /fde:decision:([A-Za-z0-9._-]+)/g;
-
-/** Every distinct decision id marked in `text`, in first-seen order. */
-export function extractDecisionRefs(text: string | null | undefined): string[] {
-  if (!text) return [];
-  const seen = new Set<string>();
-  for (const m of text.matchAll(DECISION_MARKER)) {
-    if (m[1]) seen.add(m[1]);
-  }
-  return [...seen];
-}
+// `DECISION_MARKER` / `extractDecisionRefs` live in `../decision-marker.js` now
+// (shared with the GitHub connector); re-exported here so existing imports of
+// `extractDecisionRefs` from this module keep working unchanged.
+export { extractDecisionRefs } from '../decision-marker.js';
 
 interface LinearArtifactMeta {
   identifier: string;
