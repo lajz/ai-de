@@ -136,57 +136,59 @@ export function GraphView({
         </p>
       )}
 
-      <div className="graph-canvas" style={{ width: '100%', height: 520 }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={(_, node) => setSelectedId(node.id)}
-          onPaneClick={() => setSelectedId(null)}
-          fitView
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background />
-          <Controls />
-        </ReactFlow>
-      </div>
+      <div className="graph-body">
+        <div className="graph-canvas">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeClick={(_, node) => setSelectedId(node.id)}
+            onPaneClick={() => setSelectedId(null)}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background />
+            <Controls />
+          </ReactFlow>
+        </div>
 
-      {selected && (
-        <aside className="graph-panel">
-          <h2>{selected.label}</h2>
-          <dl>
-            <dt>kind</dt>
-            <dd>{selected.kind}</dd>
-            <dt>type</dt>
-            <dd>{selected.type}</dd>
-            {selected.status && (
-              <>
-                <dt>status</dt>
-                <dd>{selected.status}</dd>
-              </>
+        {selected && (
+          <aside className="graph-panel">
+            <h2>{selected.label}</h2>
+            <dl>
+              <dt>kind</dt>
+              <dd>{selected.kind}</dd>
+              <dt>type</dt>
+              <dd>{selected.type}</dd>
+              {selected.status && (
+                <>
+                  <dt>status</dt>
+                  <dd>{selected.status}</dd>
+                </>
+              )}
+            </dl>
+            {selected.kind === 'entity' && (
+              <EntityProvenancePanel
+                engagementId={engagementId}
+                entityId={selected.id}
+                entityLabel={selected.label}
+              />
             )}
-          </dl>
-          {selected.kind === 'entity' && (
-            <EntityProvenancePanel
-              engagementId={engagementId}
-              entityId={selected.id}
-              entityLabel={selected.label}
-            />
-          )}
-          {selected.kind === 'fact' && (
-            <Link href={`/engagements/${engagementId}/admin/lineage?factId=${selected.id}`}>
-              Trace provenance
-            </Link>
-          )}
-          {selected.externalRefs && selected.externalRefs.length > 0 && (
-            <details className="graph-refs-details">
-              <summary>Raw external refs</summary>
-              <pre className="graph-refs">{JSON.stringify(selected.externalRefs, null, 2)}</pre>
-            </details>
-          )}
-        </aside>
-      )}
+            {selected.kind === 'fact' && (
+              <Link href={`/engagements/${engagementId}/admin/lineage?factId=${selected.id}`}>
+                Trace provenance
+              </Link>
+            )}
+            {selected.externalRefs && selected.externalRefs.length > 0 && (
+              <details className="graph-refs-details">
+                <summary>Raw external refs</summary>
+                <pre className="graph-refs">{JSON.stringify(selected.externalRefs, null, 2)}</pre>
+              </details>
+            )}
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
