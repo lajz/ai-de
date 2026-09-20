@@ -2,7 +2,6 @@ import { ApplicationFailure, Context, heartbeat, log } from '@temporalio/activit
 import { and, eq } from 'drizzle-orm';
 
 import type {
-  CanonicalRecord,
   Connector,
   ConnectorContext,
   ConnectorCredential,
@@ -20,18 +19,16 @@ import {
   connectorSyncState,
   CRYPTO_COLUMNS,
   engagements,
-  resolveEndpointRef,
   selectConnectorConfigs,
   sources,
-  upsertEntityByRef,
-  upsertRelationship,
   withTenant,
   type Database,
 } from '@fde/db';
-import { resolveNormalizedRecords } from '@fde/identity';
+import { addTally, persistGraph, ZERO_TALLY, type GraphWriteTally } from '@fde/identity';
+export type { GraphWriteTally } from '@fde/identity';
 import { type ConnectorRegistry, type NangoClient } from '@fde/connectors';
 
-import { withEngagementActivity, type EngagementActivityContext } from './engagement-context.js';
+import { withEngagementActivity } from './engagement-context.js';
 
 export interface ConnectorSyncActivitiesDeps {
   db: Database;
@@ -68,110 +65,6 @@ export interface RunConnectorSyncResult {
   cursor: string | null;
   /** canonical-graph write tally (metadata only) — see `GraphWriteTally` */
   graph: GraphWriteTally;
-}
-
-/**
- * Metadata-only counts from persisting one run's `normalize` output. No entity
- * names, refs, or bodies — safe to log and to return in workflow history.
- */
-export interface GraphWriteTally {
-  /** `person` / `organization` records run through `@fde/identity`'s `resolveEntity` */
-  entitiesResolved: number;
-  /** `work_item` / `document` / `meeting` records upserted by external ref */
-  entitiesUpserted: number;
-  /** `relationship` edges newly inserted (dedupe hits excluded) */
-  relationshipsUpserted: number;
-  /** `relationship` edges skipped because an endpoint ref did not resolve yet */
-  relationshipsDeferred: number;
-  /** near-duplicate person pairs newly enqueued for human review */
-  matchCandidatesQueued: number;
-}
-
-const ZERO_TALLY: GraphWriteTally = {
-  entitiesResolved: 0,
-  entitiesUpserted: 0,
-  relationshipsUpserted: 0,
-  relationshipsDeferred: 0,
-  matchCandidatesQueued: 0,
-};
-
-const addTally = (a: GraphWriteTally, b: GraphWriteTally): GraphWriteTally => ({
-  entitiesResolved: a.entitiesResolved + b.entitiesResolved,
-  entitiesUpserted: a.entitiesUpserted + b.entitiesUpserted,
-  relationshipsUpserted: a.relationshipsUpserted + b.relationshipsUpserted,
-  relationshipsDeferred: a.relationshipsDeferred + b.relationshipsDeferred,
-  matchCandidatesQueued: a.matchCandidatesQueued + b.matchCandidatesQueued,
-});
-
-/**
- * Persist the canonical graph one artifact's `normalize` produced, inside the
- * caller's engagement transaction (same `ctx.tx` / `ctx.cipher` that just landed
- * the `sources` row).
- *
- * - `person` / `organization` → `@fde/identity`'s `resolveNormalizedRecords`
- *   (deterministic identity-tier upsert into `entities` + a fuzzy-match scan that
- *   enqueues near-duplicates for human review — it never auto-merges).
- * - `work_item` / `document` / `meeting` → `upsertEntityByRef` (external-ref key).
- * - `relationship` → resolve both endpoints against entities already in the graph;
- *   insert the edge (stamped with `sourceId`) only if BOTH resolve. An edge whose
- *   endpoint has not been created yet is skipped and counted — a later artifact in
- *   this or a subsequent run may create it. v1 has no reconciliation pass that
- *   retries a deferred edge; that is a documented follow-up.
- *
- * Entities are written before relationships so an edge between two nodes named in
- * the *same* artifact resolves within this call. `normalize` is pure (the
- * `Connector` contract), so re-running it on a re-ingested artifact is safe; each
- * helper is idempotent, so a second sync run adds no duplicate rows.
- */
-async function persistGraph(
-  ctx: EngagementActivityContext,
-  connector: Connector,
-  artifact: RawArtifact,
-  sourceId: string,
-  connectorId: string,
-): Promise<GraphWriteTally> {
-  const records: CanonicalRecord[] = connector.normalize(artifact);
-  const tally: GraphWriteTally = { ...ZERO_TALLY };
-
-  // person / organization — @fde/identity owns the identity tiers + review queue
-  const resolved = await resolveNormalizedRecords(ctx.tx, ctx.tenantId, ctx.engagementId, records);
-  tally.entitiesResolved = resolved.length;
-  tally.matchCandidatesQueued = resolved.reduce(
-    (n, r) => n + r.candidates.filter((c) => c.queued).length,
-    0,
-  );
-
-  // work_item / document / meeting — keyed directly by external ref
-  for (const rec of records) {
-    if (rec.kind !== 'entity') continue;
-    if (rec.type === 'person' || rec.type === 'organization') continue;
-    await upsertEntityByRef(ctx.tx, ctx.tenantId, ctx.engagementId, rec, ctx.cipher);
-    tally.entitiesUpserted += 1;
-  }
-
-  // relationships — both endpoints must already exist in the graph
-  for (const rec of records) {
-    if (rec.kind !== 'relationship') continue;
-    const from = await resolveEndpointRef(ctx.tx, ctx.tenantId, ctx.engagementId, rec.from);
-    const to = await resolveEndpointRef(ctx.tx, ctx.tenantId, ctx.engagementId, rec.to);
-    if (!from || !to) {
-      tally.relationshipsDeferred += 1;
-      continue;
-    }
-    const { inserted } = await upsertRelationship(ctx.tx, ctx.tenantId, ctx.engagementId, {
-      fromKind: from.kind,
-      fromId: from.id,
-      predicate: rec.predicate,
-      toKind: to.kind,
-      toId: to.id,
-      sourceId,
-    });
-    if (inserted) tally.relationshipsUpserted += 1;
-  }
-
-  // metadata-only: counts, never entity names / refs / bodies
-  log.info(`connector.${connectorId}.graph_persisted`, { ...tally, connectorId });
-  return tally;
 }
 
 type SyncStatePatch = Partial<{
@@ -435,7 +328,12 @@ export function createConnectorSyncActivities(deps: ConnectorSyncActivitiesDeps)
 
         // 3. canonical graph — `normalize` output persisted in the same tx, so a
         //    crash rolls the source back with it (no half-ingested artifact).
-        const graph = await persistGraph(c, connector, artifact, srcRow.id, meta.connectorId);
+        const graph = await persistGraph(c, connector, artifact, srcRow.id);
+        // metadata-only: counts, never entity names / refs / bodies
+        log.info(`connector.${meta.connectorId}.graph_persisted`, {
+          ...graph,
+          connectorId: meta.connectorId,
+        });
 
         return { inserted: true, sourceId: srcRow.id, kind: artifact.kind, graph };
       },

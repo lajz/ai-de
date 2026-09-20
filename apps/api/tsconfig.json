@@ -16,6 +16,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/crypto" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/identity" },
     { "path": "../../packages/audit" },
     { "path": "../../packages/authz" },
     { "path": "../../packages/connectors" },

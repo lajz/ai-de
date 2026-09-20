@@ -13,7 +13,7 @@ import type {
 import { rawArtifactSchema, storesRawBody } from '@fde/core';
 import { encryptRow, getCipher, type EngagementCipher, type KeyProvider } from '@fde/crypto';
 
-import type { Database } from './client.js';
+import type { Database, DbTransaction } from './client.js';
 import { withEngagement } from './engagement.js';
 import { withTenant } from './rls.js';
 import { aclSnapshots, sources } from './schema/sources.js';
@@ -135,12 +135,125 @@ export interface LandConnectorArtifactResult {
 }
 
 /**
+ * The `(tenant, engagement, connector, external_id, content_hash)` dedupe
+ * predicate every `sources` landing path filters on — factored out so the
+ * cheap pre-check (outside the crypto path) and the in-transaction re-check
+ * (guarding a concurrent race) always agree on what "already landed" means.
+ */
+export function sourceDedupeFilter(
+  tenantId: TenantId,
+  engagementId: EngagementId,
+  connectorId: string,
+  externalId: string,
+  contentHash: string,
+) {
+  return and(
+    eq(sources.tenantId, tenantId),
+    eq(sources.engagementId, engagementId),
+    eq(sources.connector, connectorId),
+    eq(sources.externalId, externalId),
+    eq(sources.contentHash, contentHash),
+  );
+}
+
+/** Cheap pre-check outside the crypto path — a redelivered webhook or re-run skips the DEK unwrap entirely. */
+export async function findExistingSourceId(
+  db: Database,
+  tenantId: TenantId,
+  filter: ReturnType<typeof sourceDedupeFilter>,
+): Promise<string | null> {
+  return withTenant(db, tenantId, async (tx) => {
+    const [row] = await tx.select({ id: sources.id }).from(sources).where(filter).limit(1);
+    return row?.id ?? null;
+  });
+}
+
+/**
+ * The transaction-scoped core of `landConnectorArtifact`: re-check dedupe →
+ * encrypted `sources` row → `acl_snapshots` row, using the caller's own open
+ * transaction and cipher. Exported so a caller that needs to persist more than
+ * a `sources` row in the same transaction — the webhook receiver's
+ * `landConnectorArtifactWithGraph` in `@fde/identity` also writes the
+ * canonical graph — can compose around it instead of reimplementing this
+ * discipline.
+ */
+export async function landConnectorArtifactTx(
+  tx: DbTransaction,
+  cipher: EngagementCipher,
+  input: LandConnectorArtifactInput,
+): Promise<LandConnectorArtifactResult> {
+  const artifact = rawArtifactSchema.parse(input.artifact);
+  const contentHash = connectorContentHash(artifact);
+  // tenantId is redundant under RLS (`withTenant` / `withEngagement` both scope
+  // the session) but kept explicit — defence in depth, matching `ConnectorSync`.
+  const dedupe = sourceDedupeFilter(
+    input.tenantId,
+    input.engagementId,
+    input.connectorId,
+    artifact.externalId,
+    contentHash,
+  );
+
+  // Re-check inside the tx — guards a concurrent redelivery race.
+  const [again] = await tx.select({ id: sources.id }).from(sources).where(dedupe).limit(1);
+  if (again) return { inserted: false, sourceId: again.id };
+
+  // 1. sources row first (acl_snapshot_id null) — a conflict here never
+  //    orphans an acl_snapshots row.
+  const built = await buildConnectorSource(cipher, {
+    tenantId: input.tenantId,
+    engagementId: input.engagementId,
+    artifact,
+    retentionPolicy: input.retentionPolicy,
+    aclSnapshotId: null,
+  });
+  const [srcRow] = await tx
+    .insert(sources)
+    .values(built.row)
+    .onConflictDoNothing({
+      target: [sources.engagementId, sources.connector, sources.externalId, sources.contentHash],
+    })
+    .returning({ id: sources.id });
+  if (!srcRow) {
+    // Lost a race to a concurrent writer between the re-check and the
+    // insert — the winner owns this source.
+    const [raced] = await tx.select({ id: sources.id }).from(sources).where(dedupe).limit(1);
+    return { inserted: false, sourceId: raced?.id ?? '' };
+  }
+
+  // 2. encrypted ACL snapshot, linked back onto the source.
+  const aclRow = await encryptRow(cipher, CRYPTO_COLUMNS.acl_snapshots, {
+    principalRules: input.aclSnapshot.rules,
+  });
+  const [aclInserted] = await tx
+    .insert(aclSnapshots)
+    .values({
+      tenantId: input.tenantId,
+      engagementId: input.engagementId,
+      sourceRef: `${input.connectorId}:${artifact.externalId}`,
+      principalRules: aclRow.principalRules,
+      capturedAt: new Date(input.aclSnapshot.capturedAt),
+      ttlSeconds: input.aclSnapshot.ttlSeconds,
+    })
+    .returning({ id: aclSnapshots.id });
+  if (!aclInserted) throw new Error('landConnectorArtifact: acl_snapshots insert returned no row');
+
+  await tx
+    .update(sources)
+    .set({ aclSnapshotId: aclInserted.id })
+    .where(and(eq(sources.id, srcRow.id), eq(sources.engagementId, input.engagementId)));
+
+  return { inserted: true, sourceId: srcRow.id };
+}
+
+/**
  * Dedupe → encrypted `sources` row → `acl_snapshots` row, inside one engagement
  * transaction. This is `apps/workers`' `ConnectorSync.ingestArtifact` minus the
- * canonical-graph write (which needs `@fde/identity`, a workers-only
- * dependency) — the part every caller that only needs a durable `sources` row
- * shares, including the webhook receiver (`apps/api/src/webhooks`), which lands
- * one artifact per request rather than a stream.
+ * canonical-graph write — the part every caller that only needs a durable
+ * `sources` row shares. The webhook receiver (`apps/api/src/webhooks`) that
+ * also needs the graph write, in the same transaction, uses
+ * `landConnectorArtifactTx` directly instead (see `@fde/identity`'s
+ * `landConnectorArtifactWithGraph`).
  */
 export async function landConnectorArtifact(
   db: Database,
@@ -149,87 +262,21 @@ export async function landConnectorArtifact(
 ): Promise<LandConnectorArtifactResult> {
   const artifact = rawArtifactSchema.parse(input.artifact);
   const contentHash = connectorContentHash(artifact);
-  // tenantId is redundant under RLS (`withTenant` / `withEngagement` both scope
-  // the session) but kept explicit — defence in depth, matching `ConnectorSync`.
-  const dedupe = and(
-    eq(sources.tenantId, input.tenantId),
-    eq(sources.engagementId, input.engagementId),
-    eq(sources.connector, input.connectorId),
-    eq(sources.externalId, artifact.externalId),
-    eq(sources.contentHash, contentHash),
+  const dedupe = sourceDedupeFilter(
+    input.tenantId,
+    input.engagementId,
+    input.connectorId,
+    artifact.externalId,
+    contentHash,
   );
 
-  // Cheap pre-check outside the crypto path — a redelivered webhook skips the
-  // DEK unwrap entirely.
-  const existingId = await withTenant(db, input.tenantId, async (tx) => {
-    const [row] = await tx.select({ id: sources.id }).from(sources).where(dedupe).limit(1);
-    return row?.id ?? null;
-  });
+  const existingId = await findExistingSourceId(db, input.tenantId, dedupe);
   if (existingId) return { inserted: false, sourceId: existingId };
 
   return withEngagement(
     db,
     keyProvider,
     { tenantId: input.tenantId, engagementId: input.engagementId },
-    async (tx) => {
-      // Re-check inside the tx — guards a concurrent redelivery race.
-      const [again] = await tx.select({ id: sources.id }).from(sources).where(dedupe).limit(1);
-      if (again) return { inserted: false, sourceId: again.id };
-
-      const cipher = getCipher();
-
-      // 1. sources row first (acl_snapshot_id null) — a conflict here never
-      //    orphans an acl_snapshots row.
-      const built = await buildConnectorSource(cipher, {
-        tenantId: input.tenantId,
-        engagementId: input.engagementId,
-        artifact,
-        retentionPolicy: input.retentionPolicy,
-        aclSnapshotId: null,
-      });
-      const [srcRow] = await tx
-        .insert(sources)
-        .values(built.row)
-        .onConflictDoNothing({
-          target: [
-            sources.engagementId,
-            sources.connector,
-            sources.externalId,
-            sources.contentHash,
-          ],
-        })
-        .returning({ id: sources.id });
-      if (!srcRow) {
-        // Lost a race to a concurrent writer between the re-check and the
-        // insert — the winner owns this source.
-        const [raced] = await tx.select({ id: sources.id }).from(sources).where(dedupe).limit(1);
-        return { inserted: false, sourceId: raced?.id ?? '' };
-      }
-
-      // 2. encrypted ACL snapshot, linked back onto the source.
-      const aclRow = await encryptRow(cipher, CRYPTO_COLUMNS.acl_snapshots, {
-        principalRules: input.aclSnapshot.rules,
-      });
-      const [aclInserted] = await tx
-        .insert(aclSnapshots)
-        .values({
-          tenantId: input.tenantId,
-          engagementId: input.engagementId,
-          sourceRef: `${input.connectorId}:${artifact.externalId}`,
-          principalRules: aclRow.principalRules,
-          capturedAt: new Date(input.aclSnapshot.capturedAt),
-          ttlSeconds: input.aclSnapshot.ttlSeconds,
-        })
-        .returning({ id: aclSnapshots.id });
-      if (!aclInserted)
-        throw new Error('landConnectorArtifact: acl_snapshots insert returned no row');
-
-      await tx
-        .update(sources)
-        .set({ aclSnapshotId: aclInserted.id })
-        .where(and(eq(sources.id, srcRow.id), eq(sources.engagementId, input.engagementId)));
-
-      return { inserted: true, sourceId: srcRow.id };
-    },
+    (tx) => landConnectorArtifactTx(tx, getCipher(), input),
   );
 }

@@ -5,13 +5,18 @@ import { decryptRow, getCipher, type KeyProvider } from '@fde/crypto';
 import { loadNangoClient, type NangoClient } from '@fde/connectors';
 import {
   CRYPTO_COLUMNS,
-  landConnectorArtifact,
   selectConnectorConfigByScopeRef,
   selectConnectorConfigs,
   selectEngagementRetentionPolicy,
   withEngagement,
   type Database,
 } from '@fde/db';
+import {
+  addTally,
+  landConnectorArtifactWithGraph,
+  ZERO_TALLY,
+  type GraphWriteTally,
+} from '@fde/identity';
 
 import { DB } from '../db/db.module.js';
 import { KEY_PROVIDER } from '../key-provider/key-provider.module.js';
@@ -30,14 +35,19 @@ export interface LandWebhookArtifactsResult {
   matched: boolean;
   /** `sources` rows newly inserted (dedupe hits excluded) */
   landed: number;
+  /** canonical-graph write tally (metadata only) — see `GraphWriteTally` */
+  graph: GraphWriteTally;
 }
 
 /**
  * Resolves the connector's runtime credential and turns each verified
- * `RawArtifact` from a webhook into a durable `sources` row, reusing the exact
- * dedupe/encryption/ACL discipline `apps/workers`' `ConnectorSync` activity
- * uses (`landConnectorArtifact`, `@fde/db`) — connector-agnostic, so a future
- * GitHub webhook controller is the only new code a second connector needs.
+ * `RawArtifact` from a webhook into a durable `sources` row **and** the
+ * canonical graph write (`landConnectorArtifactWithGraph`, `@fde/identity`),
+ * both inside one engagement transaction — the same
+ * dedupe/encryption/ACL/graph discipline `apps/workers`' `ConnectorSync`
+ * activity uses, so a live webhook delivery updates the graph immediately
+ * instead of waiting for the next poll. Connector-agnostic, so a future
+ * connector's webhook controller is the only new code it needs.
  */
 @Injectable()
 export class WebhookLandingService {
@@ -69,9 +79,9 @@ export class WebhookLandingService {
       this.logger.log(
         `webhook.${input.connectorId}.unmatched_scope no connector_config claims this scope`,
       );
-      return { matched: false, landed: 0 };
+      return { matched: false, landed: 0, graph: ZERO_TALLY };
     }
-    if (input.artifacts.length === 0) return { matched: true, landed: 0 };
+    if (input.artifacts.length === 0) return { matched: true, landed: 0, graph: ZERO_TALLY };
 
     const { tenantId, engagementId } = match;
 
@@ -120,19 +130,27 @@ export class WebhookLandingService {
     };
 
     let landed = 0;
+    let graph: GraphWriteTally = { ...ZERO_TALLY };
     for (const artifact of input.artifacts) {
       const aclSnapshot = await input.connector.resolveAcl(ctx, artifact);
-      const result = await landConnectorArtifact(this.db, this.keyProvider, {
+      const result = await landConnectorArtifactWithGraph(this.db, this.keyProvider, {
         tenantId,
         engagementId,
         connectorId: input.connectorId,
         retentionPolicy,
         artifact,
         aclSnapshot,
+        connector: input.connector,
       });
       if (result.inserted) landed += 1;
+      graph = addTally(graph, result.graph);
     }
-    return { matched: true, landed };
+    // metadata-only: counts, never entity names / refs / bodies
+    this.logger.log(
+      `webhook.${input.connectorId}.graph_persisted`,
+      JSON.stringify({ ...graph, connectorId: input.connectorId }),
+    );
+    return { matched: true, landed, graph };
   }
 }
 
