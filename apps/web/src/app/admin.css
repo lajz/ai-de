@@ -420,7 +420,16 @@ main.admin {
   max-width: none;
 }
 
+.graph-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
 .graph-canvas {
+  width: 100%;
+  height: 520px;
   border: 1px solid var(--line);
   border-radius: var(--radius-tile);
   overflow: hidden;
@@ -445,11 +454,35 @@ main.admin {
 }
 
 .graph-panel {
-  margin-top: var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--radius-tile);
   padding: var(--space-4);
   background: var(--surface);
+}
+
+@media (min-width: 64rem) {
+  main.admin:has(.graph-view) {
+    max-width: 92rem;
+  }
+
+  .graph-body {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .graph-canvas {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 640px;
+  }
+
+  .graph-panel {
+    flex: 0 0 22rem;
+    max-height: 640px;
+    overflow-y: auto;
+    position: sticky;
+    top: var(--space-4);
+  }
 }
 
 .graph-panel h2 {
