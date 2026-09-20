@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { DecisionMarker } from '../decision-marker';
 import { describeAcl } from '../../lib/acl-copy';
 import { describeQuoteRelation } from '../../lib/quote-relation';
 import { relativeTime } from '../../lib/relative-time';
@@ -59,6 +60,7 @@ export function ProvenanceChain({
           </div>
           <p className="fact-summary">{fact.summary}</p>
           {fact.body && <p className="fact-body">{fact.body}</p>}
+          {fact.type === 'decision' && <DecisionMarker factId={fact.id} />}
           <p className="prov-dates">
             {fact.occurredAt && <>occurred {relativeTime(fact.occurredAt)}, </>}
             created {relativeTime(fact.createdAt)}

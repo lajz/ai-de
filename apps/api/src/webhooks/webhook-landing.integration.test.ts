@@ -7,6 +7,7 @@ import {
   createDbClient,
   engagements,
   entities,
+  facts,
   relationships,
   selectConnectorConfigByScopeRef,
   sources,
@@ -124,7 +125,14 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
         .from(entities)
         .where(eq(entities.engagementId, engagementId));
       const rels = await tx
-        .select({ predicate: relationships.predicate, sourceId: relationships.sourceId })
+        .select({
+          predicate: relationships.predicate,
+          sourceId: relationships.sourceId,
+          fromKind: relationships.fromKind,
+          fromId: relationships.fromId,
+          toKind: relationships.toKind,
+          toId: relationships.toId,
+        })
         .from(relationships)
         .where(eq(relationships.engagementId, engagementId));
       return { ents, rels };
@@ -281,6 +289,53 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
     expect(g.rels.map((r) => r.predicate).sort()).toEqual(['informed_of', 'owns']);
     const sourceId = (await sourceRows(engagementId))[0]!.id;
     expect(g.rels.every((r) => r.sourceId === sourceId)).toBe(true);
+  });
+
+  it('resolves the decision-marker edge against a fact that already exists', async () => {
+    const engagementId = await seedEngagement();
+    const scopeRef = `org-${randomUUID()}`;
+    await claimScope(engagementId, scopeRef);
+
+    const factId = randomUUID();
+    await withEngagement(handle.db, provider, { tenantId, engagementId }, (tx) =>
+      tx.insert(facts).values({
+        id: factId,
+        tenantId,
+        engagementId,
+        type: 'decision',
+        summary: 'chose Postgres',
+      }),
+    );
+
+    const raw = issueWebhookPayload('iss-hook-graph-3', scopeRef, {
+      description: `Ships the plan.\n\nfde:decision:${factId}`,
+    });
+    const artifacts = await connector().handleWebhook({
+      headers: { 'linear-signature': sign(raw) },
+      rawBody: raw,
+      connectorId: 'linear',
+    });
+
+    const result = await service.landWebhookArtifacts({
+      connectorId: 'linear',
+      connector: connector(),
+      externalScopeRef: scopeRef,
+      artifacts,
+    });
+    expect(result.graph.relationshipsDeferred).toBe(0);
+    expect(result.graph.relationshipsUpserted).toBe(1);
+
+    const g = await graphOf(engagementId);
+    const workItem = g.ents.find((e) => e.type === 'work_item')!;
+    expect(g.rels).toEqual([
+      expect.objectContaining({
+        predicate: 'implemented_by',
+        fromKind: 'fact',
+        fromId: factId,
+        toKind: 'entity',
+        toId: workItem.id,
+      }),
+    ]);
   });
 
   it('redelivering the same payload does not create duplicate relationship edges', async () => {
