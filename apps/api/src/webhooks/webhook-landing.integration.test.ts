@@ -271,6 +271,7 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
         relationshipsUpserted: 2, // owns (assignee) + informed_of (creator)
         relationshipsDeferred: 1, // the decision-marker edge — no `dec-unseen` fact yet
         matchCandidatesQueued: 0,
+        factsSynthesized: 0, // LinearConnector doesn't implement detectStatusChange
       },
     });
 
