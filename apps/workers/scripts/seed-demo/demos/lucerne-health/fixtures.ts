@@ -1,4 +1,7 @@
 import type {
+  GitHubPullRequest,
+  GitHubRepository,
+  GitHubUser,
   GranolaDocument,
   GranolaParticipant,
   GranolaTranscript,
@@ -77,6 +80,14 @@ const LU_PRIYA: LinearUser = {
   name: 'Priya Natarajan',
   email: 'priya@lucernehealth.example',
 };
+
+// GitHub identifies people by login only (see `GitHubUser.name`'s doc
+// comment) — no email, so these don't merge with the Granola/Linear person
+// entities above via `@fde/identity`'s email-tier match. That's realistic:
+// a real engagement's GitHub logins and meeting-invite emails aren't linked
+// without a directory lookup this demo doesn't model.
+const GH_JORDAN: GitHubUser = { id: 'gh-jordan', login: 'jordan-ames', name: null, email: null };
+const GH_SAM: GitHubUser = { id: 'gh-sam', login: 'swhitfield', name: null, email: null };
 
 // --- Granola ---------------------------------------------------------------
 
@@ -362,5 +373,74 @@ export const DEMO_LINEAR_ISSUES: LinearIssue[] = [
     creator: LU_JORDAN,
     priorityLabel: 'Low',
     teamKey: 'HARBOR',
+  },
+];
+
+// --- GitHub ------------------------------------------------------------
+
+export const DEMO_GITHUB_REPOSITORY: GitHubRepository = {
+  id: 'repo-harbor',
+  fullName: 'fathompartners/lucerne-harbor',
+  private: true,
+  collaboratorIds: [GH_JORDAN.id, GH_SAM.id],
+};
+
+/**
+ * `demo-harbor-pr-1`'s body deliberately does NOT carry an `fde:decision:`
+ * marker here — `orchestrate()` appends it once the real decision fact
+ * exists, same discipline as `DEMO_LINEAR_ISSUES`. It resolves to the same
+ * fact `DEMO_LINEAR_ISSUES`'s `demo-harbor-1` marker does (both name the
+ * Week 2 sync's rollout decision in `DemoDefinition.github.decisionMarkers`
+ * / `.linear.decisionMarker`) — the point being to show that one decision
+ * traces to both the ticket that tracks it and the PR that ships it.
+ */
+export const DEMO_GITHUB_PULL_REQUESTS: GitHubPullRequest[] = [
+  {
+    id: 'demo-harbor-pr-1',
+    number: 41,
+    title: 'Ship eligibility-check API behind a feature flag',
+    body: 'Implements HARBOR-1.',
+    state: 'closed',
+    merged: true,
+    url: 'https://github.com/fathompartners/lucerne-harbor/pull/41',
+    baseRef: 'main',
+    headRef: 'eligibility-check-flag',
+    createdAt: '2026-09-28T18:00:00.000Z',
+    updatedAt: '2026-09-29T21:00:00.000Z',
+    author: GH_JORDAN,
+    requestedReviewers: [],
+    completedReviewers: [GH_SAM],
+  },
+  {
+    id: 'demo-harbor-pr-2',
+    number: 42,
+    title: 'Add reconciliation batch load-test harness',
+    body: 'Repro for the 3x-volume load test discussed for HARBOR-2. No decision link — this is the test harness itself, not the go/no-go call it fed into.',
+    state: 'closed',
+    merged: true,
+    url: 'https://github.com/fathompartners/lucerne-harbor/pull/42',
+    baseRef: 'main',
+    headRef: 'reconciliation-load-test',
+    createdAt: '2026-09-14T16:00:00.000Z',
+    updatedAt: '2026-09-15T10:00:00.000Z',
+    author: GH_SAM,
+    requestedReviewers: [],
+    completedReviewers: [GH_JORDAN],
+  },
+  {
+    id: 'demo-harbor-pr-3',
+    number: 43,
+    title: 'Bump eligibility-check API rollout to 25% traffic',
+    body: null,
+    state: 'open',
+    merged: false,
+    url: 'https://github.com/fathompartners/lucerne-harbor/pull/43',
+    baseRef: 'main',
+    headRef: 'ramp-25pct',
+    createdAt: '2026-09-30T09:00:00.000Z',
+    updatedAt: '2026-09-30T09:15:00.000Z',
+    author: GH_JORDAN,
+    requestedReviewers: [GH_SAM],
+    completedReviewers: [],
   },
 ];

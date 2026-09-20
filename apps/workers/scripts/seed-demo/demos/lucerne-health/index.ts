@@ -1,5 +1,7 @@
 import type { DemoDefinition } from '../../lib/types.js';
 import {
+  DEMO_GITHUB_PULL_REQUESTS,
+  DEMO_GITHUB_REPOSITORY,
   DEMO_GRANOLA_BODIES,
   DEMO_GRANOLA_DOCUMENTS,
   DEMO_GRANOLA_TRANSCRIPTS,
@@ -11,9 +13,9 @@ import {
 /**
  * Fathom Partners × Lucerne Health — "Project Harbor": an eligibility-check
  * API + claims reconciliation modernization ahead of Q4 open enrollment.
- * 5 Granola meetings, 7 Linear tickets, ~3 weeks. See the fixtures in this
- * folder for the full storyline; this file is only the `DemoDefinition`
- * wiring `orchestrate.ts` consumes.
+ * 5 Granola meetings, 7 Linear tickets, 3 GitHub pull requests, ~3 weeks. See
+ * the fixtures in this folder for the full storyline; this file is only the
+ * `DemoDefinition` wiring `orchestrate.ts` consumes.
  */
 export const lucerneHealth: DemoDefinition = {
   slug: 'lucerne-health',
@@ -32,6 +34,21 @@ export const lucerneHealth: DemoDefinition = {
       sourceDocExternalId: 'demo-doc-week2',
       factType: 'decision',
     },
+  },
+  github: {
+    repository: DEMO_GITHUB_REPOSITORY,
+    pullRequests: DEMO_GITHUB_PULL_REQUESTS,
+    decisionMarkers: [
+      // Same source + type as `linear.decisionMarker` above — resolves to
+      // the identical fact, so the graph shows the Week 2 rollout decision
+      // fanning out into both the Linear ticket that tracks it (HARBOR-1)
+      // and the PR that actually shipped it (#41).
+      {
+        pullRequestId: 'demo-harbor-pr-1',
+        sourceDocExternalId: 'demo-doc-week2',
+        factType: 'decision',
+      },
+    ],
   },
   qaQuestions: [
     {

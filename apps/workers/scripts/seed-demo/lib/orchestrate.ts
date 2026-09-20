@@ -6,10 +6,13 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 
 import type { EngagementId, TenantId } from '@fde/core';
 import {
+  type ConnectorBuildContext,
   ConnectorRegistry,
+  FakeGitHubClient,
   FakeGranolaClient,
   FakeLinearClient,
   FakeNangoClient,
+  GitHubConnector,
   GranolaConnector,
   LinearConnector,
 } from '@fde/connectors';
@@ -35,7 +38,7 @@ import type {
   ExtractionPipelineWorkflowInput,
   ExtractionPipelineWorkflowResult,
 } from '../../../src/workflows/extraction-pipeline.js';
-import type { DemoDefinition } from './types.js';
+import type { DecisionMarkerSource, DemoDefinition } from './types.js';
 
 /**
  * Generic seed engine — no literal from any one demo's story lives here.
@@ -115,13 +118,15 @@ export async function orchestrate(
     const engagementId = await createEngagement(db, provider, tenantId, definition.endCustomerName);
     console.log(`created engagement ${engagementId} ("${definition.endCustomerName}")`);
 
-    await seedConnectorConfig(db, provider, tenantId, engagementId, definition.slug);
+    await seedConnectorConfig(db, provider, tenantId, engagementId, definition);
 
     // Mutable: reassigned once the decision fact's id is known, below — the
-    // Linear sync must run AFTER that, so the marker is baked into the exact
-    // issue the sync is about to ingest. Read by the `clientFactory` closure
-    // each time it's invoked, not captured at registry-build time.
+    // Linear/GitHub syncs must run AFTER that, so each marker is baked into
+    // the exact issue/PR the sync is about to ingest. Read by the
+    // `clientFactory` closures each time they're invoked, not captured at
+    // registry-build time.
     let linearIssues = definition.linear.issues;
+    let githubPullRequests = definition.github?.pullRequests ?? [];
 
     const registry = new ConnectorRegistry({
       granola: (ctx) =>
@@ -140,8 +145,29 @@ export async function orchestrate(
             new FakeLinearClient({ workspace: definition.linear.workspace, issues: linearIssues }),
           engagementRetentionPolicy: ctx.engagementRetentionPolicy,
         }),
+      ...(definition.github
+        ? {
+            github: (ctx: ConnectorBuildContext) =>
+              new GitHubConnector({
+                clientFactory: () =>
+                  new FakeGitHubClient({
+                    repository: definition.github!.repository,
+                    pullRequests: githubPullRequests,
+                  }),
+                engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+              }),
+          }
+        : {}),
     });
-    const nango = new FakeNangoClient({ accessToken: `demo-${definition.slug}-token` });
+    // `metadata.repo` is what `GitHubConnector` reads to learn which repo a
+    // connection is bound to (`ConnectorCredential.metadata.repo` — see its
+    // header comment); `LinearConnector` never reads connection metadata, so
+    // sharing one `FakeNangoClient` (it returns the same metadata for every
+    // connection id) across both connectors is safe.
+    const nango = new FakeNangoClient({
+      accessToken: `demo-${definition.slug}-token`,
+      ...(definition.github ? { metadata: { repo: definition.github.repository.fullName } } : {}),
+    });
     // `MockActivityEnvironment` invokes the real `runConnectorSyncActivity` —
     // same technique `connector-sync.integration.test.ts` uses — so this runs
     // the actual `persistGraph` / `upsertEntityByRef` / `resolveEndpointRef` /
@@ -182,17 +208,26 @@ export async function orchestrate(
       granolaResult.transcriptSourceIds,
     );
 
-    console.log(
-      `resolving the "${definition.linear.decisionMarker.factType}" fact the marker will point at…`,
-    );
-    const decisionFactId = await findDecisionFactId(
-      db,
-      tenantId,
-      engagementId,
-      definition.linear.decisionMarker,
-      extractionRunIdBySourceId,
-    );
-    console.log(`  fact ${decisionFactId}`);
+    // Memoized by (sourceDocExternalId, factType): `linear.decisionMarker` and
+    // any entry in `github.decisionMarkers` naming the same source+type
+    // resolve to the exact same fact — the point being to show one decision
+    // traced into more than one downstream connector, not to re-derive it
+    // per marker. `findDecisionFactId` is a pure read given fixed inputs, so
+    // sharing the cached promise is safe.
+    const decisionFactCache = new Map<string, Promise<string>>();
+    const resolveDecisionFact = (marker: DecisionMarkerSource): Promise<string> => {
+      const key = `${marker.sourceDocExternalId}::${marker.factType}`;
+      let cached = decisionFactCache.get(key);
+      if (!cached) {
+        console.log(`resolving the "${marker.factType}" fact the marker will point at…`);
+        cached = findDecisionFactId(db, tenantId, engagementId, marker, extractionRunIdBySourceId);
+        cached.then((id) => console.log(`  fact ${id}`)).catch(() => {});
+        decisionFactCache.set(key, cached);
+      }
+      return cached;
+    };
+
+    const decisionFactId = await resolveDecisionFact(definition.linear.decisionMarker);
 
     linearIssues = definition.linear.issues.map((issue) =>
       issue.id === definition.linear.decisionMarker.issueId
@@ -212,6 +247,30 @@ export async function orchestrate(
       console.warn(
         `  ⚠ ${linearResult.graph.relationshipsDeferred} relationship(s) deferred — the decision marker may not have resolved. Check resolveEndpointRef.`,
       );
+    }
+
+    if (definition.github) {
+      const github = definition.github;
+      const markerByPrId = new Map(github.decisionMarkers.map((m) => [m.pullRequestId, m]));
+      githubPullRequests = await Promise.all(
+        github.pullRequests.map(async (pr) => {
+          const marker = markerByPrId.get(pr.id);
+          if (!marker) return pr;
+          const factId = await resolveDecisionFact(marker);
+          return { ...pr, body: `${pr.body ?? ''}\n\nfde:decision:${factId}`.trim() };
+        }),
+      );
+
+      console.log('ingesting GitHub pull requests (with decision markers baked in)…');
+      const githubResult = await runSync('github');
+      console.log(
+        `  ${githubResult.sourceCount} source(s) landed, ${githubResult.graph.relationshipsUpserted} relationship(s) upserted, ${githubResult.graph.relationshipsDeferred} deferred`,
+      );
+      if (githubResult.graph.relationshipsDeferred > 0) {
+        console.warn(
+          `  ⚠ ${githubResult.graph.relationshipsDeferred} relationship(s) deferred — a GitHub decision marker may not have resolved. Check resolveEndpointRef.`,
+        );
+      }
     }
 
     printSummary(definition, engagementId, decisionFactId, extractionRunIdBySourceId);
@@ -264,8 +323,9 @@ async function seedConnectorConfig(
   provider: FakeKeyProvider,
   tenantId: TenantId,
   engagementId: EngagementId,
-  slug: string,
+  definition: DemoDefinition,
 ): Promise<void> {
+  const slug = definition.slug;
   await withEngagement(db, provider, { tenantId, engagementId }, async (tx) => {
     const cipher = getCipher();
 
@@ -294,6 +354,26 @@ async function seedConnectorConfig(
       { tenantId, engagementId, connector: 'linear' },
       { enabled: true, credentialRef: linearCredentialRef },
     );
+
+    // Same `nango-oauth` shape as Linear, plus `externalScopeRef`: a real
+    // GitHub connection is bound to exactly one repo at Nango-connect time
+    // (see `GitHubConnector`'s header comment), and `externalScopeRef` is
+    // where `/admin` and the webhook router record that binding.
+    if (definition.github) {
+      const githubCredentialRef = await cipher.encryptString(
+        'connector_config.credential_ref',
+        `demo-${slug}-github-connection`,
+      );
+      await upsertConnectorConfig(
+        tx,
+        { tenantId, engagementId, connector: 'github' },
+        {
+          enabled: true,
+          credentialRef: githubCredentialRef,
+          externalScopeRef: definition.github.repository.fullName,
+        },
+      );
+    }
   });
 }
 
@@ -340,7 +420,7 @@ async function findDecisionFactId(
   db: Database,
   tenantId: TenantId,
   engagementId: EngagementId,
-  marker: DemoDefinition['linear']['decisionMarker'],
+  marker: DecisionMarkerSource,
   extractionRunIdBySourceId: Map<string, string>,
 ): Promise<string> {
   const [sourceRow] = await withTenant(db, tenantId, (tx) =>
