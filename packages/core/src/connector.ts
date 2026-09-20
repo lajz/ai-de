@@ -1,4 +1,4 @@
-import type { CanonicalRecord } from './canonical.js';
+import type { CanonicalEntity, CanonicalRecord } from './canonical.js';
 import type { EngagementId, TenantId } from './ids.js';
 import type { AclSnapshot } from './provenance.js';
 import type { RawArtifact } from './raw-artifact.js';
@@ -33,6 +33,16 @@ export interface ConnectorWebhookRequest {
   connectorId: string;
 }
 
+/** A fact-worthy lifecycle transition a connector's `detectStatusChange` observed. */
+export interface StatusChangeFact {
+  /** short, non-encrypted label — same role as `facts.summary` */
+  summary: string;
+  /** optional full detail — encrypted at rest like any other fact body */
+  body?: string;
+  /** ISO-8601 timestamp the transition is attributed to */
+  occurredAt: string;
+}
+
 /**
  * The one interface every integration implements — built-in (on Nango or a direct
  * client) and, later, customer-authored. Transport and auth vary; this contract
@@ -57,4 +67,20 @@ export interface Connector {
 
   /** Map an artifact to canonical graph records. Pure — no I/O. */
   normalize(artifact: RawArtifact): CanonicalRecord[];
+
+  /**
+   * Optional: decide whether re-observing an already-existing `work_item` /
+   * `document` / `meeting` entity represents a fact-worthy lifecycle
+   * transition (e.g. a PR merging) — never called for a brand-new entity, since
+   * first sight is a creation, not a transition. `previous` is the entity's
+   * decrypted `attributes` as they stood *before* this write; `next` is the
+   * canonical entity `normalize()` just produced. Pure — no DB/network, same
+   * posture as `normalize`. Return `null` when the update isn't a transition
+   * worth recording. Connectors that don't implement this (e.g. Granola) never
+   * synthesize a `status_change` fact.
+   */
+  detectStatusChange?(
+    previous: Record<string, unknown>,
+    next: CanonicalEntity,
+  ): StatusChangeFact | null;
 }

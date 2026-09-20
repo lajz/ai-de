@@ -12,7 +12,7 @@ import type {
 import { encryptRow, type EngagementCipher } from '@fde/crypto';
 
 import type { DbTransaction } from './client.js';
-import { facts } from './schema/facts.js';
+import { evidence, facts } from './schema/facts.js';
 import { entities, relationships } from './schema/graph.js';
 import { CRYPTO_COLUMNS } from './schema/tables.js';
 
@@ -66,6 +66,13 @@ export interface UpsertEntityResult {
   entityId: EntityId;
   /** true when a new row was inserted, false when an existing row was matched + merged */
   created: boolean;
+  /**
+   * The matched row's decrypted `attributes` as they stood *before* this
+   * write, or `null` when `created` is true — a brand-new entity has no prior
+   * state to transition from. Lets a caller (`persistGraph`) detect a
+   * lifecycle transition (e.g. a PR merging) without a second read.
+   */
+  previousAttributes: Record<string, unknown> | null;
 }
 
 /**
@@ -139,7 +146,7 @@ export async function upsertEntityByRef(
           eq(entities.id, hit.id),
         ),
       );
-    return { entityId: hit.id as EntityId, created: false };
+    return { entityId: hit.id as EntityId, created: false, previousAttributes: existingAttrs };
   }
 
   const enc = await encryptRow(cipher, CRYPTO_COLUMNS.entities, {
@@ -158,7 +165,72 @@ export async function upsertEntityByRef(
       body: enc.body ?? null,
     })
     .returning({ id: entities.id });
-  return { entityId: row!.id as EntityId, created: true };
+  return { entityId: row!.id as EntityId, created: true, previousAttributes: null };
+}
+
+export interface StatusChangeFactInput {
+  /** short, non-encrypted label — `facts.summary` */
+  summary: string;
+  /** optional full detail — encrypted like any other fact body */
+  body?: string | null;
+  /** ISO-8601 timestamp the transition is attributed to */
+  occurredAt: string;
+  /** the source that attests the observation which produced this fact */
+  sourceId: string;
+}
+
+/**
+ * Insert one deterministic `status_change` fact + its single supporting
+ * `evidence` row, mirroring the shape `apps/workers`' extraction pipeline uses
+ * for model-produced facts — minus an `extractionRunId` (there is no
+ * extraction run; this fact was synthesized directly from an observed entity
+ * transition, and both `facts.extraction_run_id` / `evidence.extraction_run_id`
+ * are nullable for exactly this case) and minus a char span (there is no
+ * source-document quote to locate).
+ *
+ * `confidence: 1` — a deterministic, code-derived fact carries no model
+ * uncertainty to record, unlike an LLM-extracted one.
+ *
+ * MUST run inside `withEngagement` (encrypts `facts.body` with the engagement
+ * DEK via `cipher`).
+ */
+export async function insertStatusChangeFact(
+  tx: DbTransaction,
+  tenantId: TenantId,
+  engagementId: EngagementId,
+  cipher: EngagementCipher,
+  input: StatusChangeFactInput,
+): Promise<{ factId: string }> {
+  const factRow = await encryptRow(cipher, CRYPTO_COLUMNS.facts, { body: input.body ?? null });
+  const [inserted] = await tx
+    .insert(facts)
+    .values({
+      tenantId,
+      engagementId,
+      type: 'status_change',
+      summary: input.summary,
+      body: factRow.body ?? null,
+      confidence: 1,
+      occurredAt: new Date(input.occurredAt),
+      extractionRunId: null,
+    })
+    .returning({ id: facts.id });
+  const factId = inserted!.id;
+
+  const evidenceRow = await encryptRow(cipher, CRYPTO_COLUMNS.evidence, { quote: null });
+  await tx.insert(evidence).values({
+    tenantId,
+    engagementId,
+    factId,
+    sourceId: input.sourceId,
+    quote: evidenceRow.quote ?? null,
+    charStart: null,
+    charEnd: null,
+    relation: 'supports',
+    extractionRunId: null,
+  });
+
+  return { factId };
 }
 
 export interface GraphEdgeInput {

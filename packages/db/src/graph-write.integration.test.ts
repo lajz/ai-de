@@ -64,6 +64,7 @@ describe.skipIf(!url)('graph-write', () => {
       ),
     );
     expect(a.created).toBe(true);
+    expect(a.previousAttributes).toBeNull();
 
     const b = await run((tx) =>
       upsertEntityByRef(
@@ -80,7 +81,11 @@ describe.skipIf(!url)('graph-write', () => {
         getCipher(),
       ),
     );
-    expect(b).toEqual({ entityId: a.entityId, created: false });
+    expect(b).toEqual({
+      entityId: a.entityId,
+      created: false,
+      previousAttributes: { status: 'draft' },
+    });
 
     const back = await run(async (tx) => {
       const [row] = await tx

@@ -6,6 +6,7 @@ import {
   effectiveRetention,
   storesRawBody,
   type AclSnapshot,
+  type CanonicalEntity,
   type CanonicalRecord,
   type Connector,
   type ConnectorContext,
@@ -14,6 +15,7 @@ import {
   type ExternalRef,
   type RawArtifact,
   type RetentionPolicy,
+  type StatusChangeFact,
   type SyncCursor,
   type SyncEmit,
 } from '@fde/core';
@@ -288,6 +290,54 @@ export class GitHubConnector implements Connector {
     }
 
     return records;
+  }
+
+  /**
+   * Fires on the two PR transitions that are unambiguous and valuable from the
+   * `merged` boolean + `state` string alone:
+   *
+   * - merged: `false → true` — "PR #<n> merged into <baseRef>".
+   * - closed without merging: `state !== 'closed' → 'closed'` while `merged`
+   *   stays `false` — a real but lower-signal case, included since it's cheap
+   *   and mutually exclusive with the merge case.
+   *
+   * Anything else (a title/description edit, a review, re-opening) returns
+   * `null`. `occurredAt` is "now" (when this system observed the transition)
+   * rather than a GitHub timestamp — `next.attributes` carries the PR's
+   * `createdAt` under the (confusingly-named) `occurredAt` key, not an
+   * update/merge timestamp, so there is no more precise moment available here.
+   */
+  detectStatusChange(
+    previous: Record<string, unknown>,
+    next: CanonicalEntity,
+  ): StatusChangeFact | null {
+    const prevMerged = previous.merged === true;
+    const nextMerged = next.attributes.merged === true;
+    const identifier =
+      typeof next.attributes.identifier === 'string'
+        ? next.attributes.identifier
+        : next.displayName;
+    const occurredAt = new Date().toISOString();
+
+    if (!prevMerged && nextMerged) {
+      const baseRef =
+        typeof next.attributes.baseRef === 'string' ? next.attributes.baseRef : undefined;
+      return {
+        summary: baseRef ? `${identifier} merged into ${baseRef}` : `${identifier} merged`,
+        occurredAt,
+      };
+    }
+
+    if (
+      !prevMerged &&
+      !nextMerged &&
+      previous.state !== 'closed' &&
+      next.attributes.state === 'closed'
+    ) {
+      return { summary: `${identifier} closed without merging`, occurredAt };
+    }
+
+    return null;
   }
 
   // --- internals ---------------------------------------------------------

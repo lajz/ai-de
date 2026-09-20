@@ -20,6 +20,11 @@ import {
   GitHubConnector,
   GranolaConnector,
   LinearConnector,
+  type GitHubClient,
+  type GitHubPage,
+  type GitHubPullRequest,
+  type GitHubRepository,
+  type ListPullRequestsOptions,
 } from '@fde/connectors';
 import { FakeKeyProvider, getCipher } from '@fde/crypto';
 import {
@@ -28,6 +33,7 @@ import {
   createDbClient,
   engagements,
   entities,
+  facts,
   identityReviewQueue,
   relationships,
   sources,
@@ -280,6 +286,190 @@ describe.skipIf(!url)('connectorSync activities (integration)', () => {
   });
 });
 
+/** A `GitHubClient` whose backing PR list can be swapped between calls — lets a test drive
+ * `backfill` against one snapshot and a later `incremental` against another, so a PR's
+ * `merged` flag can flip between the two runs (`FakeGitHubClient` itself is immutable). */
+class SwappableGitHubClient implements GitHubClient {
+  current: FakeGitHubClient;
+  constructor(initial: FakeGitHubClient) {
+    this.current = initial;
+  }
+  listRepository(): Promise<GitHubRepository> {
+    return this.current.listRepository();
+  }
+  listPullRequests(options?: ListPullRequestsOptions): Promise<GitHubPage<GitHubPullRequest>> {
+    return this.current.listPullRequests(options);
+  }
+}
+
+const STATUS_PR_BASE: GitHubPullRequest = {
+  id: 'pr-status-1',
+  number: 501,
+  title: 'Feature work',
+  body: null,
+  state: 'open',
+  merged: false,
+  url: 'https://github.com/acme/status-repo/pull/501',
+  baseRef: 'main',
+  headRef: 'feature',
+  createdAt: '2026-09-10T00:00:00.000Z',
+  updatedAt: '2026-09-10T00:00:00.000Z',
+  author: { id: 'gh-alice', login: 'alice', name: null, email: null },
+  requestedReviewers: [],
+  completedReviewers: [],
+};
+
+describe.skipIf(!url)('connectorSync activities — GitHub status-change facts (integration)', () => {
+  const provider = new FakeKeyProvider();
+  let handle: { db: Database; close: () => Promise<void> };
+  const tenantId = randomUUID() as TenantId;
+  // `metadata.repo` is how `GitHubConnector` learns its bound repo — see its
+  // header comment (`connector_config.externalScopeRef` is only how a webhook
+  // resolves a scope; backfill/incremental never read it).
+  const nango = new FakeNangoClient({
+    accessToken: 'tok-github-status',
+    metadata: { repo: 'acme/status-repo' },
+  });
+
+  const client = new SwappableGitHubClient(
+    new FakeGitHubClient({
+      repository: {
+        id: 'repo-status',
+        fullName: 'acme/status-repo',
+        private: false,
+        collaboratorIds: [],
+      },
+      pullRequests: [STATUS_PR_BASE],
+    }),
+  );
+  const registry = new ConnectorRegistry({
+    github: (ctx) =>
+      new GitHubConnector({
+        clientFactory: () => client,
+        engagementRetentionPolicy: ctx.engagementRetentionPolicy,
+      }),
+  });
+  const acts = () =>
+    createConnectorSyncActivities({
+      db: handle.db,
+      keyProvider: provider,
+      connectors: registry,
+      nango,
+    });
+  const run = (input: RunConnectorSyncInput): Promise<RunConnectorSyncResult> =>
+    new MockActivityEnvironment().run(
+      acts().runConnectorSyncActivity as never,
+      input as never,
+    ) as Promise<RunConnectorSyncResult>;
+
+  async function seedEngagement(): Promise<EngagementId> {
+    const engagementId = randomUUID() as EngagementId;
+    const { wrappedDek } = await provider.generateDek({
+      tenantId,
+      engagementId,
+      tenantCmkArn: 'fake:cmk',
+    });
+    await handle.db.insert(engagements).values({
+      id: engagementId,
+      tenantId,
+      endCustomerName: `Acme ${engagementId.slice(0, 8)}`,
+      regionPin: 'us',
+      retentionPolicy: 'full-retention',
+      wrappedDek: Buffer.from(wrappedDek).toString('base64'),
+    });
+    await withEngagement(handle.db, provider, { tenantId, engagementId }, async (tx) => {
+      const credentialRef = await getCipher().encryptString(
+        'connector_config.credential_ref',
+        `nango-conn-github-status-${engagementId}`,
+      );
+      await upsertConnectorConfig(
+        tx,
+        { tenantId, engagementId, connector: 'github' },
+        // scoped per engagement — `externalScopeRef` is a unique claim per
+        // connector, and each test here seeds its own engagement.
+        { enabled: true, credentialRef, externalScopeRef: `acme/status-repo-${engagementId}` },
+      );
+    });
+    return engagementId;
+  }
+
+  const statusChangeFacts = (engagementId: EngagementId) =>
+    withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ id: facts.id, summary: facts.summary, extractionRunId: facts.extractionRunId })
+        .from(facts)
+        .where(and(eq(facts.engagementId, engagementId), eq(facts.type, 'status_change'))),
+    );
+
+  beforeAll(async () => {
+    handle = createDbClient({ url: url!, max: 1 });
+    await handle.db.insert(tenants).values({ id: tenantId, name: 'T', cmkKeyRef: 'fake:cmk' });
+  });
+  afterAll(async () => {
+    await handle.db.delete(engagements).where(eq(engagements.tenantId, tenantId));
+    await handle.db.delete(tenants).where(eq(tenants.id, tenantId));
+    await handle.close();
+  });
+
+  it('backfilling an already-merged PR is a creation, not a transition — no fact', async () => {
+    const engagementId = await seedEngagement();
+    client.current = new FakeGitHubClient({
+      repository: {
+        id: 'repo-status',
+        fullName: 'acme/status-repo',
+        private: false,
+        collaboratorIds: [],
+      },
+      pullRequests: [{ ...STATUS_PR_BASE, state: 'closed', merged: true }],
+    });
+
+    const result = await run({ tenantId, engagementId, connectorId: 'github', mode: 'backfill' });
+    expect(result.graph.factsSynthesized).toBe(0);
+    expect(await statusChangeFacts(engagementId)).toHaveLength(0);
+  });
+
+  it('incremental observing the same PR flip merged false → true produces exactly one fact', async () => {
+    const engagementId = await seedEngagement();
+    client.current = new FakeGitHubClient({
+      repository: {
+        id: 'repo-status',
+        fullName: 'acme/status-repo',
+        private: false,
+        collaboratorIds: [],
+      },
+      pullRequests: [STATUS_PR_BASE],
+    });
+
+    const backfill = await run({ tenantId, engagementId, connectorId: 'github', mode: 'backfill' });
+    expect(backfill.graph.factsSynthesized).toBe(0);
+    expect(await statusChangeFacts(engagementId)).toHaveLength(0);
+
+    client.current = new FakeGitHubClient({
+      repository: {
+        id: 'repo-status',
+        fullName: 'acme/status-repo',
+        private: false,
+        collaboratorIds: [],
+      },
+      pullRequests: [
+        { ...STATUS_PR_BASE, state: 'closed', merged: true, updatedAt: '2026-09-11T00:00:00.000Z' },
+      ],
+    });
+
+    const incremental = await run({
+      tenantId,
+      engagementId,
+      connectorId: 'github',
+      mode: 'incremental',
+    });
+    expect(incremental.graph.factsSynthesized).toBe(1);
+    const rows = await statusChangeFacts(engagementId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ extractionRunId: null });
+    expect(rows[0]!.summary).toContain('merged');
+  });
+});
+
 /**
  * One artifact whose `normalize` returns a known mix: a `meeting`, two near-
  * duplicate `person`s (same email domain, non-identical names, no shared exact
@@ -434,6 +624,7 @@ describe.skipIf(!url)('connectorSync activities — graph persistence (integrati
       relationshipsUpserted: 1,
       relationshipsDeferred: 1,
       matchCandidatesQueued: 1,
+      factsSynthesized: 0,
     });
 
     const g = await graphOf(engagementId);
@@ -460,6 +651,7 @@ describe.skipIf(!url)('connectorSync activities — graph persistence (integrati
       relationshipsUpserted: 0,
       relationshipsDeferred: 0,
       matchCandidatesQueued: 0,
+      factsSynthesized: 0,
     });
 
     const after = await graphOf(engagementId);

@@ -1,6 +1,7 @@
 import type { CanonicalRecord, Connector, EngagementId, RawArtifact, TenantId } from '@fde/core';
 import type { EngagementCipher } from '@fde/crypto';
 import {
+  insertStatusChangeFact,
   resolveEndpointRef,
   upsertEntityByRef,
   upsertRelationship,
@@ -39,6 +40,8 @@ export interface GraphWriteTally {
   relationshipsDeferred: number;
   /** near-duplicate person pairs newly enqueued for human review */
   matchCandidatesQueued: number;
+  /** `status_change` facts synthesized from a connector's `detectStatusChange` */
+  factsSynthesized: number;
 }
 
 export const ZERO_TALLY: GraphWriteTally = {
@@ -47,6 +50,7 @@ export const ZERO_TALLY: GraphWriteTally = {
   relationshipsUpserted: 0,
   relationshipsDeferred: 0,
   matchCandidatesQueued: 0,
+  factsSynthesized: 0,
 };
 
 export const addTally = (a: GraphWriteTally, b: GraphWriteTally): GraphWriteTally => ({
@@ -55,6 +59,7 @@ export const addTally = (a: GraphWriteTally, b: GraphWriteTally): GraphWriteTall
   relationshipsUpserted: a.relationshipsUpserted + b.relationshipsUpserted,
   relationshipsDeferred: a.relationshipsDeferred + b.relationshipsDeferred,
   matchCandidatesQueued: a.matchCandidatesQueued + b.matchCandidatesQueued,
+  factsSynthesized: a.factsSynthesized + b.factsSynthesized,
 });
 
 /**
@@ -66,6 +71,13 @@ export const addTally = (a: GraphWriteTally, b: GraphWriteTally): GraphWriteTall
  *   identity-tier upsert into `entities` + a fuzzy-match scan that enqueues
  *   near-duplicates for human review — it never auto-merges).
  * - `work_item` / `document` / `meeting` → `upsertEntityByRef` (external-ref key).
+ *   When the ref already matched an existing row, the connector's optional
+ *   `detectStatusChange` is asked whether this update is a fact-worthy
+ *   lifecycle transition (e.g. a PR merging); a non-null result becomes a
+ *   deterministic `status_change` fact + evidence row, stamped with the same
+ *   `sourceId` a relationship edge would be. Never called on a brand-new row —
+ *   first sight of an entity (including backfilling one that was already
+ *   merged) is a creation, not a transition.
  * - `relationship` → resolve both endpoints against entities already in the
  *   graph; insert the edge (stamped with `sourceId`) only if BOTH resolve. An
  *   edge whose endpoint has not been created yet is skipped and counted — a
@@ -103,8 +115,31 @@ export async function persistGraph(
   for (const rec of records) {
     if (rec.kind !== 'entity') continue;
     if (rec.type === 'person' || rec.type === 'organization') continue;
-    await upsertEntityByRef(ctx.tx, ctx.tenantId, ctx.engagementId, rec, ctx.cipher);
+    const upserted = await upsertEntityByRef(
+      ctx.tx,
+      ctx.tenantId,
+      ctx.engagementId,
+      rec,
+      ctx.cipher,
+    );
     tally.entitiesUpserted += 1;
+
+    // A transition can only be observed against a row that already existed —
+    // first sight of an entity is a creation, never a transition, so a
+    // brand-new row (including one backfilled long after the fact) never
+    // synthesizes a fact here.
+    if (!upserted.created && connector.detectStatusChange) {
+      const change = connector.detectStatusChange(upserted.previousAttributes ?? {}, rec);
+      if (change) {
+        await insertStatusChangeFact(ctx.tx, ctx.tenantId, ctx.engagementId, ctx.cipher, {
+          summary: change.summary,
+          body: change.body ?? null,
+          occurredAt: change.occurredAt,
+          sourceId,
+        });
+        tally.factsSynthesized += 1;
+      }
+    }
   }
 
   // relationships — both endpoints must already exist in the graph
