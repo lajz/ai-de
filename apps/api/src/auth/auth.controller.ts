@@ -43,14 +43,27 @@ function safeEqual(a: string, b: string): boolean {
  * `Referer` is attacker-controlled — any linking page, or a bare HTTP
  * client, can set it to anything — so `res.redirect(req.headers.referer)`
  * unchecked is an open redirect gated only by `devLoginEnabled()`. Falls
- * back to `/` for a missing, unparseable, or cross-origin referer.
+ * back to `/` for a missing, unparseable, or unrecognized-host referer.
+ *
+ * `allowedHosts` is more than just `req.headers.host`: `apps/web` (the only
+ * real caller — see `SignInNotice`) is a *different origin* from the API
+ * even in local dev, so the referer on this request is always
+ * `apps/web`'s host, never the API's own. `req.headers.host` stays in the
+ * set for a same-origin deployment; `WEB_BASE_URL`'s host (see `env.ts`) is
+ * what actually matches in the standard split-origin local stack.
+ *
+ * Returns the referer's full absolute URL, not just its path — a bare path
+ * would resolve against *this response's own* origin (the API), which is
+ * exactly wrong once the matched host is `apps/web`'s, a different origin.
+ * Safe once `allowedHosts.has(url.host)` passes: that check is what makes
+ * `url` trustworthy, not the shape of what's returned.
  */
-function safeDevLoginRedirect(req: Request): string {
+export function safeDevLoginRedirect(req: Request, allowedHosts: ReadonlySet<string>): string {
   const referer = req.headers.referer;
   if (!referer) return '/';
   try {
     const url = new URL(referer);
-    return url.host === req.headers.host ? `${url.pathname}${url.search}` : '/';
+    return allowedHosts.has(url.host) ? url.toString() : '/';
   } catch {
     return '/';
   }
@@ -60,12 +73,15 @@ function safeDevLoginRedirect(req: Request): string {
 @Controller('auth')
 export class AuthController {
   private readonly secureCookies: boolean;
+  /** `WEB_BASE_URL`'s host — see `safeDevLoginRedirect` for why this is needed at all. */
+  private readonly webHost: string;
 
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     this.secureCookies = config.get('NODE_ENV', { infer: true }) === 'production';
+    this.webHost = new URL(config.get('WEB_BASE_URL', { infer: true })).host;
   }
 
   private cookieOpts(extra: { maxAge?: number; path: string }) {
@@ -107,7 +123,8 @@ export class AuthController {
     if (!this.auth.devLoginEnabled()) throw new NotFoundException();
     const session = await this.auth.completeDevLogin();
     res.cookie(SESSION_COOKIE, session.token, this.cookieOpts({ path: '/' }));
-    res.redirect(safeDevLoginRedirect(req));
+    const allowedHosts = new Set([req.headers.host, this.webHost].filter((h): h is string => !!h));
+    res.redirect(safeDevLoginRedirect(req, allowedHosts));
   }
 
   /**

@@ -87,6 +87,23 @@ export const envSchema = z
     DEV_SESSION_TOKEN: z.string().optional(),
 
     /**
+     * `apps/web`'s own origin — consulted only by `AuthController`'s
+     * `/auth/dev-login` redirect guard. That guard normally only trusts a
+     * `Referer` whose host matches the *API's own* `req.headers.host`, but
+     * `apps/web` and `apps/api` are different origins even in local dev (the
+     * standard `tilt up` ports below) — the page that links to
+     * `/auth/dev-login` is never same-origin with the API that serves it.
+     * This is the one additional host the guard trusts, so the redirect
+     * lands back on the web app instead of falling back to `/` on the API's
+     * own (route-less) origin. Defaults to `apps/web`'s default dev port;
+     * override if you've remapped it. No effect beyond that one redirect —
+     * in particular, it grants nothing on its own (`devLoginEnabled()` gates
+     * the endpoint itself) and is irrelevant in production, where dev-login
+     * is refused outright.
+     */
+    WEB_BASE_URL: z.string().url().default('http://localhost:3001'),
+
+    /**
      * SpiceDB (`@fde/authz`). Unset in dev/test → the in-memory `AuthzClient`
      * (`createAuthzClientFromEnv`). Required under `NODE_ENV=production` — the
      * in-memory client refuses to run there.

@@ -10,6 +10,7 @@ describe('validateEnv', () => {
     expect(env.NODE_ENV).toBe('development');
     expect(env.PORT).toBe(3000);
     expect(env.WORKOS_ORG_TENANT_MAP).toEqual({});
+    expect(env.WEB_BASE_URL).toBe('http://localhost:3001');
   });
 
   it('fails fast when DATABASE_URL is missing', () => {
