@@ -45,6 +45,10 @@ const ACL_RULES_PATH = CRYPTO_COLUMNS.acl_snapshots[0].path;
 
 /** Cap on `relationships` edges returned by `GET …/graph`. */
 export const GRAPH_EDGE_CAP = 2000;
+/** Cap on `entities` nodes returned by `GET …/graph` — same magnitude as `GRAPH_EDGE_CAP`. */
+export const GRAPH_ENTITY_CAP = 2000;
+/** Cap on `facts`-as-nodes returned by `GET …/graph` — same magnitude as `GRAPH_EDGE_CAP`. */
+export const GRAPH_FACT_CAP = 2000;
 /** Default `extraction_runs` window for `GET …/pipeline`. */
 export const PIPELINE_RUN_LIMIT = 20;
 
@@ -337,24 +341,32 @@ export class LineageService {
       EntityType | undefined;
     const predicate = parseEnum(filter.predicate, PREDICATES, 'predicate') as Predicate | undefined;
 
-    const entityRows = await selectGraphEntities(tx, tenantId, engagement.id, { entityType });
+    const entityRows = await selectGraphEntities(tx, tenantId, engagement.id, {
+      entityType,
+      limit: GRAPH_ENTITY_CAP + 1,
+    });
     // A fact node is not an entity — when `entityType` narrows the entities, drop fact nodes.
-    const factRows = entityType ? [] : await selectGraphFacts(tx, tenantId, engagement.id);
+    const factRows = entityType
+      ? []
+      : await selectGraphFacts(tx, tenantId, engagement.id, GRAPH_FACT_CAP + 1);
     const edgeRows = await selectGraphEdges(tx, tenantId, engagement.id, {
       predicate,
       limit: GRAPH_EDGE_CAP + 1,
     });
-    const truncated = edgeRows.length > GRAPH_EDGE_CAP;
+    const entitiesTruncated = entityRows.length > GRAPH_ENTITY_CAP;
+    const factsTruncated = factRows.length > GRAPH_FACT_CAP;
+    const edgesTruncated = edgeRows.length > GRAPH_EDGE_CAP;
+    const truncated = entitiesTruncated || factsTruncated || edgesTruncated;
 
     const nodes: GraphNode[] = [
-      ...entityRows.map((e) => ({
+      ...entityRows.slice(0, GRAPH_ENTITY_CAP).map((e) => ({
         id: e.id,
         kind: 'entity' as const,
         type: e.type,
         label: e.displayName,
         externalRefs: e.externalRefs,
       })),
-      ...factRows.map((f) => ({
+      ...factRows.slice(0, GRAPH_FACT_CAP).map((f) => ({
         id: f.id,
         kind: 'fact' as const,
         type: f.type,

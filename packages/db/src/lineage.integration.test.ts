@@ -245,9 +245,12 @@ describe.skipIf(!url)('lineage + connector_config (integration)', () => {
     });
 
     await withTenant(handle.db, tenantA, async (tx) => {
-      const nodes = await selectGraphEntities(tx, tenantA, engagementId, {});
+      const nodes = await selectGraphEntities(tx, tenantA, engagementId, { limit: 10 });
       expect(nodes.map((n) => n.displayName).sort()).toEqual(['Acme', 'Jane']);
-      const people = await selectGraphEntities(tx, tenantA, engagementId, { entityType: 'person' });
+      const people = await selectGraphEntities(tx, tenantA, engagementId, {
+        entityType: 'person',
+        limit: 10,
+      });
       expect(people).toHaveLength(1);
       const edges = await selectGraphEdges(tx, tenantA, engagementId, { limit: 10 });
       expect(edges[0]!.predicate).toBe('member_of');

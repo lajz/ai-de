@@ -33,6 +33,12 @@ export interface Fact {
   citations: EvidenceCitation[];
 }
 
+export interface FactPage {
+  rows: Fact[];
+  /** pass back as `?cursor` to fetch the next page */
+  nextCursor?: string;
+}
+
 export interface QaCitation {
   sourceId: string;
   permalink: string | null;

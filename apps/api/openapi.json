@@ -105,10 +105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/FactResponse"
-                  }
+                  "$ref": "#/components/schemas/FactPageResponse"
                 }
               }
             }
@@ -591,6 +588,22 @@
           "createdAt",
           "citations"
         ]
+      },
+      "FactPageResponse": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "pass back as ?cursor for the next page"
+          }
+        },
+        "required": ["rows"]
       },
       "QaCitationResponse": {
         "type": "object",
@@ -1082,7 +1095,7 @@
           },
           "truncated": {
             "type": "boolean",
-            "description": "true when the edge cap was hit"
+            "description": "true when the entity, fact, or edge cap was hit"
           }
         },
         "required": ["nodes", "edges", "truncated"]

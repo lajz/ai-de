@@ -47,6 +47,18 @@ export interface FactRecord {
   citations: EvidenceCitation[];
 }
 
+export interface ListFactsFilter {
+  /** page size; default 100, clamped to 500 */
+  limit?: number;
+  cursor?: string;
+}
+
+export interface FactPage {
+  rows: FactRecord[];
+  /** present when there may be more rows past this page */
+  nextCursor?: string;
+}
+
 export interface QaCitation {
   sourceId: string;
   permalink: string | null;
@@ -106,14 +118,16 @@ export class RetrievalService {
 
   /**
    * This engagement's `facts` newest-first, each with its decrypted `evidence`
-   * citations. One `content_read` row is logged in the request transaction.
+   * citations — keyset-paginated the same way as `@fde/audit`'s `listAccess`.
+   * One `content_read` row is logged in the request transaction.
    */
-  async listFacts(): Promise<FactRecord[]> {
+  async listFacts(filter: ListFactsFilter = {}): Promise<FactPage> {
     const { tx, userId, tenantId } = getRequestContext();
     const engagement = getEngagementContext();
     await this.assertCanView(userId, tenantId, engagement.id);
 
-    const factRows = await selectEngagementFacts(tx, tenantId, engagement.id);
+    const page = await selectEngagementFacts(tx, tenantId, engagement.id, filter);
+    const factRows = page.rows;
     const factIds = factRows.map((f) => f.id);
     const evRows = factIds.length
       ? await selectEvidenceForFacts(tx, tenantId, engagement.id, factIds)
@@ -154,7 +168,7 @@ export class RetrievalService {
         citations,
       });
     }
-    return out;
+    return { rows: out, nextCursor: page.nextCursor };
   }
 
   /**

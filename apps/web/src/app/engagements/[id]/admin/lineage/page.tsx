@@ -1,11 +1,9 @@
-import Link from 'next/link';
-
 import { AdminError } from '../../../../../components/admin/admin-error';
 import { ProvenanceChain } from '../../../../../components/admin/provenance-chain';
+import { LineagePicker } from '../../../../../components/lineage-picker';
 import { SignInNotice } from '../../../../../components/sign-in-notice';
 import { ApiError, getFactProvenance, getFacts } from '../../../../../lib/api';
 import { getSessionToken } from '../../../../../lib/session';
-import { factTypeColor } from '../../../../../lib/type-color';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,9 +19,9 @@ export default async function LineagePage({
   const token = await getSessionToken();
   if (!token) return <SignInNotice />;
 
-  let facts;
+  let factPage;
   try {
-    facts = await getFacts(token, id);
+    factPage = await getFacts(token, id);
   } catch (err) {
     if (err instanceof ApiError) return <AdminError status={err.status} />;
     throw err;
@@ -44,21 +42,12 @@ export default async function LineagePage({
     <section>
       <h1>Lineage</h1>
       <div className="lineage-layout">
-        <ul className="lineage-picker">
-          {facts.map((f) => (
-            <li key={f.id}>
-              <Link
-                href={`/engagements/${id}/admin/lineage?factId=${f.id}`}
-                aria-current={f.id === factId ? 'true' : undefined}
-              >
-                <span className="fact-type" style={{ color: factTypeColor(f.type) }}>
-                  {f.type}
-                </span>{' '}
-                {f.summary}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <LineagePicker
+          engagementId={id}
+          initialFacts={factPage.rows}
+          initialCursor={factPage.nextCursor}
+          selectedFactId={factId}
+        />
 
         <div className="lineage-detail">
           {!factId && <p className="empty-state">Pick a fact to trace its provenance.</p>}

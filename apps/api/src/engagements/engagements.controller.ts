@@ -89,6 +89,12 @@ class FactResponse {
   @ApiProperty({ type: [EvidenceCitationResponse] }) citations!: EvidenceCitationResponse[];
 }
 
+class FactPageResponse {
+  @ApiProperty({ type: [FactResponse] }) rows!: FactResponse[];
+  @ApiPropertyOptional({ type: String, description: 'pass back as ?cursor for the next page' })
+  nextCursor?: string;
+}
+
 class QaBody {
   @ApiProperty({ type: String }) question!: string;
 }
@@ -232,16 +238,34 @@ export class EngagementsController {
 
   /**
    * This engagement's extracted `facts` (newest first) with their `evidence`
-   * citations. Engagement-scoped: the interceptor opened `withEngagement`, so
-   * `RetrievalService` decrypts `facts.body` / `evidence.quote` with the request
-   * cipher — only after the `canViewEngagement` gate (`AUTHZ_ENFORCE=true`, 403).
-   * Reading is a `content_read`, logged in the same transaction.
+   * citations — keyset-paginated over `(created_at, id)`, same query-param
+   * shape as `audit()` above. Engagement-scoped: the interceptor opened
+   * `withEngagement`, so `RetrievalService` decrypts `facts.body` /
+   * `evidence.quote` with the request cipher — only after the
+   * `canViewEngagement` gate (`AUTHZ_ENFORCE=true`, 403). Reading is a
+   * `content_read`, logged in the same transaction.
    */
   @Get(':id/facts')
   @EngagementScope('id')
-  @ApiOkResponse({ type: [FactResponse] })
-  async facts(@Param('id', new ParseUUIDPipe()) _id: string): Promise<FactResponse[]> {
-    return this.retrieval.listFacts();
+  @ApiOkResponse({ type: FactPageResponse })
+  async facts(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ): Promise<FactPageResponse> {
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (parsedLimit !== undefined && !Number.isFinite(parsedLimit)) {
+      throw new BadRequestException('limit must be a number');
+    }
+
+    try {
+      return await this.retrieval.listFacts({ limit: parsedLimit, cursor });
+    } catch (err) {
+      if (err instanceof Error && /cursor/i.test(err.message)) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
   /**

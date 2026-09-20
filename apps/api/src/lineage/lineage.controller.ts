@@ -124,7 +124,10 @@ class GraphEdgeResponse {
 class EngagementGraphResponse {
   @ApiProperty({ type: [GraphNodeResponse] }) nodes!: GraphNodeResponse[];
   @ApiProperty({ type: [GraphEdgeResponse] }) edges!: GraphEdgeResponse[];
-  @ApiProperty({ type: Boolean, description: 'true when the edge cap was hit' })
+  @ApiProperty({
+    type: Boolean,
+    description: 'true when the entity, fact, or edge cap was hit',
+  })
   truncated!: boolean;
 }
 
