@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 
 import type { Fact } from '../lib/types';
+import { DecisionMarker } from './decision-marker';
 import { describeQuoteRelation } from '../lib/quote-relation';
 import { factTypeColor } from '../lib/type-color';
 import { safeHttpUrl } from '../lib/url';
@@ -34,6 +35,7 @@ export function FactList({ engagementId, facts }: { engagementId: string; facts:
           </div>
           <p className="fact-summary">{fact.summary}</p>
           {fact.body && <p className="fact-body">{fact.body}</p>}
+          {fact.type === 'decision' && <DecisionMarker factId={fact.id} />}
           {fact.citations.length > 0 && (
             <ul className="citations">
               {fact.citations.map((c, i) => {
