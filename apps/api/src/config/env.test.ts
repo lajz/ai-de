@@ -75,4 +75,24 @@ describe('validateEnv', () => {
       }),
     ).toThrow(/FDE_FAKE_KMS/);
   });
+
+  it('defaults ENABLE_DEV_LOGIN to false', () => {
+    const env = validateEnv({ ...base });
+    expect(env.ENABLE_DEV_LOGIN).toBe('false');
+  });
+
+  it('refuses ENABLE_DEV_LOGIN=true under NODE_ENV=production', () => {
+    expect(() =>
+      validateEnv({
+        ...base,
+        NODE_ENV: 'production',
+        WORKOS_API_KEY: 'k',
+        WORKOS_CLIENT_ID: 'c',
+        WORKOS_WEBHOOK_SECRET: 's',
+        SPICEDB_ENDPOINT: 'spicedb.example:443',
+        SPICEDB_TOKEN: 't',
+        ENABLE_DEV_LOGIN: 'true',
+      }),
+    ).toThrow(/ENABLE_DEV_LOGIN/);
+  });
 });

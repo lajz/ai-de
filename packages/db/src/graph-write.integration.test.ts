@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDbClient, type Database } from './client.js';
 import { withEngagement } from './engagement.js';
 import { resolveEndpointRef, upsertEntityByRef, upsertRelationship } from './graph-write.js';
-import { engagements, entities, tenants } from './schema/index.js';
+import { engagements, entities, facts, tenants } from './schema/index.js';
 
 // Needs a migrated + hardened database — see packages/db/src/rls.integration.test.ts.
 const url = process.env.DATABASE_URL;
@@ -162,5 +162,79 @@ describe.skipIf(!url)('graph-write', () => {
       resolveEndpointRef(tx, tenantId, engagementId, { connector: 'linear', externalId: 'nope' }),
     );
     expect(miss).toBeNull();
+  });
+
+  describe('resolveEndpointRef — fact endpoints', () => {
+    it('resolves a `connector: "fde"` ref by UUID against facts.id', async () => {
+      const factId = randomUUID();
+      await run((tx) =>
+        tx.insert(facts).values({
+          id: factId,
+          tenantId,
+          engagementId,
+          type: 'decision',
+          summary: 'chose Postgres',
+        }),
+      );
+
+      const hit = await run((tx) =>
+        resolveEndpointRef(tx, tenantId, engagementId, { connector: 'fde', externalId: factId }),
+      );
+      expect(hit).toEqual({ kind: 'fact', id: factId });
+    });
+
+    it('never queries the DB with a non-UUID externalId for a `fde` ref', async () => {
+      // A marker token written before any matching fact exists (e.g.
+      // `fde:decision:<id>` templated with a placeholder) — must miss
+      // cleanly, not throw a Postgres "invalid input syntax for type uuid".
+      const miss = await run((tx) =>
+        resolveEndpointRef(tx, tenantId, engagementId, {
+          connector: 'fde',
+          externalId: 'not-a-uuid',
+        }),
+      );
+      expect(miss).toBeNull();
+    });
+
+    it('a `fde` ref does not resolve a fact from a different engagement', async () => {
+      const otherEngagementId = randomUUID() as EngagementId;
+      const { wrappedDek } = await provider.generateDek({
+        tenantId,
+        engagementId: otherEngagementId,
+        tenantCmkArn: 'fake:cmk',
+      });
+      await handle.db.insert(engagements).values({
+        id: otherEngagementId,
+        tenantId,
+        endCustomerName: 'Other',
+        regionPin: 'us',
+        retentionPolicy: 'full-retention',
+        wrappedDek: Buffer.from(wrappedDek).toString('base64'),
+      });
+      const otherFactId = randomUUID();
+      await withEngagement(
+        handle.db,
+        provider,
+        { tenantId, engagementId: otherEngagementId },
+        (tx) =>
+          tx.insert(facts).values({
+            id: otherFactId,
+            tenantId,
+            engagementId: otherEngagementId,
+            type: 'decision',
+            summary: 'a different engagement entirely',
+          }),
+      );
+
+      const miss = await run((tx) =>
+        resolveEndpointRef(tx, tenantId, engagementId, {
+          connector: 'fde',
+          externalId: otherFactId,
+        }),
+      );
+      expect(miss).toBeNull();
+
+      await handle.db.delete(engagements).where(eq(engagements.id, otherEngagementId));
+    });
   });
 });

@@ -6,5 +6,6 @@ export * from './retrieval.js';
 export * from './graph-write.js';
 export * from './connector-config.js';
 export * from './connector-source.js';
+export * from './dev-tenant.js';
 export * from './lineage.js';
 export * from './columns/encrypted.js';

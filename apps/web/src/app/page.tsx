@@ -1,8 +1,9 @@
 import Link from 'next/link';
 
 import { SignInNotice } from '../components/sign-in-notice';
-import { getEngagements } from '../lib/api';
+import { ApiError, getEngagements } from '../lib/api';
 import { getSessionToken } from '../lib/session';
+import type { Engagement } from '../lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,25 @@ export default async function HomePage() {
     );
   }
 
-  const engagements = await getEngagements(token);
+  let engagements: Engagement[];
+  try {
+    engagements = await getEngagements(token);
+  } catch (err) {
+    // `@fde/api`'s session store is in-memory: any api restart (a hot-reload
+    // in dev, a redeploy in prod) invalidates every session, leaving a
+    // `fde_session` cookie in the browser that no longer resolves to
+    // anything. Treat that the same as "not signed in" rather than crashing —
+    // any other status is a real failure and should still surface as one.
+    if (err instanceof ApiError && err.status === 401) {
+      return (
+        <main>
+          <h1>Engagements</h1>
+          <SignInNotice />
+        </main>
+      );
+    }
+    throw err;
+  }
 
   return (
     <main>
