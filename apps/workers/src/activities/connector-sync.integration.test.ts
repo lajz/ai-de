@@ -625,6 +625,7 @@ describe.skipIf(!url)('connectorSync activities — graph persistence (integrati
       relationshipsDeferred: 1,
       matchCandidatesQueued: 1,
       factsSynthesized: 0,
+      newWorkItemEntityIds: [],
     });
 
     const g = await graphOf(engagementId);
@@ -652,6 +653,7 @@ describe.skipIf(!url)('connectorSync activities — graph persistence (integrati
       relationshipsDeferred: 0,
       matchCandidatesQueued: 0,
       factsSynthesized: 0,
+      newWorkItemEntityIds: [],
     });
 
     const after = await graphOf(engagementId);

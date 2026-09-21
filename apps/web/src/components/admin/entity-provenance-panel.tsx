@@ -14,6 +14,24 @@ function humanizePredicate(predicate: string): string {
   return predicate.replace(/_/g, ' ');
 }
 
+/**
+ * The audit surface for an agentically-suggested edge: nobody approved it
+ * before it was written, so this is where a human sees, after the fact, how
+ * confident the model was. Absent entirely for a deterministic edge (marker,
+ * identity-key match, owns/informed_of, …), which never carries a `confidence`.
+ */
+function ConfidenceBadge({ confidence }: { confidence: number | null }) {
+  if (confidence == null) return null;
+  return (
+    <span
+      className="entity-derivation-confidence"
+      title="model-judged confidence, not human-approved"
+    >
+      confidence {Math.round(confidence * 100)}%
+    </span>
+  );
+}
+
 function DerivationSentence({
   entityLabel,
   derivation,
@@ -113,6 +131,7 @@ export function EntityProvenanceView({
                 counterpartNode={counterpartNode}
               />
               <SourceBadge source={d.source} />
+              <ConfidenceBadge confidence={d.confidence} />
             </li>
           );
         })}

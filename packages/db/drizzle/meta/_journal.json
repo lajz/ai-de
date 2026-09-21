@@ -15,6 +15,13 @@
       "when": 1789808014035,
       "tag": "0001_connector_config_scope_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789971170355,
+      "tag": "0002_relationships_confidence",
+      "breakpoints": true
     }
   ]
 }

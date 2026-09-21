@@ -19,6 +19,8 @@ export const TEMPORAL_TASK_QUEUE = Symbol('TEMPORAL_TASK_QUEUE');
  */
 const CONNECTOR_SYNC_WORKFLOW_TYPE = 'connectorSyncWorkflow';
 const DEFAULT_TASK_QUEUE = 'fde-default';
+/** Must match `apps/workers`' `workflows/agentic-linking.ts` `agenticLinkingPipelineWorkflow`. */
+const AGENTIC_LINKING_WORKFLOW_TYPE = 'agenticLinkingPipelineWorkflow';
 
 /** Shape must match `apps/workers` `ConnectorSyncWorkflowInput`. */
 export interface ConnectorSyncStartInput {
@@ -67,6 +69,58 @@ export class TemporalConnectorSync {
   }
 }
 
+/** Shape must match `apps/workers`' `AgenticLinkingWorkflowInput`. */
+export interface AgenticLinkingStartInput {
+  tenantId: TenantId;
+  engagementId: EngagementId;
+  workItemEntityId: string;
+  /** the `sources` row that landed this work item — stamped onto every edge this run writes */
+  sourceId: string;
+}
+
+/**
+ * Starts `agenticLinkingPipelineWorkflow` for one newly-created work item.
+ * Deliberately best-effort from the caller's side (`WebhookLandingService`
+ * never awaits this without a catch, per its own docs) — this class still
+ * throws on failure so the caller decides how to handle it, same contract as
+ * `TemporalConnectorSync`. `workflowId` is derived from `workItemEntityId`
+ * alone (not a timestamp, unlike connector sync) so a redelivered webhook that
+ * re-triggers this — it shouldn't, `persistGraph` only reports an id as new
+ * once, but Temporal's own dedupe is a free second guard — resolves to the
+ * same workflow execution instead of starting a duplicate linking pass.
+ */
+@Injectable()
+export class TemporalAgenticLinking {
+  constructor(
+    @Inject(TEMPORAL_WORKFLOW_CLIENT) private readonly client: WorkflowClient | null,
+    @Inject(TEMPORAL_TASK_QUEUE) private readonly taskQueue: string,
+  ) {}
+
+  get configured(): boolean {
+    return this.client !== null;
+  }
+
+  async start(input: AgenticLinkingStartInput): Promise<{ workflowId: string }> {
+    if (!this.client) {
+      throw new ServiceUnavailableException(
+        'Temporal is not configured — set TEMPORAL_ADDRESS to enable agentic linking from the API',
+      );
+    }
+    const workflowId = `agentic-linking-${input.workItemEntityId}`;
+    try {
+      await this.client.start(AGENTIC_LINKING_WORKFLOW_TYPE, {
+        taskQueue: this.taskQueue,
+        workflowId,
+        args: [input],
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ServiceUnavailableException(`could not reach Temporal: ${message}`);
+    }
+    return { workflowId };
+  }
+}
+
 @Global()
 @Module({
   providers: [
@@ -97,7 +151,8 @@ export class TemporalConnectorSync {
         config.get('TEMPORAL_TASK_QUEUE', { infer: true }) ?? DEFAULT_TASK_QUEUE,
     },
     TemporalConnectorSync,
+    TemporalAgenticLinking,
   ],
-  exports: [TemporalConnectorSync],
+  exports: [TemporalConnectorSync, TemporalAgenticLinking],
 })
 export class TemporalModule {}

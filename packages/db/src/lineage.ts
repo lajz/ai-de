@@ -221,6 +221,7 @@ export interface EntityProvenanceEdgeRow {
   containerRef: string | null;
   authorRef: string | null;
   occurredAt: Date;
+  confidence: number | null;
 }
 
 /**
@@ -253,6 +254,7 @@ export function selectEntityProvenanceEdges(
       containerRef: sources.containerRef,
       authorRef: sources.authorRef,
       occurredAt: sources.occurredAt,
+      confidence: relationships.confidence,
     })
     .from(relationships)
     .innerJoin(
@@ -371,6 +373,7 @@ export interface GraphEdgeRow {
   toKind: string;
   toId: string;
   sourceId: string | null;
+  confidence: number | null;
 }
 
 /**
@@ -397,6 +400,7 @@ export function selectGraphEdges(
       toKind: relationships.toKind,
       toId: relationships.toId,
       sourceId: relationships.sourceId,
+      confidence: relationships.confidence,
     })
     .from(relationships)
     .where(and(...conds))
