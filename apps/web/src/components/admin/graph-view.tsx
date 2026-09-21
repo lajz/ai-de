@@ -132,7 +132,7 @@ export function GraphView({
 
       {graph.truncated && (
         <p className="graph-truncated" role="alert">
-          The graph hit the edge cap — some relationships are not shown. Narrow the filters.
+          The graph hit a size cap — some nodes or relationships are not shown. Narrow the filters.
         </p>
       )}
 

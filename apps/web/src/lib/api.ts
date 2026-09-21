@@ -3,7 +3,7 @@ import type {
   Engagement,
   EngagementGraph,
   EntityProvenance,
-  Fact,
+  FactPage,
   FactProvenance,
   PipelineStatus,
   PutConnectorBody,
@@ -75,8 +75,16 @@ export function getEngagements(token: string | undefined): Promise<Engagement[]>
   return apiJson<Engagement[]>('/engagements', token);
 }
 
-export function getFacts(token: string | undefined, engagementId: string): Promise<Fact[]> {
-  return apiJson<Fact[]>(`/engagements/${engagementId}/facts`, token);
+export function getFacts(
+  token: string | undefined,
+  engagementId: string,
+  page?: { limit?: number; cursor?: string },
+): Promise<FactPage> {
+  const qs = new URLSearchParams();
+  if (page?.limit) qs.set('limit', String(page.limit));
+  if (page?.cursor) qs.set('cursor', page.cursor);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return apiJson<FactPage>(`/engagements/${engagementId}/facts${suffix}`, token);
 }
 
 export function askQuestion(

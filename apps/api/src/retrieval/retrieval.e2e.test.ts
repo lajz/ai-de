@@ -209,9 +209,10 @@ describe.skipIf(!url)('apps/api retrieval read path (integration)', () => {
     const as = await auth();
     const res = await as(request(app.getHttpServer()).get(`/engagements/${engagementId}/facts`));
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0].body).toBe(FACT_BODY);
-    expect(res.body[0].citations[0]).toMatchObject({
+    expect(res.body.rows).toHaveLength(1);
+    expect(res.body.nextCursor).toBeUndefined();
+    expect(res.body.rows[0].body).toBe(FACT_BODY);
+    expect(res.body.rows[0].citations[0]).toMatchObject({
       permalink: 'https://ex.com/transcript/1',
       quote: QUOTE,
       relation: 'supports',

@@ -309,11 +309,17 @@ export interface GraphEntityRow {
   externalRefs: ExternalRef[];
 }
 
+/**
+ * `entities` for the provenance graph, capped at `filter.limit`. Same
+ * "call with `limit = cap + 1`, treat an over-cap result as truncated"
+ * convention as `selectGraphEdges` — this is a bounded graph view, not a
+ * paginated list.
+ */
 export function selectGraphEntities(
   tx: DbTransaction,
   tenantId: TenantId,
   engagementId: EngagementId,
-  filter: { entityType?: EntityType } = {},
+  filter: { entityType?: EntityType; limit: number },
 ): Promise<GraphEntityRow[]> {
   const conds = [eq(entities.tenantId, tenantId), eq(entities.engagementId, engagementId)];
   if (filter.entityType) conds.push(eq(entities.type, filter.entityType));
@@ -325,7 +331,9 @@ export function selectGraphEntities(
       externalRefs: entities.externalRefs,
     })
     .from(entities)
-    .where(and(...conds));
+    .where(and(...conds))
+    .orderBy(desc(entities.createdAt), desc(entities.id))
+    .limit(filter.limit);
 }
 
 export interface GraphFactRow {
@@ -335,10 +343,12 @@ export interface GraphFactRow {
   status: string;
 }
 
+/** `facts` for the provenance graph, capped at `limit` — same convention as `selectGraphEntities`. */
 export function selectGraphFacts(
   tx: DbTransaction,
   tenantId: TenantId,
   engagementId: EngagementId,
+  limit: number,
 ): Promise<GraphFactRow[]> {
   return tx
     .select({
@@ -348,7 +358,9 @@ export function selectGraphFacts(
       status: facts.status,
     })
     .from(facts)
-    .where(and(eq(facts.tenantId, tenantId), eq(facts.engagementId, engagementId)));
+    .where(and(eq(facts.tenantId, tenantId), eq(facts.engagementId, engagementId)))
+    .orderBy(desc(facts.createdAt), desc(facts.id))
+    .limit(limit);
 }
 
 export interface GraphEdgeRow {

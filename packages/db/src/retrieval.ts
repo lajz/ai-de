@@ -1,6 +1,7 @@
-import { and, cosineDistance, desc, eq, inArray } from 'drizzle-orm';
+import { and, cosineDistance, desc, eq, inArray, lt, or } from 'drizzle-orm';
 
-import type { EngagementId, TenantId } from '@fde/core';
+import { decodeCursor, encodeCursor, resolveLimit } from '@fde/core';
+import type { Ciphertext, EngagementId, FactStatus, FactType, TenantId } from '@fde/core';
 
 import type { DbTransaction } from './client.js';
 import { embeddings } from './schema/embeddings.js';
@@ -23,13 +24,44 @@ import { sources } from './schema/sources.js';
  * *after* its authz gate.
  */
 
-/** `facts` for one engagement, newest first (encrypted `body` as-is). */
-export function selectEngagementFacts(
+export interface EngagementFactRow {
+  id: string;
+  type: FactType;
+  summary: string;
+  body: Ciphertext | null;
+  status: FactStatus;
+  confidence: number | null;
+  occurredAt: Date | null;
+  createdAt: Date;
+}
+
+export interface ListEngagementFactsFilter {
+  /** page size; default 100, clamped to 500 */
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ListEngagementFactsResult {
+  rows: EngagementFactRow[];
+  /** present when there may be more rows past this page */
+  nextCursor?: string;
+}
+
+/**
+ * `facts` for one engagement, newest first (encrypted `body` as-is) —
+ * keyset-paginated over `(created_at, id)`, same shape as `@fde/audit`'s
+ * `listAccess`.
+ */
+export async function selectEngagementFacts(
   tx: DbTransaction,
   tenantId: TenantId,
   engagementId: EngagementId,
-) {
-  return tx
+  filter: ListEngagementFactsFilter = {},
+): Promise<ListEngagementFactsResult> {
+  const limit = resolveLimit(filter.limit);
+  const cursor = filter.cursor ? decodeCursor(filter.cursor) : undefined;
+
+  const rows = await tx
     .select({
       id: facts.id,
       type: facts.type,
@@ -41,8 +73,32 @@ export function selectEngagementFacts(
       createdAt: facts.createdAt,
     })
     .from(facts)
-    .where(and(eq(facts.tenantId, tenantId), eq(facts.engagementId, engagementId)))
-    .orderBy(desc(facts.createdAt));
+    .where(
+      and(
+        eq(facts.tenantId, tenantId),
+        eq(facts.engagementId, engagementId),
+        // newest-first keyset page: strictly older than the cursor, tie-broken by id
+        cursor
+          ? or(
+              lt(facts.createdAt, cursor.createdAt),
+              and(eq(facts.createdAt, cursor.createdAt), lt(facts.id, cursor.id)),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(desc(facts.createdAt), desc(facts.id))
+    // fetch one extra row to know whether another page follows
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page.at(-1);
+
+  return {
+    rows: page,
+    nextCursor:
+      hasMore && last ? encodeCursor({ createdAt: last.createdAt, id: last.id }) : undefined,
+  };
 }
 
 /** `evidence` rows (encrypted `quote` as-is) + source permalink for the given facts. */

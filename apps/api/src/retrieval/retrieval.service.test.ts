@@ -191,11 +191,12 @@ describe('RetrievalService.listFacts', () => {
       ],
     ]);
 
-    const res = await run(tx, () => svc.listFacts());
+    const page = await run(tx, () => svc.listFacts());
 
-    expect(res).toHaveLength(1);
-    expect(res[0]!.body).toBe('DEC(ct-b1)');
-    expect(res[0]!.citations[0]).toMatchObject({
+    expect(page.rows).toHaveLength(1);
+    expect(page.nextCursor).toBeUndefined();
+    expect(page.rows[0]!.body).toBe('DEC(ct-b1)');
+    expect(page.rows[0]!.citations[0]).toMatchObject({
       permalink: 'https://ex.com/p/9',
       quote: 'DEC(ct-q1)',
       charStart: 0,

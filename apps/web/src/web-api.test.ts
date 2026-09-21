@@ -15,15 +15,25 @@ afterEach(() => {
 
 describe('lib/api', () => {
   it('getFacts hits the engagement facts route with a bearer token', async () => {
-    const fetchMock = vi.fn(async () => okJson([{ id: 'f1', citations: [] }]));
+    const fetchMock = vi.fn(async () => okJson({ rows: [{ id: 'f1', citations: [] }] }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const facts = await getFacts('tok', 'eng-1');
+    const page = await getFacts('tok', 'eng-1');
 
-    expect(facts).toEqual([{ id: 'f1', citations: [] }]);
+    expect(page).toEqual({ rows: [{ id: 'f1', citations: [] }] });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/engagements\/eng-1\/facts$/);
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer tok');
+  });
+
+  it('getFacts forwards limit + cursor as query params', async () => {
+    const fetchMock = vi.fn(async () => okJson({ rows: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getFacts('tok', 'eng-1', { limit: 10, cursor: 'abc' });
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/engagements\/eng-1\/facts\?limit=10&cursor=abc$/);
   });
 
   it('askQuestion POSTs the question and throws ApiError on a non-2xx', async () => {
@@ -41,6 +51,45 @@ describe('lib/api', () => {
       vi.fn(async () => okJson({}, false, 403)),
     );
     await expect(askQuestion('tok', 'e', 'q')).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('GET /api/facts proxy', () => {
+  async function get(qs: string) {
+    const { GET } = await import('./app/api/facts/route');
+    return GET(new Request(`http://localhost/api/facts?${qs}`));
+  }
+
+  it('rejects a request missing engagementId', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await get('cursor=abc')).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-numeric limit', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await get('engagementId=e&limit=nope')).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards cursor + limit and relays the upstream page / a 403', async () => {
+    const fetchMock = vi.fn(async () => okJson({ rows: [{ id: 'f1' }], nextCursor: 'next' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const ok = await get('engagementId=e&limit=10&cursor=abc');
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ rows: [{ id: 'f1' }], nextCursor: 'next' });
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain('limit=10');
+    expect(url).toContain('cursor=abc');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => okJson({}, false, 403)),
+    );
+    const denied = await get('engagementId=e');
+    expect(denied.status).toBe(403);
   });
 });
 

@@ -20,7 +20,7 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
     );
   }
 
-  const facts = await getFacts(token, id);
+  const factPage = await getFacts(token, id);
 
   return (
     <main>
@@ -37,7 +37,11 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
       </p>
       <AskPanel engagementId={id} />
       <h2>Facts</h2>
-      <FactList engagementId={id} facts={facts} />
+      <FactList
+        engagementId={id}
+        initialFacts={factPage.rows}
+        initialCursor={factPage.nextCursor}
+      />
     </main>
   );
 }

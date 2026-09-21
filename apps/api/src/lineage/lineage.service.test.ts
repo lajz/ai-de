@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
 import { runWithRequestContext } from '../request-context/request-context.js';
-import { GRAPH_EDGE_CAP, LineageService } from './lineage.service.js';
+import { GRAPH_EDGE_CAP, GRAPH_ENTITY_CAP, LineageService } from './lineage.service.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -286,6 +286,19 @@ describe('LineageService.getGraph', () => {
     const { tx } = fakeTx([[], [], edges]);
     const g = await run(tx, () => svc().getGraph({}));
     expect(g.edges).toHaveLength(GRAPH_EDGE_CAP);
+    expect(g.truncated).toBe(true);
+  });
+
+  it('flags truncated when the entity cap is exceeded, independent of the edge cap', async () => {
+    const entities = Array.from({ length: GRAPH_ENTITY_CAP + 1 }, (_, k) => ({
+      id: `n${k}`,
+      type: 'person',
+      displayName: `Person ${k}`,
+      externalRefs: [],
+    }));
+    const { tx } = fakeTx([entities, [], []]);
+    const g = await run(tx, () => svc().getGraph({}));
+    expect(g.nodes.filter((n) => n.kind === 'entity')).toHaveLength(GRAPH_ENTITY_CAP);
     expect(g.truncated).toBe(true);
   });
 

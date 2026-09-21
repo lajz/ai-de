@@ -11,6 +11,7 @@ export * from './entities.js';
 export * from './facts.js';
 export * from './relationships.js';
 export * from './sync.js';
+export * from './pagination.js';
 export * from './raw-artifact.js';
 export * from './canonical.js';
 export * from './connector.js';

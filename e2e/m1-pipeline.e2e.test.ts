@@ -401,13 +401,13 @@ describe.skipIf(!DATABASE_URL)('M1 pipeline e2e (capture → extraction → read
     const asA = await withTenant(handle.db, tenantA, (tx) =>
       selectEngagementFacts(tx, tenantA, engagementA),
     );
-    expect(asA.length).toBe(EXPECTED_FACTS.length);
+    expect(asA.rows.length).toBe(EXPECTED_FACTS.length);
 
     // tenant B, asking for tenant A's engagement — RLS returns nothing, no error
     const asB = await withTenant(handle.db, tenantB, (tx) =>
       selectEngagementFacts(tx, tenantB, engagementA),
     );
-    expect(asB).toEqual([]);
+    expect(asB.rows).toEqual([]);
 
     // even a raw predicate on the engagement id is invisible cross-tenant
     const rawCross = await withTenant(handle.db, tenantB, (tx) =>
@@ -427,7 +427,7 @@ describe.skipIf(!DATABASE_URL)('M1 pipeline e2e (capture → extraction → read
       { tenantId: tenantA, engagementId: engagementA },
       async (tx) => {
         const cipher = getCipher();
-        const factList = await selectEngagementFacts(tx, tenantA, engagementA);
+        const factList = (await selectEngagementFacts(tx, tenantA, engagementA)).rows;
         const cites = await selectEvidenceForFacts(
           tx,
           tenantA,
