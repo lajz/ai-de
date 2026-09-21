@@ -148,6 +148,8 @@ export interface GraphEdge {
   toKind: 'entity' | 'fact';
   toId: string;
   sourceId: string | null;
+  /** 0-1 model-judged confidence for an agentically-suggested edge; null for a deterministic one */
+  confidence: number | null;
 }
 
 export interface EngagementGraph {
@@ -169,6 +171,8 @@ export interface EntityDerivation {
   direction: 'outgoing' | 'incoming';
   counterpart: EntityDerivationCounterpart;
   source: ProvenanceSource;
+  /** 0-1 model-judged confidence for an agentically-suggested edge; null for a deterministic one */
+  confidence: number | null;
 }
 
 export interface EntityProvenanceFact {

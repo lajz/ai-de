@@ -118,6 +118,8 @@ export interface EntityDerivation {
   direction: 'outgoing' | 'incoming';
   counterpart: { kind: NodeKind; id: string };
   source: EntityDerivationSource;
+  /** 0-1 model-judged confidence for an agentically-suggested edge; null for a deterministic one */
+  confidence: number | null;
 }
 
 export interface EntityProvenance {
@@ -150,6 +152,8 @@ export interface GraphEdge {
   toKind: string;
   toId: string;
   sourceId: string | null;
+  /** 0-1 model-judged confidence for an agentically-suggested edge; null for a deterministic one */
+  confidence: number | null;
 }
 
 export interface EngagementGraph {
@@ -321,6 +325,7 @@ export class LineageService {
           authorRef: r.authorRef,
           occurredAt: r.occurredAt.toISOString(),
         },
+        confidence: r.confidence,
       };
     });
 
@@ -385,6 +390,7 @@ export class LineageService {
         toKind: r.toKind,
         toId: r.toId,
         sourceId: r.sourceId,
+        confidence: r.confidence,
       })),
       truncated,
     };

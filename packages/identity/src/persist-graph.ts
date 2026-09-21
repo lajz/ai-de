@@ -42,6 +42,15 @@ export interface GraphWriteTally {
   matchCandidatesQueued: number;
   /** `status_change` facts synthesized from a connector's `detectStatusChange` */
   factsSynthesized: number;
+  /**
+   * Ids of `work_item` entities newly created (never updated) in this call —
+   * the trigger scope for `AgenticLinkingPipeline` (`apps/api`'s
+   * `WebhookLandingService` starts that workflow for each one). Deliberately
+   * excludes `document` / `meeting` entities and any updated row: linking only
+   * fires on a work item's first creation. Ids only — safe to log, same as
+   * every other field here.
+   */
+  newWorkItemEntityIds: string[];
 }
 
 export const ZERO_TALLY: GraphWriteTally = {
@@ -51,6 +60,7 @@ export const ZERO_TALLY: GraphWriteTally = {
   relationshipsDeferred: 0,
   matchCandidatesQueued: 0,
   factsSynthesized: 0,
+  newWorkItemEntityIds: [],
 };
 
 export const addTally = (a: GraphWriteTally, b: GraphWriteTally): GraphWriteTally => ({
@@ -60,6 +70,7 @@ export const addTally = (a: GraphWriteTally, b: GraphWriteTally): GraphWriteTall
   relationshipsDeferred: a.relationshipsDeferred + b.relationshipsDeferred,
   matchCandidatesQueued: a.matchCandidatesQueued + b.matchCandidatesQueued,
   factsSynthesized: a.factsSynthesized + b.factsSynthesized,
+  newWorkItemEntityIds: [...a.newWorkItemEntityIds, ...b.newWorkItemEntityIds],
 });
 
 /**
@@ -101,7 +112,12 @@ export async function persistGraph(
   sourceId: string,
 ): Promise<GraphWriteTally> {
   const records: CanonicalRecord[] = connector.normalize(artifact);
-  const tally: GraphWriteTally = { ...ZERO_TALLY };
+  // NOT `{ ...ZERO_TALLY }` alone: that shallow-copies `newWorkItemEntityIds`
+  // as the SAME array reference every caller shares via the constant, and the
+  // `.push()` below would then mutate `ZERO_TALLY` itself for the rest of the
+  // process's lifetime — every later call would inherit every earlier call's
+  // ids. A fresh array per call is required.
+  const tally: GraphWriteTally = { ...ZERO_TALLY, newWorkItemEntityIds: [] };
 
   // person / organization — @fde/identity owns the identity tiers + review queue
   const resolved = await resolveNormalizedRecords(ctx.tx, ctx.tenantId, ctx.engagementId, records);
@@ -123,6 +139,9 @@ export async function persistGraph(
       ctx.cipher,
     );
     tally.entitiesUpserted += 1;
+    if (upserted.created && rec.type === 'work_item') {
+      tally.newWorkItemEntityIds.push(upserted.entityId);
+    }
 
     // A transition can only be observed against a row that already existed —
     // first sight of an entity is a creation, never a transition, so a

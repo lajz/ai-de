@@ -4,6 +4,7 @@ import type { Database } from '@fde/db';
 import type { EmbeddingClient, Router, Tracer } from '@fde/llm';
 
 import type { RecallClient } from '../capture/recall-client.js';
+import { createAgenticLinkingActivities } from './agentic-linking.js';
 import { createCaptureSessionActivities } from './capture-session.js';
 import { createConnectorSyncActivities } from './connector-sync.js';
 import { createDescribeEngagementActivity } from './describe-engagement.js';
@@ -19,7 +20,10 @@ export interface ActivityDeps {
   /** self-hosted Nango — mints OAuth tokens for `nango-oauth` connectors (Linear) */
   nango: NangoClient;
   router: Router;
+  /** stored-chunk ('document'-typed) embeddings — extraction pipeline */
   embeddingClient: EmbeddingClient;
+  /** query-semantics ('query'-typed) embeddings — `AgenticLinkingPipeline`'s semantic candidate search */
+  queryEmbeddingClient: EmbeddingClient;
   /** redacted LLM tracing — `NoopTracer` when Langfuse is unconfigured */
   tracer: Tracer;
 }
@@ -27,7 +31,7 @@ export interface ActivityDeps {
 /**
  * Builds the activity map registered with the `Worker`. DI point for `db` /
  * `keyProvider` / `recallClient` / `connectors` / `nango` / `router` /
- * `embeddingClient` / `tracer`.
+ * `embeddingClient` / `queryEmbeddingClient` / `tracer`.
  */
 export function createActivities(deps: ActivityDeps) {
   return {
@@ -36,6 +40,7 @@ export function createActivities(deps: ActivityDeps) {
     ...createCaptureSessionActivities(deps),
     ...createExtractionActivities(deps),
     ...createConnectorSyncActivities(deps),
+    ...createAgenticLinkingActivities({ ...deps, embeddingClient: deps.queryEmbeddingClient }),
   };
 }
 
@@ -92,3 +97,12 @@ export {
   type PurgeRawBodyInput,
   type PurgeRawBodyResult,
 } from './extraction-pipeline.js';
+export {
+  createAgenticLinkingActivities,
+  extractTicketKeys,
+  AGENTIC_LINKING_CONFIDENCE_THRESHOLD,
+  type AgenticLinkingActivitiesDeps,
+  type AgenticLinkingActivities,
+  type RunAgenticLinkingInput,
+  type RunAgenticLinkingResult,
+} from './agentic-linking.js';

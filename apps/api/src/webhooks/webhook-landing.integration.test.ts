@@ -19,8 +19,12 @@ import {
 } from '@fde/db';
 import { ZERO_TALLY } from '@fde/identity';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import type {
+  AgenticLinkingStartInput,
+  TemporalAgenticLinking,
+} from '../temporal/temporal.module.js';
 import { WebhookLandingService } from './webhook-landing.service.js';
 
 // Integration test — needs a migrated + hardened database, same convention as
@@ -171,7 +175,7 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
     expect(result).toEqual({
       matched: true,
       landed: 1,
-      graph: { ...ZERO_TALLY, entitiesUpserted: 1 },
+      graph: { ...ZERO_TALLY, entitiesUpserted: 1, newWorkItemEntityIds: [expect.any(String)] },
     });
 
     const rows = await sourceRows(engagementId);
@@ -202,7 +206,7 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
     expect(first).toEqual({
       matched: true,
       landed: 1,
-      graph: { ...ZERO_TALLY, entitiesUpserted: 1 },
+      graph: { ...ZERO_TALLY, entitiesUpserted: 1, newWorkItemEntityIds: [expect.any(String)] },
     });
     const second = await land();
     expect(second).toEqual({ matched: true, landed: 0, graph: ZERO_TALLY });
@@ -280,6 +284,7 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
         relationshipsDeferred: 1, // the decision-marker edge — no `dec-unseen` fact yet
         matchCandidatesQueued: 0,
         factsSynthesized: 0, // LinearConnector doesn't implement detectStatusChange
+        newWorkItemEntityIds: [expect.any(String)],
       },
     });
 
@@ -371,5 +376,102 @@ describe.skipIf(!url)('WebhookLandingService (integration)', () => {
     const after = await graphOf(engagementId);
     expect(after.ents).toHaveLength(before.ents.length);
     expect(after.rels).toHaveLength(before.rels.length);
+  });
+
+  describe('AgenticLinkingPipeline trigger', () => {
+    /** A `TemporalAgenticLinking` stand-in — no real Temporal, records calls. */
+    function fakeAgenticLinking(start: (i: AgenticLinkingStartInput) => Promise<unknown>) {
+      return { start, configured: true } as unknown as TemporalAgenticLinking;
+    }
+
+    it('starts the pipeline for a newly-created work item, stamped with its landed source', async () => {
+      const engagementId = await seedEngagement();
+      const scopeRef = `org-${randomUUID()}`;
+      await claimScope(engagementId, scopeRef);
+
+      const start = vi.fn().mockResolvedValue({ workflowId: 'wf-1' });
+      const withTrigger = new WebhookLandingService(handle.db, provider, fakeAgenticLinking(start));
+
+      const raw = issueWebhookPayload('iss-hook-trigger-1', scopeRef);
+      const artifacts = await connector().handleWebhook({
+        headers: { 'linear-signature': sign(raw) },
+        rawBody: raw,
+        connectorId: 'linear',
+      });
+      const result = await withTrigger.landWebhookArtifacts({
+        connectorId: 'linear',
+        connector: connector(),
+        externalScopeRef: scopeRef,
+        artifacts,
+      });
+
+      const [workItemId] = result.graph.newWorkItemEntityIds;
+      const sourceId = (await sourceRows(engagementId))[0]!.id;
+      expect(start).toHaveBeenCalledWith({
+        tenantId,
+        engagementId,
+        workItemEntityId: workItemId,
+        sourceId,
+      });
+    });
+
+    it('a redelivered webhook (no new work item) never starts the pipeline', async () => {
+      const engagementId = await seedEngagement();
+      const scopeRef = `org-${randomUUID()}`;
+      await claimScope(engagementId, scopeRef);
+
+      const start = vi.fn().mockResolvedValue({ workflowId: 'wf-2' });
+      const withTrigger = new WebhookLandingService(handle.db, provider, fakeAgenticLinking(start));
+
+      const raw = issueWebhookPayload('iss-hook-trigger-2', scopeRef);
+      const land = async () => {
+        const artifacts = await connector().handleWebhook({
+          headers: { 'linear-signature': sign(raw) },
+          rawBody: raw,
+          connectorId: 'linear',
+        });
+        return withTrigger.landWebhookArtifacts({
+          connectorId: 'linear',
+          connector: connector(),
+          externalScopeRef: scopeRef,
+          artifacts,
+        });
+      };
+      await land();
+      start.mockClear();
+
+      await land();
+      expect(start).not.toHaveBeenCalled();
+    });
+
+    it('a Temporal start failure is swallowed — the webhook still lands and returns normally', async () => {
+      const engagementId = await seedEngagement();
+      const scopeRef = `org-${randomUUID()}`;
+      await claimScope(engagementId, scopeRef);
+
+      const start = vi.fn().mockRejectedValue(new Error('temporal unreachable'));
+      const withTrigger = new WebhookLandingService(handle.db, provider, fakeAgenticLinking(start));
+
+      const raw = issueWebhookPayload('iss-hook-trigger-3', scopeRef);
+      const artifacts = await connector().handleWebhook({
+        headers: { 'linear-signature': sign(raw) },
+        rawBody: raw,
+        connectorId: 'linear',
+      });
+
+      const result = await withTrigger.landWebhookArtifacts({
+        connectorId: 'linear',
+        connector: connector(),
+        externalScopeRef: scopeRef,
+        artifacts,
+      });
+      expect(result.matched).toBe(true);
+      expect(result.landed).toBe(1);
+      expect(start).toHaveBeenCalledOnce();
+
+      // let the rejected promise's `.catch` handler actually run before the
+      // test ends, so a missed catch would surface as an unhandled rejection.
+      await new Promise((resolve) => setImmediate(resolve));
+    });
   });
 });

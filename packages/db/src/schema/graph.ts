@@ -1,4 +1,13 @@
-import { foreignKey, index, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  doublePrecision,
+  foreignKey,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { ENTITY_TYPES, type ExternalRef, NODE_KINDS, PREDICATES } from '@fde/core';
 
@@ -65,6 +74,17 @@ export const relationships = pgTable(
     toId: uuid('to_id').notNull(),
     /** the source that attests this edge, when it came from a single artifact */
     sourceId: uuid('source_id'),
+    /**
+     * 0–1 model-judged confidence for an agentically-suggested edge (the
+     * `AgenticLinkingPipeline`'s semantic-candidate signal) — null for a
+     * marker-driven or deterministic edge (identity-key match, decision
+     * marker, owns/informed_of, …), same null-vs-populated-by-provenance
+     * convention as `facts.confidence`. This is the audit surface for an edge
+     * nobody approved before it was written: the lineage UI renders it next
+     * to `sourceId` so a human can tell, after the fact, how sure the model
+     * was.
+     */
+    confidence: doublePrecision('confidence'),
     createdAt: createdAt(),
   },
   (t) => [

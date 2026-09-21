@@ -1,5 +1,12 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Connector, ConnectorContext, ConnectorCredential, RawArtifact } from '@fde/core';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import type {
+  Connector,
+  ConnectorContext,
+  ConnectorCredential,
+  EngagementId,
+  RawArtifact,
+  TenantId,
+} from '@fde/core';
 import { effectiveRetention } from '@fde/core';
 import { decryptRow, getCipher, type KeyProvider } from '@fde/crypto';
 import { loadNangoClient, type NangoClient } from '@fde/connectors';
@@ -20,6 +27,7 @@ import {
 
 import { DB } from '../db/db.module.js';
 import { KEY_PROVIDER } from '../key-provider/key-provider.module.js';
+import { TemporalAgenticLinking } from '../temporal/temporal.module.js';
 
 export interface LandWebhookArtifactsInput {
   connectorId: string;
@@ -57,6 +65,10 @@ export class WebhookLandingService {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(KEY_PROVIDER) private readonly keyProvider: KeyProvider,
+    // Optional: tests that construct this service directly (bypassing Nest DI)
+    // pass only the first two args, and get the best-effort no-trigger behavior
+    // below — same as Temporal being unconfigured in a real deployment.
+    @Optional() private readonly agenticLinking?: TemporalAgenticLinking,
   ) {
     // Same config flip as `@fde/workers` / `createDefaultConnectorRegistry`:
     // real `HttpNangoClient` when `NANGO_SECRET_KEY` is set, `FakeNangoClient`
@@ -144,6 +156,9 @@ export class WebhookLandingService {
       });
       if (result.inserted) landed += 1;
       graph = addTally(graph, result.graph);
+      for (const workItemEntityId of result.graph.newWorkItemEntityIds) {
+        this.triggerAgenticLinking(tenantId, engagementId, workItemEntityId, result.sourceId);
+      }
     }
     // metadata-only: counts, never entity names / refs / bodies
     this.logger.log(
@@ -151,6 +166,31 @@ export class WebhookLandingService {
       JSON.stringify({ ...graph, connectorId: input.connectorId }),
     );
     return { matched: true, landed, graph };
+  }
+
+  /**
+   * Best-effort, fire-and-forget start of `AgenticLinkingPipeline` for one
+   * newly-created work item. Deliberately not `await`ed by the caller: this is
+   * an enhancement layered on top of a webhook delivery whose own durability
+   * contract (dedupe, the graph write, the HTTP response) already succeeded by
+   * the time this is called — a slow or unreachable Temporal must never hold
+   * up, or fail, the webhook response. Every failure (Temporal unconfigured,
+   * unreachable, a duplicate-start on a redelivered webhook) is caught and
+   * logged, never thrown.
+   */
+  private triggerAgenticLinking(
+    tenantId: TenantId,
+    engagementId: EngagementId,
+    workItemEntityId: string,
+    sourceId: string,
+  ): void {
+    if (!this.agenticLinking) return;
+    this.agenticLinking
+      .start({ tenantId, engagementId, workItemEntityId, sourceId })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`webhook.agentic_linking_not_started ${message}`);
+      });
   }
 }
 

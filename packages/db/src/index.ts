@@ -4,6 +4,7 @@ export * from './rls.js';
 export * from './engagement.js';
 export * from './retrieval.js';
 export * from './graph-write.js';
+export * from './agentic-linking.js';
 export * from './connector-config.js';
 export * from './connector-source.js';
 export * from './dev-tenant.js';

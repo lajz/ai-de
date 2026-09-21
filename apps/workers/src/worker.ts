@@ -66,6 +66,11 @@ export async function runWorker(): Promise<void> {
   const tracer = createTracerFromEnv(process.env);
   const router = createRouter({ onUsage: tracingUsageSink(tracer) });
   const embeddingClient = createEmbeddingClientFromEnv(process.env);
+  // Query-semantics embeddings for `AgenticLinkingPipeline`'s semantic-candidate
+  // search — a work item's own text is a query against the stored
+  // ('document'-typed) chunk embeddings, same asymmetric split `apps/api`'s
+  // Q&A path uses via its distinct `QUERY_EMBEDDING_CLIENT`.
+  const queryEmbeddingClient = createEmbeddingClientFromEnv(process.env, { inputType: 'query' });
   const activities = createActivities({
     db: dbHandle.db,
     keyProvider,
@@ -74,6 +79,7 @@ export async function runWorker(): Promise<void> {
     nango,
     router,
     embeddingClient,
+    queryEmbeddingClient,
     tracer,
   });
 

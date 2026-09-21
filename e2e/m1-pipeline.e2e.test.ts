@@ -163,6 +163,7 @@ describe.skipIf(!DATABASE_URL)('M1 pipeline e2e (capture → extraction → read
       // deterministic extraction — quality is @fde/eval's job, not this test's
       router: createCannedExtractionRouter(),
       embeddingClient: new FakeEmbeddingClient(),
+      queryEmbeddingClient: new FakeEmbeddingClient(),
       tracer: new NoopTracer(),
       // this pipeline is capture -> extraction -> read; no connector sync runs here
       connectors: new ConnectorRegistry({}),

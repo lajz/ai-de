@@ -241,6 +241,8 @@ export interface GraphEdgeInput {
   toId: string;
   /** the source that attests this edge, when it came from a single artifact */
   sourceId?: string | null;
+  /** 0-1 model-judged confidence (agentic linking); omit/null for a deterministic edge */
+  confidence?: number | null;
 }
 
 /**
@@ -268,6 +270,7 @@ export async function upsertRelationship(
       toKind: edge.toKind,
       toId: edge.toId,
       sourceId: edge.sourceId ?? null,
+      confidence: edge.confidence ?? null,
     })
     .onConflictDoNothing({
       target: [
