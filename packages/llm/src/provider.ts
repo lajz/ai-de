@@ -1,3 +1,5 @@
+import type { MCPClientLike, MCPToolLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
+
 import type { ChatMessage, Effort, ThinkingMode, Tier } from './types.js';
 
 export interface ProviderCompleteRequest {
@@ -37,6 +39,26 @@ export interface ProviderExtractResult {
   usage: ProviderTokenUsage;
 }
 
+export interface ProviderAgentLoopRequest {
+  model: string;
+  system?: string;
+  messages: ChatMessage[];
+  maxTokens: number;
+  /** Hard cap on tool-call/response round-trips — the step cap. Required, never defaulted by the provider. */
+  maxIterations: number;
+  /** Tool definitions as returned by `mcpClient.listTools()`. */
+  mcpTools: MCPToolLike[];
+  mcpClient: MCPClientLike;
+  signal?: AbortSignal;
+}
+
+export type ProviderAgentEvent =
+  | { type: 'tool_call'; name: string; input: unknown }
+  /** `content` is the tool's raw MCP result content (e.g. `[{type:'text', text: '...'}]') — the caller decides what, if anything, to parse out of it (e.g. citations). */
+  | { type: 'tool_result'; name: string; isError: boolean; content: unknown }
+  | { type: 'text'; text: string }
+  | { type: 'usage'; usage: ProviderTokenUsage };
+
 /**
  * A model backend. `AnthropicProvider` is production (Claude + ZDR);
  * `OpenAiCompatibleProvider` is the dev/CI seam (DeepSeek, Ollama).
@@ -51,6 +73,15 @@ export interface LlmProvider {
   modelForTier(tier: Tier): string;
   complete(request: ProviderCompleteRequest): Promise<ProviderCompleteResult>;
   extract(request: ProviderExtractRequest): Promise<ProviderExtractResult>;
+  /**
+   * Multi-step tool-calling loop over an MCP tool set. Optional: only
+   * providers with native agentic tool-calling support implement it (today,
+   * only `AnthropicProvider` — Tool Runner is Anthropic-SDK-specific). The
+   * router throws a clear error if the active provider omits it.
+   */
+  runAgentLoop?(
+    request: ProviderAgentLoopRequest,
+  ): AsyncGenerator<ProviderAgentEvent, void, undefined>;
 }
 
 export const EMPTY_USAGE: ProviderTokenUsage = {

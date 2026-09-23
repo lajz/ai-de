@@ -29,6 +29,8 @@ export interface RedactedTraceInput {
   extractionRunId?: string;
   sourceId?: string;
   chunkCount?: number;
+  /** opaque engagement id — no tenant/customer content, same status as `sourceId`. */
+  engagementId?: string;
 }
 
 export interface RedactedGeneration {
@@ -49,6 +51,9 @@ export interface RedactedGeneration {
   /** optional SHA-256 fingerprints — hashes, never the text */
   inputHash?: string;
   outputHash?: string;
+  /** agent-loop turns only: which tool the turn called, and its position in the loop. */
+  toolName?: string;
+  stepIndex?: number;
 }
 
 export interface RedactedTraceEnd {
@@ -97,6 +102,9 @@ export const REDACTED_KEYS: ReadonlySet<string> = new Set([
   'usdCost',
   'okChunks',
   'failedChunks',
+  'engagementId',
+  'toolName',
+  'stepIndex',
 ]);
 
 /**
@@ -110,7 +118,7 @@ const MAX_STRING = 120;
  * Keys whose value is a short, code-defined label — held to a stricter shape than
  * the generic string cap so a caller can't smuggle a sentence into one.
  */
-const LABEL_KEYS: ReadonlySet<string> = new Set(['name', 'outcome']);
+const LABEL_KEYS: ReadonlySet<string> = new Set(['name', 'outcome', 'toolName']);
 const LABEL_RE = /^[a-z][a-z0-9._-]{0,39}$/i;
 
 /** A payload could not be proven free of content and was refused. */
@@ -173,6 +181,8 @@ export function redactUsage(
     outcome: TraceOutcome;
     inputHash?: string;
     outputHash?: string;
+    toolName?: string;
+    stepIndex?: number;
   },
 ): RedactedGeneration {
   return {
@@ -191,6 +201,8 @@ export function redactUsage(
     outcome: extra.outcome,
     ...(extra.inputHash ? { inputHash: extra.inputHash } : {}),
     ...(extra.outputHash ? { outputHash: extra.outputHash } : {}),
+    ...(extra.toolName ? { toolName: extra.toolName } : {}),
+    ...(extra.stepIndex !== undefined ? { stepIndex: extra.stepIndex } : {}),
   };
 }
 
@@ -299,7 +311,25 @@ export async function traceExtraction<T>(
   input: Omit<RedactedTraceInput, 'name'>,
   fn: (trace: TraceHandle) => Promise<T>,
 ): Promise<T> {
-  const handle = tracer.startTrace({ name: 'extraction.run', ...input });
+  return traceRun(tracer, 'extraction.run', input, fn);
+}
+
+/** Same shape as `traceExtraction`, one trace per agentic question, one generation per LLM turn in the loop. */
+export async function traceAgentLoop<T>(
+  tracer: Tracer,
+  input: Omit<RedactedTraceInput, 'name'>,
+  fn: (trace: TraceHandle) => Promise<T>,
+): Promise<T> {
+  return traceRun(tracer, 'qa.agentic', input, fn);
+}
+
+async function traceRun<T>(
+  tracer: Tracer,
+  name: string,
+  input: Omit<RedactedTraceInput, 'name'>,
+  fn: (trace: TraceHandle) => Promise<T>,
+): Promise<T> {
+  const handle = tracer.startTrace({ name, ...input });
   let ended = false;
   const guarded: TraceHandle = {
     generation: (gen) => {

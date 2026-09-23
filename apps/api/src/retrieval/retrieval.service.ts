@@ -14,7 +14,7 @@ import type { EngagementCipher } from '@fde/crypto';
 import { QA_PROMPT_NAME, wrapQaContext, type EmbeddingClient, type Router } from '@fde/llm';
 
 import type { Env } from '../config/env.js';
-import { getEngagementContext, getRequestContext } from '../request-context/request-context.js';
+import { getEngagementContext, getRequestContext } from '@fde/request-context';
 import { QUERY_EMBEDDING_CLIENT, ROUTER } from './retrieval.tokens.js';
 
 /** Semantic-KNN fan-out over `embeddings` before the authz gate + the LLM. */
@@ -93,7 +93,7 @@ export function filterCandidatesByAcl<T>(_userId: UserId, candidates: T[]): T[] 
  * (`selectEngagementFacts` etc.). Those enforce tenant isolation twice: the
  * `_tenant_isolation` RLS policies **and** an explicit `tenant_id = $tenantId`
  * predicate in every query. Services in this repo never call `withTenant` /
- * `withEngagement` / `createDbClient` themselves (see `request-context.ts` and
+ * `withEngagement` / `createDbClient` themselves (see `@fde/request-context` and
  * the sibling `EngagementsController.audit`); doing so would open a nested
  * transaction. Cross-tenant isolation for this exact seam is proven in
  * `seam.integration.test.ts` (tenant A → engagement B → 404) and
@@ -172,17 +172,47 @@ export class RetrievalService {
   }
 
   /**
-   * Single-engagement Q&A: embed the question → pgvector cosine KNN over this
-   * engagement's chunk embeddings → **authz gate before the LLM** → decrypt the
-   * surviving sources' facts + quotes → answer from that context only. Logs a
-   * `retrieval` row and a `content_read` row.
+   * Single-engagement Q&A: `searchContext()` for the retrieval half, then one
+   * LLM call over that context. Unchanged public contract — this is the
+   * existing one-shot route (`POST /engagements/:id/qa`), kept permanently,
+   * not just an internal fallback.
    */
   async answerQuestion(question: string): Promise<QaResult> {
+    const q = this.assertQuestion(question);
+    const context = await this.searchContext(q);
+
+    const { text } = await this.router.complete({
+      prompt: { name: QA_PROMPT_NAME },
+      tier: 'default',
+      messages: [
+        {
+          role: 'user',
+          content: `Question: ${q}\n\n${wrapQaContext(
+            context.map((c) => ({
+              permalink: c.permalink,
+              facts: c.factSummaries,
+              quotes: c.quotes,
+            })),
+          )}`,
+        },
+      ],
+    });
+
+    return { answer: text, citations: context.flatMap((c) => c.citations) };
+  }
+
+  /**
+   * The non-LLM half of `answerQuestion`: embed the question → pgvector
+   * cosine KNN over this engagement's chunk embeddings → **authz gate before
+   * any decryption** → decrypt the surviving sources' facts + quotes. Also
+   * the `search_context` MCP tool's implementation (`apps/mcp`) — every
+   * invocation, from either caller, logs its own `retrieval` +
+   * `content_read` rows, since each is a real decrypt-and-read event.
+   */
+  async searchContext(question: string): Promise<ContextSource[]> {
     const { tx, userId, tenantId } = getRequestContext();
     const engagement = getEngagementContext();
-
-    const q = typeof question === 'string' ? question.trim() : '';
-    if (!q) throw new BadRequestException('question is required');
+    const q = this.assertQuestion(question);
 
     // Query-semantics embedding (asymmetric vs the stored 'document' chunks).
     const [queryVec] = await this.embeddingClient.embed([q]);
@@ -205,11 +235,11 @@ export class RetrievalService {
       ? await this.gatherContext(tx, tenantId, engagement, sourceIds)
       : [];
 
-    // Log BEFORE the LLM call: by this point the caller is authorized and the
-    // engagement content has been retrieved + decrypted for the prompt, so the
-    // read has happened whether or not the model call succeeds. Both rows the
-    // architecture read-path calls for; no decrypted content in either —
-    // `resourceId` is the engagement id only.
+    // Log BEFORE any caller's follow-up LLM call: by this point the caller is
+    // authorized and the engagement content has been retrieved + decrypted,
+    // so the read has happened whether or not a model call over it succeeds.
+    // Both rows the architecture read-path calls for; no decrypted content in
+    // either — `resourceId` is the engagement id only.
     for (const action of ['retrieval', 'content_read'] as const) {
       await logAccess(tx, {
         tenantId,
@@ -222,27 +252,16 @@ export class RetrievalService {
       });
     }
 
-    const { text } = await this.router.complete({
-      prompt: { name: QA_PROMPT_NAME },
-      tier: 'default',
-      messages: [
-        {
-          role: 'user',
-          content: `Question: ${q}\n\n${wrapQaContext(
-            context.map((c) => ({
-              permalink: c.permalink,
-              facts: c.factSummaries,
-              quotes: c.quotes,
-            })),
-          )}`,
-        },
-      ],
-    });
-
-    return { answer: text, citations: context.flatMap((c) => c.citations) };
+    return context;
   }
 
   // --- internals -----------------------------------------------------------
+
+  private assertQuestion(question: string): string {
+    const q = typeof question === 'string' ? question.trim() : '';
+    if (!q) throw new BadRequestException('question is required');
+    return q;
+  }
 
   private async assertCanView(
     userId: UserId,
@@ -296,7 +315,7 @@ export class RetrievalService {
   }
 }
 
-interface ContextSource {
+export interface ContextSource {
   sourceId: string;
   permalink: string | null;
   factSummaries: string[];

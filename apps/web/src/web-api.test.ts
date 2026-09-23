@@ -137,3 +137,75 @@ describe('POST /api/qa proxy', () => {
     expect(await res.json()).toMatchObject({ answer: 'Postgres.' });
   });
 });
+
+function sseBody(frames: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const f of frames) controller.enqueue(encoder.encode(f));
+      controller.close();
+    },
+  });
+}
+
+async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let out = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    out += decoder.decode(value);
+  }
+  return out;
+}
+
+describe('POST /api/qa/agentic proxy', () => {
+  async function post(body: unknown) {
+    const { POST } = await import('./app/api/qa/agentic/route');
+    return POST(
+      new Request('http://localhost/api/qa/agentic', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  it('validates the body before calling the API', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect((await post({ question: 'q' })).status).toBe(400); // missing engagementId
+    expect((await post({ engagementId: 'e', question: '  ' })).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('streams the upstream SSE body straight through with a text/event-stream content type', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: sseBody([
+          'data: {"type":"tool_step","tool":"search_context","status":"started"}\n\n',
+        ]),
+      })),
+    );
+
+    const res = await post({ engagementId: 'eng-1', question: 'which db?' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    expect(await readAll(res.body!)).toContain('tool_step');
+  });
+
+  it('relays an upstream error status without a body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 403, body: null })),
+    );
+
+    const res = await post({ engagementId: 'eng-1', question: 'which db?' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'upstream request failed' });
+  });
+});

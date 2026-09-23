@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swag
 import { users } from '@fde/db';
 import { eq } from 'drizzle-orm';
 
-import { getRequestContext } from '../request-context/request-context.js';
+import { getRequestContext } from '@fde/request-context';
 
 class MeResponse {
   @ApiProperty({ type: String })

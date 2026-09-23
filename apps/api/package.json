@@ -8,9 +8,11 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "openapi": "tsx src/write-openapi.ts",
+    "issue-api-key": "tsx --env-file-if-exists=../../.env src/scripts/issue-api-key.ts",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@fde/audit": "workspace:*",
     "@fde/authz": "workspace:*",
     "@fde/connectors": "workspace:*",
@@ -19,6 +21,9 @@
     "@fde/db": "workspace:*",
     "@fde/identity": "workspace:*",
     "@fde/llm": "workspace:*",
+    "@fde/mcp": "workspace:*",
+    "@fde/request-context": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",

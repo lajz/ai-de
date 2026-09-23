@@ -12,7 +12,7 @@ import { ConnectorScopeConflictError } from '@fde/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
-import { runWithRequestContext } from '../request-context/request-context.js';
+import { runWithRequestContext } from '@fde/request-context';
 import type { TemporalConnectorSync } from '../temporal/temporal.module.js';
 import { AdminService } from './admin.service.js';
 

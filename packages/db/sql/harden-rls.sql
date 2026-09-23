@@ -32,5 +32,14 @@ begin
 
   -- access_log is append-only for the app role.
   execute 'revoke update, delete on access_log from app_rw';
+
+  -- api_keys deliberately carries NO row-level security: resolving a bare key
+  -- to a tenant has to run *before* `app.tenant_id` can be set (see the
+  -- table's own doc comment, packages/db/src/schema/api-keys.ts, for why —
+  -- same chicken-and-egg `tenants_self_isolation` exists to document). It is
+  -- deliberately absent from `tenant_tables` above and from
+  -- `TENANT_SCOPED_TABLES`. No delete grant: a key is revoked (`revoked_at`),
+  -- never removed, so the audit trail of what a key could ever do survives.
+  execute 'grant select, insert, update on api_keys to app_rw';
 end
 $$;

@@ -15,8 +15,8 @@ import { type Database, withEngagement, withTenant } from '@fde/db';
 
 import { KEY_PROVIDER } from '../key-provider/key-provider.module.js';
 import { DB } from '../db/db.module.js';
-import { ENGAGEMENT_SCOPE, IS_PUBLIC } from './metadata.js';
-import { runWithRequestContext } from './request-context.js';
+import { ENGAGEMENT_SCOPE, IS_PUBLIC, NO_TRANSACTION_SCOPE } from './metadata.js';
+import { runWithRequestContext } from '@fde/request-context';
 import type { AuthedRequest } from './tenant-context.guard.js';
 
 const ENGAGEMENT_NOT_FOUND = /^engagement .* not found$/;
@@ -33,6 +33,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * `next.handle()` is subscribed *inside* the transaction callback via
  * `lastValueFrom`, so the whole handler — and anything it awaits — runs within
  * the open transaction and commits when it resolves.
+ *
+ * A route marked `@NoTransactionScope()` (see `metadata.ts`) skips both: the
+ * caller is still authenticated (the guard already ran), but no transaction
+ * wraps the handler at all — see that decorator's doc comment for why.
  */
 @Injectable()
 export class TenantContextInterceptor implements NestInterceptor {
@@ -51,6 +55,10 @@ export class TenantContextInterceptor implements NestInterceptor {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const session = req.fdeSession;
     if (!session) return next.handle(); // TenantContextGuard already 401s
+
+    if (this.reflector.getAllAndOverride<boolean>(NO_TRANSACTION_SCOPE, targets)) {
+      return next.handle();
+    }
 
     const engParam = this.reflector.getAllAndOverride<string>(ENGAGEMENT_SCOPE, targets);
     const params = req.params as Record<string, string | undefined>;

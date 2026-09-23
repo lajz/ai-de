@@ -37,7 +37,7 @@ import {
 import type { EngagementCipher } from '@fde/crypto';
 
 import type { Env } from '../config/env.js';
-import { getEngagementContext, getRequestContext } from '../request-context/request-context.js';
+import { getEngagementContext, getRequestContext } from '@fde/request-context';
 
 const FACTS_BODY_PATH = CRYPTO_COLUMNS.facts[0].path;
 const EVIDENCE_QUOTE_PATH = CRYPTO_COLUMNS.evidence[0].path;

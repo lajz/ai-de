@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '../config/env.js';
+import { ApiKeyService } from './api-key.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { DirectorySyncService } from './directory-sync.service.js';
@@ -17,8 +18,8 @@ import { WORKOS } from './workos.types.js';
  * SSO + SCIM. The `WORKOS` provider is the live `WorkOsService` when
  * `WORKOS_API_KEY` is set, and `FakeWorkOsService` otherwise — so the whole
  * seam (login → callback → session, and the webhook receiver) is exercisable
- * with no WorkOS account. `SessionService` is exported for the request-context
- * guard.
+ * with no WorkOS account. `SessionService` and `ApiKeyService` are exported
+ * for `TenantContextGuard` — the two credential kinds it accepts.
  */
 @Module({
   controllers: [AuthController, WebhookController],
@@ -26,6 +27,7 @@ import { WORKOS } from './workos.types.js';
     AuthService,
     UsersService,
     SessionService,
+    ApiKeyService,
     OrgTenantMap,
     DirectorySyncService,
     {
@@ -37,6 +39,6 @@ import { WORKOS } from './workos.types.js';
           : new FakeWorkOsService(config.get('WORKOS_WEBHOOK_SECRET', { infer: true })),
     },
   ],
-  exports: [SessionService, WORKOS],
+  exports: [SessionService, ApiKeyService, WORKOS],
 })
 export class AuthModule {}

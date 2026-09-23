@@ -6,10 +6,15 @@ import {
   Get,
   HttpCode,
   Inject,
+  type MessageEvent,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
+  RequestMethod,
+  Sse,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -32,11 +37,14 @@ import { listAccess, logAccess } from '@fde/audit';
 import { AuthzClient, ENGAGEMENT_ROLES, type EngagementRole } from '@fde/authz';
 import { engagements } from '@fde/db';
 import { desc } from 'drizzle-orm';
+import { from, map, type Observable } from 'rxjs';
 
 import type { Env } from '../config/env.js';
-import { EngagementScope } from '../request-context/metadata.js';
-import { getEngagementContext, getRequestContext } from '../request-context/request-context.js';
+import { EngagementScope, NoTransactionScope } from '../request-context/metadata.js';
+import { getEngagementContext, getRequestContext } from '@fde/request-context';
+import { AgenticQaService } from '../retrieval/agentic-qa.service.js';
 import { RetrievalService } from '../retrieval/retrieval.service.js';
+import type { AuthedRequest } from '../request-context/tenant-context.guard.js';
 
 class EngagementResponse {
   @ApiProperty({ type: String }) id!: string;
@@ -128,6 +136,7 @@ export class EngagementsController {
   constructor(
     @Inject(AuthzClient) private readonly authz: AuthzClient,
     @Inject(RetrievalService) private readonly retrieval: RetrievalService,
+    @Inject(AgenticQaService) private readonly agenticQa: AgenticQaService,
     @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     this.enforce = config.get('AUTHZ_ENFORCE', { infer: true }) === 'true';
@@ -288,6 +297,39 @@ export class EngagementsController {
       throw new BadRequestException('question must be a non-empty string');
     }
     return this.retrieval.answerQuestion(question);
+  }
+
+  /**
+   * The agentic counterpart to `qa()`: streams tool-step + final-answer
+   * events over SSE while `AgenticQaService` drives a multi-step tool-calling
+   * loop over this engagement's MCP tools. `@NoTransactionScope()` — unlike
+   * every other route here, the interceptor opens no ambient transaction for
+   * this handler; each tool call (and the one-shot fallback) opens its own
+   * short-lived one (see `AgenticQaService`'s doc comment). `engagementId`
+   * comes from the route param only, closed over for the life of this
+   * question, never taken from the model.
+   */
+  @Sse(':id/qa/agentic', { method: RequestMethod.POST })
+  @HttpCode(200)
+  @NoTransactionScope()
+  qaAgentic(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: QaBody,
+    @Req() req: AuthedRequest,
+  ): Observable<MessageEvent> {
+    const question = (body as { question?: unknown }).question;
+    if (typeof question !== 'string' || question.trim() === '') {
+      throw new BadRequestException('question must be a non-empty string');
+    }
+    const session = req.fdeSession;
+    if (!session) throw new UnauthorizedException('authentication required');
+
+    const ctx = {
+      tenantId: session.tenantId,
+      userId: session.userId,
+      engagementId: id as EngagementId,
+    };
+    return from(this.agenticQa.ask(question, ctx)).pipe(map((event) => ({ data: event })));
   }
 
   /**

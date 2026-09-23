@@ -7,6 +7,7 @@ import {
   RedactionError,
   redactUsage,
   sha256Hex,
+  traceAgentLoop,
   traceExtraction,
   tracingUsageSink,
   type UsageRecord,
@@ -94,6 +95,44 @@ describe('redactUsage + tracingUsageSink', () => {
     const tracer = new FakeTracer();
     await traceExtraction(tracer, { extractionRunId: 'r' }, async () => {});
     expect(tracer.traces[0]!.ended).toBe(true);
+  });
+});
+
+describe('traceAgentLoop', () => {
+  it('opens a qa.agentic trace, one generation per turn, carrying toolName/stepIndex', async () => {
+    const tracer = new FakeTracer();
+    await traceAgentLoop(tracer, { engagementId: 'eng-1' }, async (trace) => {
+      trace.generation(
+        redactUsage(usage(), { name: 'qa.agentic.turn', outcome: 'ok', stepIndex: 0 }),
+      );
+      trace.generation(
+        redactUsage(usage(), {
+          name: 'qa.agentic.turn',
+          outcome: 'ok',
+          toolName: 'search_context',
+          stepIndex: 1,
+        }),
+      );
+      trace.end({ okChunks: 2 });
+    });
+    expect(tracer.traces[0]!.input).toMatchObject({ name: 'qa.agentic', engagementId: 'eng-1' });
+    expect(tracer.traces[0]!.generations).toHaveLength(2);
+    expect(tracer.traces[0]!.generations[1]).toMatchObject({
+      toolName: 'search_context',
+      stepIndex: 1,
+    });
+    expect(tracer.traces[0]!.ended).toBe(true);
+  });
+
+  it('toolName/stepIndex pass the redaction boundary', () => {
+    const gen = redactUsage(usage(), {
+      name: 'qa.agentic.turn',
+      outcome: 'ok',
+      toolName: 'get_graph',
+      stepIndex: 3,
+    });
+    expect(() => assertRedacted(gen)).not.toThrow();
+    expect(() => assertRedacted({ toolName: 'a sentence, not a label' })).toThrow(/label/);
   });
 });
 

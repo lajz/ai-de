@@ -50,6 +50,12 @@ export interface QaResult {
   citations: QaCitation[];
 }
 
+/** One SSE event from `POST /engagements/:id/qa/agentic` — mirrors `AgenticQaEvent` in `@fde/api`. */
+export type AgenticQaEvent =
+  | { type: 'tool_step'; tool: string; status: 'started' | 'ok' | 'error' }
+  | { type: 'answer'; answer: string; citations: QaCitation[] }
+  | { type: 'error'; message: string };
+
 // --- /admin: connector configuration -----------------------------------------
 
 export type RetentionPolicy = 'reference-only' | 'derived-ephemeral-raw' | 'full-retention';

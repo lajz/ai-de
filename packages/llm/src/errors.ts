@@ -72,3 +72,10 @@ export class EmbeddingDimError extends LlmError {
     super(`embedding dimension mismatch: expected ${expected}, got ${actual}`);
   }
 }
+
+/** `router.runAgentLoop()` called against a provider with no `runAgentLoop` (Tool Runner is Anthropic-SDK-specific). */
+export class AgentLoopUnsupportedError extends LlmError {
+  constructor(readonly provider: string) {
+    super(`provider "${provider}" does not support agentic tool loops`);
+  }
+}

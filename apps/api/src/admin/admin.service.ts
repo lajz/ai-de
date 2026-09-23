@@ -27,7 +27,7 @@ import {
 } from '@fde/db';
 
 import type { Env } from '../config/env.js';
-import { getEngagementContext, getRequestContext } from '../request-context/request-context.js';
+import { getEngagementContext, getRequestContext } from '@fde/request-context';
 import { TemporalConnectorSync } from '../temporal/temporal.module.js';
 import { CONNECTOR_REGISTRY } from './admin.tokens.js';
 

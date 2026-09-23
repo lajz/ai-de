@@ -20,7 +20,9 @@
     { "path": "../../packages/audit" },
     { "path": "../../packages/authz" },
     { "path": "../../packages/connectors" },
-    { "path": "../../packages/llm" }
+    { "path": "../../packages/llm" },
+    { "path": "../../packages/request-context" },
+    { "path": "../mcp" }
   ],
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "src/test/**"]

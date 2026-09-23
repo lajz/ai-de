@@ -10,8 +10,8 @@ import { lastValueFrom, of } from 'rxjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { Session } from '../auth/session.service.js';
-import { EngagementScope } from './metadata.js';
-import { getRequestContext, type RequestContext } from './request-context.js';
+import { EngagementScope, NoTransactionScope } from './metadata.js';
+import { getRequestContext, type RequestContext } from '@fde/request-context';
 import { TenantContextInterceptor } from './tenant-context.interceptor.js';
 import type { AuthedRequest } from './tenant-context.guard.js';
 
@@ -23,6 +23,8 @@ class Routes {
   tenantOnly(): void {}
   @EngagementScope('id')
   engagementScoped(): void {}
+  @NoTransactionScope()
+  agentic(): void {}
 }
 const routes = new Routes();
 
@@ -156,5 +158,60 @@ describe('TenantContextInterceptor', () => {
         interceptor.intercept(execContext(routes.engagementScoped, req), capturingHandler({})),
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe('@NoTransactionScope()', () => {
+    it('opens no transaction and leaves no ambient request context for the handler', async () => {
+      let transactionCalls = 0;
+      const db = {
+        transaction: (cb: (tx: unknown) => Promise<unknown>) => {
+          transactionCalls += 1;
+          return cb({});
+        },
+      } as unknown as Database;
+      const interceptor = new TenantContextInterceptor(new Reflector(), db, provider);
+      const req: Partial<AuthedRequest> = { fdeSession: session, params: {} };
+
+      let threwNoContext = false;
+      const handler: CallHandler = {
+        handle: () => {
+          try {
+            getRequestContext();
+          } catch {
+            threwNoContext = true;
+          }
+          return of({ ok: true });
+        },
+      };
+
+      const result = await lastValueFrom(
+        interceptor.intercept(execContext(routes.agentic, req), handler),
+      );
+
+      expect(result).toEqual({ ok: true });
+      expect(transactionCalls).toBe(0);
+      expect(threwNoContext).toBe(true);
+    });
+
+    it('still requires an authenticated session — an unauthenticated request never reaches the handler as if authorized', async () => {
+      // TenantContextGuard is what actually 401s; the interceptor's own contract here is just
+      // that it does not paper over a missing session by fabricating a context.
+      const interceptor = new TenantContextInterceptor(new Reflector(), fakeDb([]), provider);
+      const req: Partial<AuthedRequest> = { params: {} }; // no fdeSession
+
+      let ran = false;
+      const handler: CallHandler = {
+        handle: () => {
+          ran = true;
+          return of({ ok: true });
+        },
+      };
+
+      await lastValueFrom(interceptor.intercept(execContext(routes.agentic, req), handler));
+      // The interceptor still invokes the handler (it defers 401 to the guard that runs
+      // before it), but critically it does so with no transaction and no request context —
+      // same as the unscoped-route fallback above.
+      expect(ran).toBe(true);
+    });
   });
 });

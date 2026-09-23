@@ -10,7 +10,7 @@ import type { EngagementCipher } from '@fde/crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
-import { runWithRequestContext } from '../request-context/request-context.js';
+import { runWithRequestContext } from '@fde/request-context';
 import { GRAPH_EDGE_CAP, GRAPH_ENTITY_CAP, LineageService } from './lineage.service.js';
 
 const tenantId = randomUUID() as TenantId;
