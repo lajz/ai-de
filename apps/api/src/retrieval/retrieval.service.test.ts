@@ -11,7 +11,7 @@ import type { EmbeddingClient, Router } from '@fde/llm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
-import { runWithRequestContext } from '../request-context/request-context.js';
+import { runWithRequestContext } from '@fde/request-context';
 import { RetrievalService } from './retrieval.service.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -154,6 +154,72 @@ describe('RetrievalService.answerQuestion', () => {
     const res = await run(fakeDb([[]]).tx, () => svc2.answerQuestion('anything?'));
     expect(res).toEqual({ answer: 'That is not in the retrieved context.', citations: [] });
     expect(router.complete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('RetrievalService.searchContext', () => {
+  it('runs the authz gate BEFORE any decryption, and never calls the LLM', async () => {
+    const authz = new InMemoryAuthzClient(); // no role granted
+    const router = fakeRouter('unused');
+    const svc = new RetrievalService(authz, router, fakeEmbeddings, config(true));
+    const { tx } = fakeDb([[{ sourceId, chunkRef: 'r:0' }]]);
+
+    await expect(run(tx, () => svc.searchContext('what was decided?'))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(router.complete).not.toHaveBeenCalled();
+    expect(decryptString).not.toHaveBeenCalled();
+  });
+
+  it('returns decrypted context sources and logs retrieval + content_read on every call', async () => {
+    const authz = new InMemoryAuthzClient();
+    await authz.grantEngagementRole(userId, engagementId, 'viewer');
+    const svc = new RetrievalService(authz, fakeRouter('unused'), fakeEmbeddings, config(true));
+    const { tx, inserts } = fakeDb([
+      [{ sourceId, chunkRef: 'r:0' }],
+      [
+        {
+          sourceId,
+          permalink: 'https://ex.com/p/1',
+          quote: 'ct-quote',
+          factSummary: 'The team will use Postgres.',
+          factBody: null,
+        },
+      ],
+    ]);
+
+    const context = await run(tx, () => svc.searchContext('  what db?  '));
+
+    expect(context).toEqual([
+      {
+        sourceId,
+        permalink: 'https://ex.com/p/1',
+        factSummaries: ['The team will use Postgres.'],
+        quotes: ['DEC(ct-quote)'],
+        citations: [{ sourceId, permalink: 'https://ex.com/p/1', quote: 'DEC(ct-quote)' }],
+      },
+    ]);
+    expect(inserts.map((r) => r.action)).toEqual(['retrieval', 'content_read']);
+
+    // Two independent calls (as the agent loop can make) each log their own pair.
+    const { tx: tx2, inserts: inserts2 } = fakeDb([[{ sourceId, chunkRef: 'r:0' }], []]);
+    await run(tx2, () => svc.searchContext('again?'));
+    expect(inserts2.map((r) => r.action)).toEqual(['retrieval', 'content_read']);
+  });
+
+  it('rejects an empty question and returns [] on the no-candidate path', async () => {
+    const svc = new RetrievalService(
+      new InMemoryAuthzClient(),
+      fakeRouter('unused'),
+      fakeEmbeddings,
+      config(false),
+    );
+    await expect(run(fakeDb([]).tx, () => svc.searchContext('   '))).rejects.toThrow(/question/);
+
+    const { tx, inserts } = fakeDb([[]]);
+    const context = await run(tx, () => svc.searchContext('anything?'));
+    expect(context).toEqual([]);
+    expect(inserts.map((r) => r.action)).toEqual(['retrieval', 'content_read']);
   });
 });
 

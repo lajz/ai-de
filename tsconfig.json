@@ -9,9 +9,11 @@
     { "path": "packages/authz" },
     { "path": "packages/identity" },
     { "path": "packages/llm" },
+    { "path": "packages/request-context" },
     { "path": "packages/eval" },
     { "path": "tools/review" },
     { "path": "apps/workers" },
-    { "path": "apps/api" }
+    { "path": "apps/api" },
+    { "path": "apps/mcp" }
   ]
 }

@@ -6,3 +6,6 @@ export const ROUTER = Symbol('ROUTER');
  * Kept distinct from the workers' stored-chunk client (`'document'`).
  */
 export const QUERY_EMBEDDING_CLIENT = Symbol('QUERY_EMBEDDING_CLIENT');
+
+/** DI token for the redacted-tracing `Tracer` (`@fde/llm`), same seam `apps/workers` wires. */
+export const TRACER = Symbol('TRACER');

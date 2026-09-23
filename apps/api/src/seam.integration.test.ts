@@ -196,4 +196,55 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
     );
     expect(row?.status).toBe('disabled');
   });
+
+  describe('POST /engagements/:id/qa/agentic — the new @NoTransactionScope() route', () => {
+    /** Parses the raw SSE body into each frame's `data:` payload. */
+    function sseEvents(body: string): unknown[] {
+      return body
+        .split('\n\n')
+        .map((frame) =>
+          frame
+            .split('\n')
+            .filter((l) => l.startsWith('data:'))
+            .map((l) => l.slice(5).replace(/^ /, ''))
+            .join('\n'),
+        )
+        .filter(Boolean)
+        .map((d) => JSON.parse(d));
+    }
+
+    it('answers for the caller tenant’s own engagement (no ANTHROPIC_API_KEY in this env → falls back to the one-shot path, which still exercises the real authz + RLS scoping)', async () => {
+      const token = await login('code-a6', 'wos_a', 'org_a');
+      const res = await request(app.getHttpServer())
+        .post(`/engagements/${engagementA}/qa/agentic`)
+        .set('authorization', `Bearer ${token}`)
+        .send({ question: 'what is this engagement?' });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/text\/event-stream/);
+      const events = sseEvents(res.text) as { type: string }[];
+      expect(events.some((e) => e.type === 'answer' || e.type === 'error')).toBe(true);
+    });
+
+    it("never lets tenant A's session reach tenant B's engagement content — the fallback's own withEngagement 404s via RLS, surfaced as an error event, never an answer", async () => {
+      const token = await login('code-a7', 'wos_a', 'org_a');
+      const res = await request(app.getHttpServer())
+        .post(`/engagements/${engagementB}/qa/agentic`)
+        .set('authorization', `Bearer ${token}`)
+        .send({ question: 'what is Globex working on?' });
+
+      expect(res.status).toBe(200); // SSE already started; the failure is in-band
+      const events = sseEvents(res.text) as { type: string; message?: string }[];
+      expect(events.some((e) => e.type === 'answer')).toBe(false);
+      expect(events.some((e) => e.type === 'error')).toBe(true);
+      expect(JSON.stringify(events)).not.toContain('Globex');
+    });
+
+    it('rejects an unauthenticated caller before any transaction opens', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/engagements/${engagementA}/qa/agentic`)
+        .send({ question: 'anything?' });
+      expect(res.status).toBe(401);
+    });
+  });
 });

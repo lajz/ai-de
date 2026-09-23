@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import {
+  AgentLoopUnsupportedError,
   DataRetentionError,
   StructuredOutputError,
   createRouter,
   type LlmProvider,
+  type ProviderAgentEvent,
+  type ProviderAgentLoopRequest,
   type ProviderCompleteRequest,
   type ProviderExtractRequest,
   type ProviderTokenUsage,
@@ -26,6 +29,8 @@ interface FakeOpts {
   extractValue?: unknown;
   onComplete?: (r: ProviderCompleteRequest) => void;
   onExtract?: (r: ProviderExtractRequest) => void;
+  agentEvents?: ProviderAgentEvent[];
+  onAgentLoop?: (r: ProviderAgentLoopRequest) => void;
 }
 
 function fakeProvider(o: FakeOpts = {}): LlmProvider {
@@ -41,6 +46,14 @@ function fakeProvider(o: FakeOpts = {}): LlmProvider {
       o.onExtract?.(r);
       return { value: o.extractValue ?? { facts: [] }, usage: USAGE };
     },
+    ...(o.agentEvents
+      ? {
+          async *runAgentLoop(r: ProviderAgentLoopRequest) {
+            o.onAgentLoop?.(r);
+            for (const event of o.agentEvents!) yield event;
+          },
+        }
+      : {}),
   };
 }
 
@@ -184,6 +197,91 @@ describe('createRouter — extract validation', () => {
     });
     expect(seen[0]!.jsonSchema).toEqual({ type: 'object', title: 'X' });
     expect(seen[0]!.schemaName).toBe('my_schema');
+  });
+});
+
+describe('createRouter — runAgentLoop', () => {
+  const mcpClient = { callTool: vi.fn() };
+  const mcpTools = [{ name: 'search_context', inputSchema: { type: 'object' as const } }];
+
+  it('throws AgentLoopUnsupportedError when the active provider has no runAgentLoop', async () => {
+    const router = createRouter({ provider: fakeProvider() });
+    const drain = async () => {
+      for await (const _ of router.runAgentLoop({
+        messages: 'hi',
+        maxIterations: 4,
+        mcpTools,
+        mcpClient,
+      })) {
+        // never reached
+      }
+    };
+    await expect(drain()).rejects.toThrow(AgentLoopUnsupportedError);
+  });
+
+  it('resolves tier→model and forwards maxIterations/mcpTools/mcpClient to the provider', async () => {
+    const seen: ProviderAgentLoopRequest[] = [];
+    const router = createRouter({
+      provider: fakeProvider({ agentEvents: [], onAgentLoop: (r) => seen.push(r) }),
+    });
+    const events: unknown[] = [];
+    for await (const e of router.runAgentLoop({
+      tier: 'bulk',
+      messages: 'hi',
+      maxIterations: 4,
+      mcpTools,
+      mcpClient,
+    })) {
+      events.push(e);
+    }
+    expect(seen[0]).toMatchObject({
+      model: 'claude-sonnet-5',
+      maxIterations: 4,
+      mcpTools,
+      mcpClient,
+    });
+  });
+
+  it('meters exactly the usage events through onUsage, forwards tool_call/tool_result/text unchanged', async () => {
+    const onUsage = vi.fn();
+    const router = createRouter({
+      provider: fakeProvider({
+        agentEvents: [
+          { type: 'tool_call', name: 'search_context', input: { query: 'x' } },
+          { type: 'usage', usage: USAGE },
+          {
+            type: 'tool_result',
+            name: 'search_context',
+            isError: false,
+            content: [{ type: 'text', text: 'x' }],
+          },
+          { type: 'text', text: 'the answer' },
+          { type: 'usage', usage: USAGE },
+        ],
+      }),
+      onUsage,
+    });
+    const events = [];
+    for await (const e of router.runAgentLoop({
+      messages: 'hi',
+      maxIterations: 4,
+      mcpTools,
+      mcpClient,
+    })) {
+      events.push(e);
+    }
+    expect(events.map((e) => e.type)).toEqual([
+      'tool_call',
+      'usage',
+      'tool_result',
+      'text',
+      'usage',
+    ]);
+    expect(onUsage).toHaveBeenCalledTimes(2);
+    const usageEvents = events.filter(
+      (e): e is { type: 'usage'; usage: UsageRecord } => e.type === 'usage',
+    );
+    expect(usageEvents[0]!.usage).toMatchObject({ model: 'claude-opus-5', inputTokens: 1000 });
   });
 });
 

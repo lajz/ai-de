@@ -11,9 +11,12 @@ import type { EmbeddingClient, Router } from '@fde/llm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
-import { runWithRequestContext } from '../request-context/request-context.js';
+import { runWithRequestContext } from '@fde/request-context';
+import type { AgenticQaService } from '../retrieval/agentic-qa.service.js';
 import { RetrievalService } from '../retrieval/retrieval.service.js';
 import { EngagementsController } from './engagements.controller.js';
+
+const agenticQa = {} as AgenticQaService;
 
 /**
  * Controller-level coverage for `GET :id/facts`'s query-param parsing —
@@ -79,7 +82,7 @@ function fact(id: string, createdAt: Date) {
 function controller(): EngagementsController {
   const authz = new InMemoryAuthzClient();
   const retrieval = new RetrievalService(authz, fakeRouter, fakeEmbeddings, config(false));
-  return new EngagementsController(authz, retrieval, config(false));
+  return new EngagementsController(authz, retrieval, agenticQa, config(false));
 }
 
 beforeEach(() => vi.clearAllMocks());

@@ -21,3 +21,24 @@ export const ENGAGEMENT_SCOPE = 'fde:engagementScopeParam';
  */
 export const EngagementScope = (param = 'id'): CustomDecorator =>
   SetMetadata(ENGAGEMENT_SCOPE, param);
+
+/** Route metadata key: authenticated, but no ambient transaction around the handler. */
+export const NO_TRANSACTION_SCOPE = 'fde:noTransactionScope';
+
+/**
+ * Marks a route as authenticated-but-untransacted: `TenantContextGuard` still
+ * 401s an unauthenticated caller, but `TenantContextInterceptor` opens no
+ * `withTenant`/`withEngagement` around the handler — it calls `next.handle()`
+ * directly. For a handler whose work can span longer than one request-sized
+ * unit (a streaming multi-step agent loop), holding one transaction open for
+ * the whole thing risks an idle-in-transaction connection and lock
+ * contention with a concurrent crypto-shred. The handler reads
+ * `tenantId`/`userId` straight off `req.fdeSession` (the guard already
+ * populated it) and, for any actual DB/decrypt work, opens its own
+ * short-lived `withEngagement` per unit of work — see `apps/mcp`'s
+ * `withToolContext`, the same pattern `apps/workers`' `withEngagementActivity`
+ * already uses for a non-HTTP caller. `getRequestContext()` throws inside a
+ * route marked this way; that's intentional — it's the signal a handler
+ * reached for ambient context it was never given.
+ */
+export const NoTransactionScope = (): CustomDecorator => SetMetadata(NO_TRANSACTION_SCOPE, true);

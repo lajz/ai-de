@@ -1,7 +1,8 @@
+import type { MCPClientLike, MCPToolLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
 import type { z } from 'zod';
 
 import { createProviderFromEnv } from './env.js';
-import { DataRetentionError, StructuredOutputError } from './errors.js';
+import { AgentLoopUnsupportedError, DataRetentionError, StructuredOutputError } from './errors.js';
 import { computeChatCostUsd } from './pricing.js';
 import type { LlmProvider, ProviderTokenUsage } from './provider.js';
 import { getPrompt } from './prompts.js';
@@ -36,6 +37,26 @@ export interface ExtractRequest extends Omit<CompleteRequest, 'stream'> {
   schemaName?: string;
 }
 
+export interface AgentLoopRequest {
+  tier?: Tier;
+  model?: string;
+  prompt?: PromptRef;
+  system?: string;
+  messages: string | ChatMessage[];
+  maxTokens?: number;
+  /** Hard cap on tool-call/response round-trips — always required, never defaulted, so a caller can't forget the step cap. */
+  maxIterations: number;
+  mcpTools: MCPToolLike[];
+  mcpClient: MCPClientLike;
+  signal?: AbortSignal;
+}
+
+export type AgentLoopEvent =
+  | { type: 'tool_call'; name: string; input: unknown }
+  | { type: 'tool_result'; name: string; isError: boolean; content: unknown }
+  | { type: 'text'; text: string }
+  | { type: 'usage'; usage: UsageRecord };
+
 export interface RouterConfig {
   provider?: LlmProvider;
   defaultTier?: Tier;
@@ -55,6 +76,14 @@ export interface Router {
   ): Promise<{ value: T; usage: UsageRecord }>;
   /** Throw unless the active provider carries a ZDR guarantee. Regulated engagements call this. */
   assertZeroDataRetention(): void;
+  /**
+   * Multi-step tool-calling loop over an MCP tool set. Throws
+   * `AgentLoopUnsupportedError` if the active provider doesn't implement
+   * `runAgentLoop` (only `AnthropicProvider` does today). Emits one
+   * `{type:'usage'}` event — and one `onUsage` sink call — per LLM turn,
+   * exactly like `complete`/`extract` meter their single call.
+   */
+  runAgentLoop(request: AgentLoopRequest): AsyncGenerator<AgentLoopEvent, void, undefined>;
 }
 
 export function createRouter(config: RouterConfig = {}): Router {
@@ -173,6 +202,32 @@ export function createRouter(config: RouterConfig = {}): Router {
         );
       }
       return { value: parsed.data, usage };
+    },
+
+    async *runAgentLoop(request) {
+      if (!provider.runAgentLoop) throw new AgentLoopUnsupportedError(provider.name);
+      const { tier, model, system, promptVersion, messages } = resolve(request);
+      const generator = provider.runAgentLoop({
+        model,
+        system,
+        messages,
+        maxTokens: request.maxTokens ?? defaultMaxTokens,
+        maxIterations: request.maxIterations,
+        mcpTools: request.mcpTools,
+        mcpClient: request.mcpClient,
+        signal: request.signal,
+      });
+      let turnStart = now();
+      for await (const event of generator) {
+        if (event.type === 'usage') {
+          const usage = record(model, tier, promptVersion, event.usage, now() - turnStart);
+          await emit(usage);
+          yield { type: 'usage', usage };
+          turnStart = now();
+        } else {
+          yield event;
+        }
+      }
     },
   };
 }
