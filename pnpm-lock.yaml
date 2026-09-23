@@ -558,6 +558,9 @@ importers:
       '@fde/core':
         specifier: workspace:*
         version: link:../core
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@3.25.76)
       langfuse:
         specifier: 'catalog:'
         version: 3.38.20

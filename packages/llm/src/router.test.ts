@@ -7,11 +7,12 @@ import {
   StructuredOutputError,
   createRouter,
   type LlmProvider,
-  type ProviderAgentEvent,
-  type ProviderAgentLoopRequest,
   type ProviderCompleteRequest,
   type ProviderExtractRequest,
   type ProviderTokenUsage,
+  type ProviderToolCall,
+  type ProviderTurnRequest,
+  type ProviderTurnResult,
   type Tier,
   type UsageRecord,
 } from './index.js';
@@ -29,11 +30,13 @@ interface FakeOpts {
   extractValue?: unknown;
   onComplete?: (r: ProviderCompleteRequest) => void;
   onExtract?: (r: ProviderExtractRequest) => void;
-  agentEvents?: ProviderAgentEvent[];
-  onAgentLoop?: (r: ProviderAgentLoopRequest) => void;
+  /** Scripted turn results, returned one per `completeTurn` call in order. */
+  turns?: ProviderTurnResult[];
+  onCompleteTurn?: (r: ProviderTurnRequest) => void;
 }
 
 function fakeProvider(o: FakeOpts = {}): LlmProvider {
+  let turnIndex = 0;
   return {
     name: 'fake',
     zeroDataRetention: o.zeroDataRetention ?? true,
@@ -46,15 +49,33 @@ function fakeProvider(o: FakeOpts = {}): LlmProvider {
       o.onExtract?.(r);
       return { value: o.extractValue ?? { facts: [] }, usage: USAGE };
     },
-    ...(o.agentEvents
+    ...(o.turns
       ? {
-          async *runAgentLoop(r: ProviderAgentLoopRequest) {
-            o.onAgentLoop?.(r);
-            for (const event of o.agentEvents!) yield event;
+          async completeTurn(r: ProviderTurnRequest) {
+            o.onCompleteTurn?.(r);
+            const result = o.turns![turnIndex];
+            turnIndex += 1;
+            if (!result) throw new Error('fakeProvider: no more scripted turns');
+            return result;
           },
         }
       : {}),
   };
+}
+
+/** A minimal scripted turn — everything but `toolCalls`/`text` defaults sensibly. */
+function turn(over: Partial<ProviderTurnResult> = {}): ProviderTurnResult {
+  return {
+    history: over.history ?? [],
+    toolCalls: over.toolCalls ?? [],
+    text: over.text ?? '',
+    usage: over.usage ?? USAGE,
+    stopReason: over.stopReason ?? (over.toolCalls?.length ? 'tool_use' : 'end_turn'),
+  };
+}
+
+function toolCall(over: Partial<ProviderToolCall> = {}): ProviderToolCall {
+  return { id: over.id ?? 't1', name: over.name ?? 'search_context', input: over.input ?? {} };
 }
 
 describe('createRouter — routing', () => {
@@ -201,17 +222,20 @@ describe('createRouter — extract validation', () => {
 });
 
 describe('createRouter — runAgentLoop', () => {
-  const mcpClient = { callTool: vi.fn() };
   const mcpTools = [{ name: 'search_context', inputSchema: { type: 'object' as const } }];
 
-  it('throws AgentLoopUnsupportedError when the active provider has no runAgentLoop', async () => {
+  function fakeMcpClient(result: { isError?: boolean; content: unknown } = { content: 'x' }) {
+    return { callTool: vi.fn(async () => result) };
+  }
+
+  it('throws AgentLoopUnsupportedError when the active provider has no completeTurn', async () => {
     const router = createRouter({ provider: fakeProvider() });
     const drain = async () => {
       for await (const _ of router.runAgentLoop({
         messages: 'hi',
         maxIterations: 4,
         mcpTools,
-        mcpClient,
+        mcpClient: fakeMcpClient(),
       })) {
         // never reached
       }
@@ -219,10 +243,13 @@ describe('createRouter — runAgentLoop', () => {
     await expect(drain()).rejects.toThrow(AgentLoopUnsupportedError);
   });
 
-  it('resolves tier→model and forwards maxIterations/mcpTools/mcpClient to the provider', async () => {
-    const seen: ProviderAgentLoopRequest[] = [];
+  it('resolves tier→model and forwards maxTokens/tools/messages to completeTurn', async () => {
+    const seen: ProviderTurnRequest[] = [];
     const router = createRouter({
-      provider: fakeProvider({ agentEvents: [], onAgentLoop: (r) => seen.push(r) }),
+      provider: fakeProvider({
+        turns: [turn({ text: 'ok' })],
+        onCompleteTurn: (r) => seen.push(r),
+      }),
     });
     const events: unknown[] = [];
     for await (const e of router.runAgentLoop({
@@ -230,15 +257,16 @@ describe('createRouter — runAgentLoop', () => {
       messages: 'hi',
       maxIterations: 4,
       mcpTools,
-      mcpClient,
+      mcpClient: fakeMcpClient(),
     })) {
       events.push(e);
     }
     expect(seen[0]).toMatchObject({
       model: 'claude-sonnet-5',
-      maxIterations: 4,
-      mcpTools,
-      mcpClient,
+      tools: mcpTools,
+      messages: [{ role: 'user', content: 'hi' }],
+      history: undefined,
+      toolResults: [],
     });
   });
 
@@ -246,17 +274,9 @@ describe('createRouter — runAgentLoop', () => {
     const onUsage = vi.fn();
     const router = createRouter({
       provider: fakeProvider({
-        agentEvents: [
-          { type: 'tool_call', name: 'search_context', input: { query: 'x' } },
-          { type: 'usage', usage: USAGE },
-          {
-            type: 'tool_result',
-            name: 'search_context',
-            isError: false,
-            content: [{ type: 'text', text: 'x' }],
-          },
-          { type: 'text', text: 'the answer' },
-          { type: 'usage', usage: USAGE },
+        turns: [
+          turn({ toolCalls: [toolCall({ input: { query: 'x' } })] }),
+          turn({ text: 'the answer' }),
         ],
       }),
       onUsage,
@@ -266,14 +286,14 @@ describe('createRouter — runAgentLoop', () => {
       messages: 'hi',
       maxIterations: 4,
       mcpTools,
-      mcpClient,
+      mcpClient: fakeMcpClient({ isError: false, content: [{ type: 'text', text: 'x' }] }),
     })) {
       events.push(e);
     }
     expect(events.map((e) => e.type)).toEqual([
       'tool_call',
-      'usage',
       'tool_result',
+      'usage',
       'text',
       'usage',
     ]);
@@ -282,6 +302,110 @@ describe('createRouter — runAgentLoop', () => {
       (e): e is { type: 'usage'; usage: UsageRecord } => e.type === 'usage',
     );
     expect(usageEvents[0]!.usage).toMatchObject({ model: 'claude-opus-5', inputTokens: 1000 });
+  });
+
+  it('executes tool calls against mcpClient and folds results + prior history into the next completeTurn call', async () => {
+    const seen: ProviderTurnRequest[] = [];
+    const mcpClient = fakeMcpClient({
+      isError: false,
+      content: [{ type: 'text', text: 'found it' }],
+    });
+    const turn1History = [{ role: 'user', content: 'seeded' }];
+    const router = createRouter({
+      provider: fakeProvider({
+        turns: [
+          turn({ toolCalls: [toolCall({ id: 'call-1' })], history: turn1History }),
+          turn({ text: 'done' }),
+        ],
+        onCompleteTurn: (r) => seen.push(r),
+      }),
+    });
+    for await (const _ of router.runAgentLoop({
+      messages: 'hi',
+      maxIterations: 4,
+      mcpTools,
+      mcpClient,
+    })) {
+      // drain
+    }
+    expect(mcpClient.callTool).toHaveBeenCalledWith({ name: 'search_context', arguments: {} });
+    expect(seen[0]!.history).toBeUndefined(); // first turn — nothing to seed from yet
+    expect(seen[1]!.history).toBe(turn1History); // exactly what turn 1 returned, threaded through opaquely
+    expect(seen[1]!.toolResults).toEqual([
+      {
+        id: 'call-1',
+        name: 'search_context',
+        isError: false,
+        content: [{ type: 'text', text: 'found it' }],
+      },
+    ]);
+  });
+
+  it('stops after maxIterations without a final turn, without throwing', async () => {
+    const router = createRouter({
+      provider: fakeProvider({
+        turns: [turn({ toolCalls: [toolCall()] }), turn({ toolCalls: [toolCall()] })],
+      }),
+    });
+    const events: unknown[] = [];
+    for await (const e of router.runAgentLoop({
+      messages: 'hi',
+      maxIterations: 2,
+      mcpTools,
+      mcpClient: fakeMcpClient(),
+    })) {
+      events.push(e);
+    }
+    // Two full turns (tool_call, tool_result, usage each) — never a text event, never throws.
+    expect(events.filter((e) => (e as { type: string }).type === 'usage')).toHaveLength(2);
+    expect(events.some((e) => (e as { type: string }).type === 'text')).toBe(false);
+  });
+
+  it('the loop is provider-agnostic: two differently-shaped fake providers produce identical event sequences for the same script', async () => {
+    const script: ProviderTurnResult[] = [
+      turn({ toolCalls: [toolCall({ id: 'a', name: 'search_context', input: { q: 1 } })] }),
+      turn({ text: 'final answer' }),
+    ];
+
+    // Provider A: opaque array history.
+    const providerA = fakeProvider({ turns: script });
+    // Provider B: a totally different internal history shape (an object, not an
+    // array) — the router must not care, since `history` is opaque to it.
+    const providerB: LlmProvider = {
+      name: 'fake-b',
+      zeroDataRetention: true,
+      modelForTier: () => 'model-b',
+      async complete() {
+        return { text: 'unused', usage: USAGE };
+      },
+      async extract() {
+        return { value: {}, usage: USAGE };
+      },
+      completeTurn: (() => {
+        let i = 0;
+        return async (r: ProviderTurnRequest) => {
+          const result = script[i]!;
+          i += 1;
+          return { ...result, history: { turnsSoFar: i, seenToolResults: r.toolResults.length } };
+        };
+      })(),
+    };
+
+    async function run(provider: LlmProvider) {
+      const events: unknown[] = [];
+      const router = createRouter({ provider });
+      for await (const e of router.runAgentLoop({
+        messages: 'hi',
+        maxIterations: 4,
+        mcpTools,
+        mcpClient: fakeMcpClient({ isError: false, content: [{ type: 'text', text: 'ok' }] }),
+      })) {
+        events.push({ ...(e as object), usage: undefined }); // usage carries provider/model — compare shape only
+      }
+      return events;
+    }
+
+    expect(await run(providerA)).toEqual(await run(providerB));
   });
 });
 

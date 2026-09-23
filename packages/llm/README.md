@@ -85,12 +85,37 @@ Selected by `LLM_PROVIDER` (default `anthropic`):
 `AnthropicProvider` enforces ZDR at construction: `zeroDataRetention: false` is
 only permitted together with a non-Anthropic `baseURL` (Bedrock, a ZDR proxy) —
 swapping to Bedrock later is a config change. `router.assertZeroDataRetention()`
-throws for a non-ZDR provider; the extraction workflow calls it for regulated
-engagements.
+throws for a non-ZDR provider — callers that know they're handling regulated
+content call it before doing so.
 
 `OpenAiCompatibleProvider` prints a `console.warn` on construction and reports
 `zeroDataRetention: false`. **Do not point it at a regulated engagement's
-content.**
+content.** It also refuses to construct at all under `NODE_ENV=production` —
+the same fail-closed posture as `AnthropicProvider`'s own invariant, applied
+here because this provider backs every router call path, including the
+agentic tool-calling loop (below): no misconfiguration of `LLM_PROVIDER` can
+put a real deployment behind a non-ZDR provider, no matter which call path a
+request takes.
+
+### The agentic tool-calling loop
+
+`Router.runAgentLoop()` drives a generic, provider-agnostic multi-turn
+tool-calling loop over an MCP tool set (`@modelcontextprotocol/sdk`'s own
+`Tool`/`CallToolResult` types — this package never imports MCP or agent-loop
+types from `@anthropic-ai/sdk`). The loop itself lives once in `Router`: each
+iteration calls the active provider's `completeTurn()` — a single-turn
+request/response primitive every provider implements against its own native
+tool-calling wire format (Anthropic's `tools`/`tool_use`/`tool_result` content
+blocks; an OpenAI-compatible endpoint's `tools` function-calling array +
+`tool_calls`/`role:"tool"` messages) — executes any requested tool calls
+against the MCP client, and feeds results back for the next turn. `history` is
+opaque to `Router`: each provider owns its own wire-format conversation state
+and threads it through via `ProviderTurnResult.history`.
+
+Both `AnthropicProvider` and `OpenAiCompatibleProvider` implement
+`completeTurn()`, so both can back `runAgentLoop()` — this is what makes
+DeepSeek (or any `openai-compatible` endpoint) a real second backend for
+agentic Q&A, not just for `complete()`/`extract()`.
 
 ### Running against DeepSeek (dev)
 

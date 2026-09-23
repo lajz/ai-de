@@ -11,10 +11,16 @@ export class LlmError extends Error {
  * Fail-closed guard: the first-party Anthropic API is only ever used with Zero
  * Data Retention. Turning ZDR off is a config change that also points `baseURL`
  * at an endpoint (Bedrock, a proxy) providing the guarantee another way.
+ *
+ * Also thrown by `OpenAiCompatibleProvider`'s own construction-time guard
+ * (`NODE_ENV=production`) — a different message, same fail-closed intent: no
+ * non-ZDR provider may ever back a real deployment.
  */
 export class DataRetentionError extends LlmError {
-  constructor() {
-    super('zeroDataRetention:false requires a non-Anthropic baseURL (Bedrock / proxy)');
+  constructor(
+    message = 'zeroDataRetention:false requires a non-Anthropic baseURL (Bedrock / proxy)',
+  ) {
+    super(message);
   }
 }
 

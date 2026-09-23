@@ -1,10 +1,16 @@
-import type { MCPClientLike, MCPToolLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
 import type { z } from 'zod';
 
 import { createProviderFromEnv } from './env.js';
 import { AgentLoopUnsupportedError, DataRetentionError, StructuredOutputError } from './errors.js';
 import { computeChatCostUsd } from './pricing.js';
-import type { LlmProvider, ProviderTokenUsage } from './provider.js';
+import type {
+  LlmProvider,
+  McpTool,
+  McpToolCaller,
+  ProviderHistory,
+  ProviderTokenUsage,
+  ProviderToolResult,
+} from './provider.js';
 import { getPrompt } from './prompts.js';
 import type { ChatMessage, Effort, ThinkingMode, Tier, UsageRecord, UsageSink } from './types.js';
 
@@ -46,8 +52,8 @@ export interface AgentLoopRequest {
   maxTokens?: number;
   /** Hard cap on tool-call/response round-trips — always required, never defaulted, so a caller can't forget the step cap. */
   maxIterations: number;
-  mcpTools: MCPToolLike[];
-  mcpClient: MCPClientLike;
+  mcpTools: McpTool[];
+  mcpClient: McpToolCaller;
   signal?: AbortSignal;
 }
 
@@ -77,9 +83,12 @@ export interface Router {
   /** Throw unless the active provider carries a ZDR guarantee. Regulated engagements call this. */
   assertZeroDataRetention(): void;
   /**
-   * Multi-step tool-calling loop over an MCP tool set. Throws
-   * `AgentLoopUnsupportedError` if the active provider doesn't implement
-   * `runAgentLoop` (only `AnthropicProvider` does today). Emits one
+   * Multi-step tool-calling loop over an MCP tool set — implemented once,
+   * generically, here: repeatedly call the active provider's single-turn
+   * `completeTurn` primitive, execute any requested tool calls against
+   * `mcpClient`, feed results back for the next turn, stop on a turn with no
+   * tool calls or the `maxIterations` cap. Throws `AgentLoopUnsupportedError`
+   * if the active provider doesn't implement `completeTurn`. Emits one
    * `{type:'usage'}` event — and one `onUsage` sink call — per LLM turn,
    * exactly like `complete`/`extract` meter their single call.
    */
@@ -205,28 +214,53 @@ export function createRouter(config: RouterConfig = {}): Router {
     },
 
     async *runAgentLoop(request) {
-      if (!provider.runAgentLoop) throw new AgentLoopUnsupportedError(provider.name);
+      if (!provider.completeTurn) throw new AgentLoopUnsupportedError(provider.name);
+      const completeTurn = provider.completeTurn;
       const { tier, model, system, promptVersion, messages } = resolve(request);
-      const generator = provider.runAgentLoop({
-        model,
-        system,
-        messages,
-        maxTokens: request.maxTokens ?? defaultMaxTokens,
-        maxIterations: request.maxIterations,
-        mcpTools: request.mcpTools,
-        mcpClient: request.mcpClient,
-        signal: request.signal,
-      });
-      let turnStart = now();
-      for await (const event of generator) {
-        if (event.type === 'usage') {
-          const usage = record(model, tier, promptVersion, event.usage, now() - turnStart);
-          await emit(usage);
-          yield { type: 'usage', usage };
-          turnStart = now();
-        } else {
-          yield event;
+      const maxTokens = request.maxTokens ?? defaultMaxTokens;
+
+      let history: ProviderHistory | undefined;
+      let toolResults: ProviderToolResult[] = [];
+
+      for (let iteration = 0; iteration < request.maxIterations; iteration++) {
+        const turnStart = now();
+        const result = await completeTurn({
+          model,
+          system,
+          maxTokens,
+          tools: request.mcpTools,
+          messages,
+          history,
+          toolResults,
+          signal: request.signal,
+        });
+        history = result.history;
+
+        if (result.text) yield { type: 'text', text: result.text };
+
+        const nextToolResults: ProviderToolResult[] = [];
+        for (const call of result.toolCalls) {
+          yield { type: 'tool_call', name: call.name, input: call.input };
+          const mcpResult = await request.mcpClient.callTool({
+            name: call.name,
+            arguments: call.input as Record<string, unknown> | undefined,
+          });
+          const isError = mcpResult.isError ?? false;
+          yield { type: 'tool_result', name: call.name, isError, content: mcpResult.content };
+          nextToolResults.push({
+            id: call.id,
+            name: call.name,
+            isError,
+            content: mcpResult.content,
+          });
         }
+
+        const usage = record(model, tier, promptVersion, result.usage, now() - turnStart);
+        await emit(usage);
+        yield { type: 'usage', usage };
+
+        if (result.toolCalls.length === 0) return; // final turn — no more tool calls requested
+        toolResults = nextToolResults;
       }
     },
   };
