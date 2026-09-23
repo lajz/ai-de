@@ -197,7 +197,14 @@ main.admin {
 
   .lineage-picker {
     flex: 0 0 18rem;
-    max-height: none;
+    /* Pinned to the viewport (not the page), and independently scrollable
+       within it — so scrolling through a long provenance chain in
+       `.lineage-detail` never drags the fact picker along with it, and vice
+       versa: a long fact list scrolls in place instead of pushing the page
+       height out. `max-height` leaves the same `--space-4` margin below
+       that `top` already leaves above. */
+    max-height: calc(100vh - 2 * var(--space-4));
+    overflow-y: auto;
     position: sticky;
     top: var(--space-4);
   }
