@@ -171,7 +171,10 @@ describe('AgenticQaService.ask', () => {
     let seen: AgentLoopRequest | undefined;
     const router = fakeRouter((r) => {
       seen = r;
-      return events([{ type: 'text', text: 'ok' }, { type: 'usage', usage: USAGE }]);
+      return events([
+        { type: 'text', text: 'ok' },
+        { type: 'usage', usage: USAGE },
+      ]);
     });
     const tracer = new FakeTracer();
     const retrieval = { answerQuestion: vi.fn() } as unknown as RetrievalService;
@@ -191,7 +194,10 @@ describe('AgenticQaService.ask', () => {
     let seen: AgentLoopRequest | undefined;
     const router = fakeRouter((r) => {
       seen = r;
-      return events([{ type: 'text', text: 'ok' }, { type: 'usage', usage: USAGE }]);
+      return events([
+        { type: 'text', text: 'ok' },
+        { type: 'usage', usage: USAGE },
+      ]);
     });
     const tracer = new FakeTracer();
     const retrieval = { answerQuestion: vi.fn() } as unknown as RetrievalService;
