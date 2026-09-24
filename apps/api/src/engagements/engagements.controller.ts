@@ -45,6 +45,7 @@ import {
   withTenant,
   type Database,
 } from '@fde/db';
+import type { ChatMessage } from '@fde/llm';
 import { desc, eq } from 'drizzle-orm';
 import { from, map, type Observable } from 'rxjs';
 
@@ -124,6 +125,22 @@ class FactPageResponse {
 
 class QaBody {
   @ApiProperty({ type: String }) question!: string;
+}
+
+class QaHistoryTurnBody {
+  @ApiProperty({ type: String, enum: ['user', 'assistant'] }) role!: 'user' | 'assistant';
+  @ApiProperty({ type: String }) content!: string;
+}
+
+class AgenticQaBody extends QaBody {
+  @ApiPropertyOptional({
+    type: [QaHistoryTurnBody],
+    description:
+      'Prior turns of this conversation, oldest first, not including `question` — the ' +
+      'agentic loop is stateless across requests, so a follow-up question only has any ' +
+      'memory of earlier ones if the caller resends them here.',
+  })
+  history?: QaHistoryTurnBody[];
 }
 
 class QaCitationResponse {
@@ -358,19 +375,25 @@ export class EngagementsController {
    * short-lived one (see `AgenticQaService`'s doc comment). `engagementId`
    * comes from the route param only, closed over for the life of this
    * question, never taken from the model.
+   *
+   * Stateless across calls: `body.history` is the caller's own record of
+   * this conversation's prior turns (oldest first) — this route holds none
+   * of its own, so a follow-up question is only continuous with earlier ones
+   * if the caller resends them.
    */
   @Sse(':id/qa/agentic', { method: RequestMethod.POST })
   @HttpCode(200)
   @NoTransactionScope()
   qaAgentic(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: QaBody,
+    @Body() body: AgenticQaBody,
     @Req() req: AuthedRequest,
   ): Observable<MessageEvent> {
     const question = (body as { question?: unknown }).question;
     if (typeof question !== 'string' || question.trim() === '') {
       throw new BadRequestException('question must be a non-empty string');
     }
+    const history = parseQaHistory((body as { history?: unknown }).history);
     const session = req.fdeSession;
     if (!session) throw new UnauthorizedException('authentication required');
 
@@ -379,7 +402,7 @@ export class EngagementsController {
       userId: session.userId,
       engagementId: id as EngagementId,
     };
-    return from(this.agenticQa.ask(question, ctx)).pipe(map((event) => ({ data: event })));
+    return from(this.agenticQa.ask(question, ctx, history)).pipe(map((event) => ({ data: event })));
   }
 
   /**
@@ -616,4 +639,30 @@ function parseCryptoShredBody(body: unknown): { reason: string } {
     throw new BadRequestException('reason must be a non-empty string');
   }
   return { reason };
+}
+
+/**
+ * Shape-check `AgenticQaBody.history` — absent entirely is fine (a fresh
+ * conversation); anything present must be an array of `{role, content}`
+ * turns. Throws 400 on anything off, same posture as `question` itself:
+ * malformed input is rejected here rather than silently dropped or coerced.
+ */
+function parseQaHistory(history: unknown): ChatMessage[] {
+  if (history === undefined) return [];
+  if (!Array.isArray(history)) {
+    throw new BadRequestException('history must be an array');
+  }
+  return history.map((turn, i) => {
+    if (typeof turn !== 'object' || turn === null) {
+      throw new BadRequestException(`history[${i}] must be an object`);
+    }
+    const { role, content } = turn as Record<string, unknown>;
+    if (role !== 'user' && role !== 'assistant') {
+      throw new BadRequestException(`history[${i}].role must be "user" or "assistant"`);
+    }
+    if (typeof content !== 'string' || content.trim() === '') {
+      throw new BadRequestException(`history[${i}].content must be a non-empty string`);
+    }
+    return { role, content };
+  });
 }

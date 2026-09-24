@@ -9,13 +9,14 @@ import {
   FakeTracer,
   type AgentLoopEvent,
   type AgentLoopRequest,
+  type ChatMessage,
   type Router,
   type UsageRecord,
 } from '@fde/llm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { LineageService } from '../lineage/lineage.service.js';
-import { AgenticQaService, MAX_TOOL_CALLS } from './agentic-qa.service.js';
+import { AgenticQaService, MAX_HISTORY_MESSAGES, MAX_TOOL_CALLS } from './agentic-qa.service.js';
 import type { ContextSource, QaResult } from './retrieval.service.js';
 import { RetrievalService } from './retrieval.service.js';
 
@@ -164,6 +165,55 @@ describe('AgenticQaService.ask', () => {
       stepIndex: 0,
     });
     expect(JSON.stringify(tracer.traces)).not.toContain('Postgres');
+  });
+
+  it('threads prior history onto the new question as one messages array', async () => {
+    let seen: AgentLoopRequest | undefined;
+    const router = fakeRouter((r) => {
+      seen = r;
+      return events([
+        { type: 'text', text: 'ok' },
+        { type: 'usage', usage: USAGE },
+      ]);
+    });
+    const tracer = new FakeTracer();
+    const retrieval = { answerQuestion: vi.fn() } as unknown as RetrievalService;
+    const lineage = {} as unknown as LineageService;
+    const svc = new AgenticQaService(retrieval, lineage, db, provider, router, tracer);
+
+    const history: ChatMessage[] = [
+      { role: 'user', content: 'what db did we pick?' },
+      { role: 'assistant', content: 'Postgres.' },
+    ];
+    await drain(svc.ask('why not DynamoDB?', ctx, history));
+
+    expect(seen?.messages).toEqual([...history, { role: 'user', content: 'why not DynamoDB?' }]);
+  });
+
+  it('bounds history to MAX_HISTORY_MESSAGES, keeping the most recent turns', async () => {
+    let seen: AgentLoopRequest | undefined;
+    const router = fakeRouter((r) => {
+      seen = r;
+      return events([
+        { type: 'text', text: 'ok' },
+        { type: 'usage', usage: USAGE },
+      ]);
+    });
+    const tracer = new FakeTracer();
+    const retrieval = { answerQuestion: vi.fn() } as unknown as RetrievalService;
+    const lineage = {} as unknown as LineageService;
+    const svc = new AgenticQaService(retrieval, lineage, db, provider, router, tracer);
+
+    const longHistory: ChatMessage[] = Array.from({ length: MAX_HISTORY_MESSAGES + 5 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `turn ${i}`,
+    }));
+    await drain(svc.ask('latest question', ctx, longHistory));
+
+    const messages = seen?.messages as ChatMessage[];
+    expect(messages).toHaveLength(MAX_HISTORY_MESSAGES + 1); // trimmed history + the new question
+    expect(messages[0]).toEqual(longHistory.at(-MAX_HISTORY_MESSAGES)); // oldest kept turn
+    expect(messages.at(-1)).toEqual({ role: 'user', content: 'latest question' });
   });
 
   it('falls back to the one-shot answerQuestion when the loop exceeds MAX_TOOL_CALLS', async () => {

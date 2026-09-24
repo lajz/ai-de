@@ -215,7 +215,12 @@ export function createRouter(config: RouterConfig = {}): Router {
 
     async *runAgentLoop(request) {
       if (!provider.completeTurn) throw new AgentLoopUnsupportedError(provider.name);
-      const completeTurn = provider.completeTurn;
+      // Bound, not a bare `provider.completeTurn` reference: both providers'
+      // `completeTurn` reads `this` (`this.post`/`this.client`), and calling
+      // an unbound method loses that receiver — throwing on the very first
+      // turn every time, silently swallowed by `AgenticQaService`'s
+      // guaranteed-answer fallback to the one-shot path.
+      const completeTurn = provider.completeTurn.bind(provider);
       const { tier, model, system, promptVersion, messages } = resolve(request);
       const maxTokens = request.maxTokens ?? defaultMaxTokens;
 

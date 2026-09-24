@@ -52,6 +52,16 @@ export interface QaResult {
   citations: QaCitation[];
 }
 
+/**
+ * One prior turn of an agentic Q&A conversation, sent back as `history` on
+ * the next question — `/qa/agentic` is stateless across requests, so
+ * `AskPanel` is what remembers the conversation, not the server.
+ */
+export interface QaTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 /** One SSE event from `POST /engagements/:id/qa/agentic` — mirrors `AgenticQaEvent` in `@fde/api`. */
 export type AgenticQaEvent =
   | { type: 'tool_step'; tool: string; status: 'started' | 'ok' | 'error' }

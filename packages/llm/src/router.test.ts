@@ -407,6 +407,53 @@ describe('createRouter — runAgentLoop', () => {
 
     expect(await run(providerA)).toEqual(await run(providerB));
   });
+
+  /**
+   * Regression: `runAgentLoop` must invoke `completeTurn` bound to the
+   * provider instance, not as a bare detached function. `OpenAiCompatibleProvider`
+   * and `AnthropicProvider` both implement `completeTurn` as a real class
+   * method reading instance state off `this` (`this.post`, `this.client`) —
+   * `fakeProvider()`'s object-literal shape above doesn't exercise that at
+   * all, since a plain object property never depends on its receiver. A class
+   * instance does, so this is the shape that actually catches
+   * `const completeTurn = provider.completeTurn; ...; completeTurn(...)`
+   * silently losing `this` and throwing on the very first turn.
+   */
+  it('calls completeTurn bound to the provider instance, not detached', async () => {
+    class ClassProvider implements LlmProvider {
+      name = 'class-fake';
+      zeroDataRetention = true;
+      private readonly instanceState = 'bound';
+
+      modelForTier(): string {
+        return 'model-c';
+      }
+      async complete(): Promise<{ text: string; usage: ProviderTokenUsage }> {
+        return { text: 'unused', usage: USAGE };
+      }
+      async extract(): Promise<{ value: unknown; usage: ProviderTokenUsage }> {
+        return { value: {}, usage: USAGE };
+      }
+      async completeTurn(): Promise<ProviderTurnResult> {
+        // Throws `Cannot read properties of undefined (reading 'instanceState')`
+        // if called without `this` bound to a `ClassProvider` instance.
+        if (this.instanceState !== 'bound') throw new Error('unreachable');
+        return turn({ text: 'ok' });
+      }
+    }
+
+    const router = createRouter({ provider: new ClassProvider() });
+    const events: unknown[] = [];
+    for await (const e of router.runAgentLoop({
+      messages: 'hi',
+      maxIterations: 4,
+      mcpTools,
+      mcpClient: fakeMcpClient(),
+    })) {
+      events.push(e);
+    }
+    expect(events.some((e) => (e as { type: string }).type === 'text')).toBe(true);
+  });
 });
 
 describe('createRouter — ZDR enforcement', () => {
