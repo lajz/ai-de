@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { MCPCallToolResultLike, MCPClientLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { EngagementId, TenantId, UserId } from '@fde/core';
 import { type KeyProvider } from '@fde/crypto';
 import { type Database } from '@fde/db';
@@ -9,6 +9,7 @@ import {
   AGENTIC_QA_PROMPT_NAME,
   redactUsage,
   traceAgentLoop,
+  type McpToolCaller,
   type Router,
   type TraceHandle,
   type Tracer,
@@ -21,7 +22,7 @@ import { LineageService } from '../lineage/lineage.service.js';
 import { ROUTER, TRACER } from './retrieval.tokens.js';
 import { RetrievalService, type QaCitation, type QaResult } from './retrieval.service.js';
 
-/** LLM API requests per question — Tool Runner's own `max_iterations` bound. */
+/** LLM API requests per question — `Router.runAgentLoop`'s own `maxIterations` bound. */
 export const MAX_LLM_TURNS = 6;
 /** Tool calls per question — checked independently, since a turn could always call a tool. */
 export const MAX_TOOL_CALLS = 4;
@@ -40,8 +41,10 @@ export interface AgenticQaContext {
 /**
  * Drives an agentic Q&A turn: an in-process MCP server (`@fde/mcp`, bound to
  * one caller + engagement, never model-controlled — see `createMcpServer`'s
- * doc comment) wired to `client.beta.messages.toolRunner` via
- * `Router.runAgentLoop` (`@fde/llm`). Falls back to the existing one-shot
+ * doc comment) wired to `Router.runAgentLoop` (`@fde/llm`) — provider-agnostic:
+ * the loop itself lives in `Router`, driven generically over whichever active
+ * `LlmProvider` implements the single-turn `completeTurn` primitive (Anthropic
+ * or an OpenAI-compatible endpoint). Falls back to the existing one-shot
  * `RetrievalService.answerQuestion` if the loop errors, or exceeds
  * `MAX_TOOL_CALLS`/`MAX_LLM_TURNS` without producing an answer — the same
  * guaranteed-answer contract the one-shot route always had.
@@ -108,7 +111,7 @@ export class AgenticQaService {
         messages: question,
         maxIterations: MAX_LLM_TURNS,
         mcpTools: tools,
-        mcpClient: asMcpClientLike(mcpClient),
+        mcpClient: asMcpToolCaller(mcpClient),
       })) {
         if (event.type === 'tool_call') {
           toolCallCount += 1;
@@ -176,20 +179,20 @@ export class AgenticQaService {
 }
 
 /**
- * `Client.callTool()`'s return type is a union that also covers the legacy
- * `toolResult`-shaped compatibility result — narrower than what we actually
- * get back (we never pass a `resultSchema` override, so the SDK always
- * resolves the standard `content`-shaped result). Validates that at runtime
- * rather than casting blindly.
+ * `Client.callTool()`'s declared return type is a union that also covers the
+ * legacy `toolResult`-shaped compatibility result — wider than what we actually
+ * get back (we never pass a `resultSchema` override, so the SDK always resolves
+ * the standard `content`-shaped result). Validates that at runtime rather than
+ * casting blindly.
  */
-function asMcpClientLike(client: Client): MCPClientLike {
+function asMcpToolCaller(client: Client): McpToolCaller {
   return {
     async callTool(params) {
       const result = await client.callTool(params);
       if (!('content' in result) || !Array.isArray(result.content)) {
         throw new Error(`unexpected MCP tool result shape for "${params.name}"`);
       }
-      return result as unknown as MCPCallToolResultLike;
+      return result as unknown as CallToolResult;
     },
   };
 }

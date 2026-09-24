@@ -1,18 +1,21 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { mcpTools, type MCPClientLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
-import type { BetaMessage, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 
 import { DataRetentionError, StructuredOutputError } from './errors.js';
 import {
   EMPTY_USAGE,
+  mcpContentToText,
   type LlmProvider,
-  type ProviderAgentEvent,
-  type ProviderAgentLoopRequest,
+  type McpTool,
   type ProviderCompleteRequest,
   type ProviderCompleteResult,
   type ProviderExtractRequest,
   type ProviderExtractResult,
+  type ProviderStopReason,
   type ProviderTokenUsage,
+  type ProviderToolCall,
+  type ProviderToolResult,
+  type ProviderTurnRequest,
+  type ProviderTurnResult,
 } from './provider.js';
 import type { Tier } from './types.js';
 
@@ -32,13 +35,16 @@ export interface AnthropicProviderConfig {
   /** Tier → model id. Defaults to opus-5 (`default`) / sonnet-5 (`bulk`) per `docs/architecture.md`. */
   models?: Record<Tier, string>;
   /** Test seam — inject a pre-built SDK client (or a stub). */
-  client?: Pick<Anthropic, 'messages'> & { beta: Pick<Anthropic['beta'], 'messages'> };
+  client?: Pick<Anthropic, 'messages'>;
 }
 
 const DEFAULT_MODELS: Record<Tier, string> = {
   default: 'claude-opus-5',
   bulk: 'claude-sonnet-5',
 };
+
+/** Anthropic's own multi-turn message history shape — this provider's `ProviderHistory`. */
+type AnthropicHistory = Anthropic.MessageParam[];
 
 /**
  * Production provider: Claude via `@anthropic-ai/sdk`. Zero Data Retention is a
@@ -49,9 +55,7 @@ const DEFAULT_MODELS: Record<Tier, string> = {
 export class AnthropicProvider implements LlmProvider {
   readonly name = 'anthropic';
   readonly zeroDataRetention: boolean;
-  private readonly client: Pick<Anthropic, 'messages'> & {
-    beta: Pick<Anthropic['beta'], 'messages'>;
-  };
+  private readonly client: Pick<Anthropic, 'messages'>;
   private readonly models: Record<Tier, string>;
 
   constructor(config: AnthropicProviderConfig = {}) {
@@ -134,58 +138,81 @@ export class AnthropicProvider implements LlmProvider {
   }
 
   /**
-   * Wraps `client.beta.messages.toolRunner` — Tool Runner owns turn
-   * management, tool-result formatting, and the stop condition; this only
-   * adapts the MCP tool list (via the SDK's own `mcpTools()` helper) and
-   * projects each turn into `ProviderAgentEvent`s so the router can meter
-   * usage per turn exactly like `complete`/`extract`.
-   *
-   * `mcpClient.callTool` is wrapped so a `tool_result` event can be emitted
-   * once the call actually resolves — Tool Runner's own iteration only
-   * yields the assistant's turns, not the tool-execution side effects.
+   * The single-turn tool-calling primitive `Router.runAgentLoop` drives: one
+   * `messages.create` round-trip against the Messages API's native `tools` /
+   * `tool_use` / `tool_result` content blocks. `history` is this provider's own
+   * `Anthropic.MessageParam[]`, threaded through opaquely by `Router` — seeded
+   * from `request.messages` on the first turn, otherwise taken verbatim from
+   * the previous turn's returned `history` with `request.toolResults` folded
+   * in as a `tool_result` user turn first.
    */
-  async *runAgentLoop(
-    request: ProviderAgentLoopRequest,
-  ): AsyncGenerator<ProviderAgentEvent, void, undefined> {
-    const pendingResults: ProviderAgentEvent[] = [];
-    const instrumentedClient: MCPClientLike = {
-      async callTool(params) {
-        const result = await request.mcpClient.callTool(params);
-        pendingResults.push({
-          type: 'tool_result',
-          name: params.name,
-          isError: result.isError ?? false,
-          content: result.content,
-        });
-        return result;
-      },
+  async completeTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult> {
+    const seedHistory: AnthropicHistory =
+      (request.history as AnthropicHistory | undefined) ??
+      request.messages.map((m) => ({ role: m.role, content: m.content }));
+
+    const historyWithToolResults: AnthropicHistory =
+      request.toolResults.length > 0
+        ? [
+            ...seedHistory,
+            { role: 'user', content: request.toolResults.map(toAnthropicToolResult) },
+          ]
+        : seedHistory;
+
+    const params: Anthropic.MessageCreateParamsNonStreaming = {
+      model: request.model,
+      max_tokens: request.maxTokens,
+      messages: historyWithToolResults,
+      tools: request.tools.map(toAnthropicTool),
+      ...(request.system ? { system: request.system } : {}),
     };
 
-    const runner = this.client.beta.messages.toolRunner(
-      {
-        model: request.model,
-        max_tokens: request.maxTokens,
-        max_iterations: request.maxIterations,
-        tools: mcpTools(request.mcpTools, instrumentedClient),
-        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
-        ...(request.system ? { system: request.system } : {}),
-      },
-      { signal: request.signal },
-    );
+    const shouldStream = request.maxTokens > STREAM_THRESHOLD_TOKENS;
+    const message = shouldStream
+      ? await this.client.messages.stream(params, { signal: request.signal }).finalMessage()
+      : await this.client.messages.create(params, { signal: request.signal });
 
-    for await (const message of runner) {
-      while (pendingResults.length > 0) yield pendingResults.shift()!;
-      for (const block of message.content) {
-        if (block.type === 'tool_use') {
-          yield { type: 'tool_call', name: block.name, input: block.input };
-        } else if (block.type === 'text' && block.text) {
-          yield { type: 'text', text: block.text };
-        }
-      }
-      yield { type: 'usage', usage: usageOfBeta(message) };
-    }
-    while (pendingResults.length > 0) yield pendingResults.shift()!;
+    const toolCalls: ProviderToolCall[] = message.content
+      .filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+      .map((b) => ({ id: b.id, name: b.name, input: b.input }));
+
+    const history: AnthropicHistory = [
+      ...historyWithToolResults,
+      { role: 'assistant', content: message.content },
+    ];
+
+    return {
+      history,
+      toolCalls,
+      text: textOf(message),
+      usage: usageOf(message),
+      stopReason: mapStopReason(message.stop_reason),
+    };
   }
+}
+
+function toAnthropicTool(tool: McpTool): Anthropic.Tool {
+  return {
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+  };
+}
+
+function toAnthropicToolResult(result: ProviderToolResult): Anthropic.ToolResultBlockParam {
+  return {
+    type: 'tool_result',
+    tool_use_id: result.id,
+    content: mcpContentToText(result.content),
+    is_error: result.isError,
+  };
+}
+
+function mapStopReason(reason: Anthropic.Message['stop_reason']): ProviderStopReason {
+  if (reason === 'tool_use') return 'tool_use';
+  if (reason === 'max_tokens') return 'max_tokens';
+  if (reason === 'end_turn' || reason === 'stop_sequence') return 'end_turn';
+  return 'other';
 }
 
 function textOf(message: Anthropic.Message): string {
@@ -197,17 +224,6 @@ function textOf(message: Anthropic.Message): string {
 
 function usageOf(message: Anthropic.Message): ProviderTokenUsage {
   const u = message.usage;
-  if (!u) return EMPTY_USAGE;
-  return {
-    inputTokens: u.input_tokens ?? 0,
-    outputTokens: u.output_tokens ?? 0,
-    cacheReadInputTokens: u.cache_read_input_tokens ?? 0,
-    cacheCreationInputTokens: u.cache_creation_input_tokens ?? 0,
-  };
-}
-
-function usageOfBeta(message: BetaMessage): ProviderTokenUsage {
-  const u: BetaUsage | undefined = message.usage;
   if (!u) return EMPTY_USAGE;
   return {
     inputTokens: u.input_tokens ?? 0,

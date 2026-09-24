@@ -21,6 +21,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
     "@fde/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "langfuse": "catalog:",
     "zod": "catalog:"
   },

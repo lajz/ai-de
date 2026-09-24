@@ -1,9 +1,12 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import type { MCPToolLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
-import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AnthropicProvider, DataRetentionError, StructuredOutputError } from './index.js';
+import {
+  AnthropicProvider,
+  DataRetentionError,
+  StructuredOutputError,
+  type McpTool,
+} from './index.js';
 
 function message(over: Partial<Anthropic.Message>): Anthropic.Message {
   return {
@@ -24,16 +27,12 @@ function message(over: Partial<Anthropic.Message>): Anthropic.Message {
   } as Anthropic.Message;
 }
 
-type FullClient = Pick<Anthropic, 'messages'> & { beta: Pick<Anthropic['beta'], 'messages'> };
+type FullClient = Pick<Anthropic, 'messages'>;
 
-function stub(create?: unknown, stream?: unknown, toolRunner?: unknown) {
+function stub(create?: unknown, stream?: unknown) {
   const fns = { create: vi.fn(create as never), stream: vi.fn(stream as never) };
-  const toolRunnerFn = vi.fn(toolRunner as never);
-  const client = {
-    messages: fns,
-    beta: { messages: { toolRunner: toolRunnerFn } },
-  } as unknown as FullClient;
-  return { client, toolRunnerFn, ...fns };
+  const client = { messages: fns } as unknown as FullClient;
+  return { client, ...fns };
 }
 
 describe('AnthropicProvider — ZDR construction invariant', () => {
@@ -143,126 +142,116 @@ describe('AnthropicProvider — routing + calls', () => {
     });
   });
 
-  it('runAgentLoop: converts MCP tools via mcpTools(), emits tool_call/tool_result/text/usage in order', async () => {
-    const tool: MCPToolLike = {
+  it('completeTurn: first turn seeds history from messages, sends tools, surfaces tool_use as toolCalls', async () => {
+    const tool: McpTool = {
       name: 'search_context',
       description: 'search',
       inputSchema: { type: 'object', properties: {} },
     };
-    const mcpClient = {
-      callTool: vi.fn(async () => ({
-        content: [{ type: 'text' as const, text: 'found it' }],
-        isError: false,
-      })),
-    };
-
-    const toolRunnerFn = async function* (params: {
-      tools: { run: (i: unknown) => Promise<unknown> }[];
-    }) {
-      yield message({
+    const s = stub(async () =>
+      message({
         stop_reason: 'tool_use',
         content: [{ type: 'tool_use', id: 't1', name: 'search_context', input: { query: 'x' } }],
-      }) as unknown as BetaMessage;
-      // Simulate Tool Runner actually invoking the tool between turns.
-      await params.tools[0]!.run({ query: 'x' });
-      yield message({ content: [{ type: 'text', text: 'the answer' }] }) as unknown as BetaMessage;
-    };
-
-    const s = stub(undefined, undefined, toolRunnerFn);
+      }),
+    );
     const provider = new AnthropicProvider({ client: s.client });
-    const events: unknown[] = [];
-    for await (const e of provider.runAgentLoop!({
+    const result = await provider.completeTurn!({
       model: 'claude-opus-5',
+      system: 'be helpful',
       messages: [{ role: 'user', content: 'hi' }],
       maxTokens: 1000,
-      maxIterations: 4,
-      mcpTools: [tool],
-      mcpClient,
-    })) {
-      events.push(e);
-    }
+      tools: [tool],
+      toolResults: [],
+    });
 
-    expect(events).toEqual([
-      { type: 'tool_call', name: 'search_context', input: { query: 'x' } },
+    expect(result.toolCalls).toEqual([{ id: 't1', name: 'search_context', input: { query: 'x' } }]);
+    expect(result.text).toBe('');
+    expect(result.stopReason).toBe('tool_use');
+    expect(result.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 3,
+      cacheReadInputTokens: 4,
+      cacheCreationInputTokens: 0,
+    });
+
+    const body = s.create.mock.calls[0]![0] as Anthropic.MessageCreateParamsNonStreaming;
+    expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
+    expect(body.system).toBe('be helpful');
+    expect(body.tools).toEqual([
       {
-        type: 'usage',
-        usage: {
-          inputTokens: 12,
-          outputTokens: 3,
-          cacheReadInputTokens: 4,
-          cacheCreationInputTokens: 0,
-        },
-      },
-      {
-        type: 'tool_result',
         name: 'search_context',
-        isError: false,
-        content: [{ type: 'text', text: 'found it' }],
-      },
-      { type: 'text', text: 'the answer' },
-      {
-        type: 'usage',
-        usage: {
-          inputTokens: 12,
-          outputTokens: 3,
-          cacheReadInputTokens: 4,
-          cacheCreationInputTokens: 0,
-        },
+        description: 'search',
+        input_schema: { type: 'object', properties: {} },
       },
     ]);
-    expect(mcpClient.callTool).toHaveBeenCalledWith({
-      name: 'search_context',
-      arguments: { query: 'x' },
-    });
-    const params = s.toolRunnerFn.mock.calls[0]![0] as { model: string; max_iterations: number };
-    expect(params.model).toBe('claude-opus-5');
-    expect(params.max_iterations).toBe(4);
+    // The returned history is the seeded messages plus this turn's assistant response —
+    // ready to pass straight back in as `history` on the next call.
+    expect(result.history).toEqual([
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'search_context', input: { query: 'x' } }],
+      },
+    ]);
   });
 
-  it('runAgentLoop: an errored tool call still emits a tool_result event with isError true', async () => {
-    const tool: MCPToolLike = {
-      name: 'search_context',
-      inputSchema: { type: 'object', properties: {} },
-    };
-    const mcpClient = {
-      callTool: vi.fn(async () => ({
-        content: [{ type: 'text' as const, text: 'boom' }],
-        isError: true,
-      })),
-    };
-    const toolRunnerFn = async function* (params: {
-      tools: { run: (i: unknown) => Promise<unknown> }[];
-    }) {
-      yield message({
-        stop_reason: 'tool_use',
-        content: [{ type: 'tool_use', id: 't1', name: 'search_context', input: {} }],
-      }) as unknown as BetaMessage;
-      await params.tools[0]!.run({}).catch(() => {
-        /* mcpTool's run() rethrows ToolError on isError — our wrapper already recorded the event by then */
-      });
-      yield message({
-        content: [{ type: 'text', text: 'sorry, failed' }],
-      }) as unknown as BetaMessage;
-    };
-    const s = stub(undefined, undefined, toolRunnerFn);
+  it('completeTurn: a follow-up turn folds toolResults into a tool_result user message ahead of `history`', async () => {
+    const s = stub(async () => message({ content: [{ type: 'text', text: 'the answer' }] }));
     const provider = new AnthropicProvider({ client: s.client });
-    const events: unknown[] = [];
-    for await (const e of provider.runAgentLoop!({
+    const priorHistory: Anthropic.MessageParam[] = [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'search_context', input: { query: 'x' } }],
+      },
+    ];
+
+    const result = await provider.completeTurn!({
       model: 'claude-opus-5',
       messages: [{ role: 'user', content: 'hi' }],
       maxTokens: 1000,
-      maxIterations: 4,
-      mcpTools: [tool],
-      mcpClient,
-    })) {
-      events.push(e);
-    }
-    expect(events).toContainEqual({
-      type: 'tool_result',
-      name: 'search_context',
-      isError: true,
-      content: [{ type: 'text', text: 'boom' }],
+      tools: [],
+      history: priorHistory,
+      toolResults: [
+        {
+          id: 't1',
+          name: 'search_context',
+          isError: false,
+          content: [{ type: 'text', text: 'found it' }],
+        },
+      ],
     });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.text).toBe('the answer');
+    expect(result.stopReason).toBe('end_turn');
+
+    const body = s.create.mock.calls[0]![0] as Anthropic.MessageCreateParamsNonStreaming;
+    expect(body.messages).toEqual([
+      ...priorHistory,
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'found it', is_error: false }],
+      },
+    ]);
+  });
+
+  it('completeTurn: streams + coalesces when maxTokens exceeds the threshold', async () => {
+    const finalMessage = vi.fn(async () =>
+      message({ content: [{ type: 'text', text: 'streamed' }] }),
+    );
+    const s = stub(undefined, () => ({ finalMessage }));
+    const provider = new AnthropicProvider({ client: s.client });
+    const result = await provider.completeTurn!({
+      model: 'claude-opus-5',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 64_000,
+      tools: [],
+      toolResults: [],
+    });
+    expect(result.text).toBe('streamed');
+    expect(s.stream).toHaveBeenCalledOnce();
+    expect(s.create).not.toHaveBeenCalled();
   });
 
   it('extract: streams + coalesces when maxTokens exceeds the threshold', async () => {

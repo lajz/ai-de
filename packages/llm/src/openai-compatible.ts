@@ -1,11 +1,17 @@
-import { ProviderRequestError, StructuredOutputError } from './errors.js';
-import type {
-  LlmProvider,
-  ProviderCompleteRequest,
-  ProviderCompleteResult,
-  ProviderExtractRequest,
-  ProviderExtractResult,
-  ProviderTokenUsage,
+import { DataRetentionError, ProviderRequestError, StructuredOutputError } from './errors.js';
+import {
+  mcpContentToText,
+  type LlmProvider,
+  type McpTool,
+  type ProviderCompleteRequest,
+  type ProviderCompleteResult,
+  type ProviderExtractRequest,
+  type ProviderExtractResult,
+  type ProviderStopReason,
+  type ProviderTokenUsage,
+  type ProviderToolCall,
+  type ProviderTurnRequest,
+  type ProviderTurnResult,
 } from './provider.js';
 import type { Tier } from './types.js';
 
@@ -23,8 +29,27 @@ export interface OpenAiCompatibleConfig {
   quiet?: boolean;
 }
 
+/** A single OpenAI-style function-call request from the model. */
+interface ChatCompletionToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+/** One entry of this provider's own chat-completions message history — its
+ * `ProviderHistory` shape for the tool-calling primitive. */
+interface ChatCompletionMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content?: string | null;
+  tool_calls?: ChatCompletionToolCall[];
+  tool_call_id?: string;
+}
+
 interface ChatCompletionResponse {
-  choices?: { message?: { content?: string }; finish_reason?: string }[];
+  choices?: {
+    message?: { content?: string | null; tool_calls?: ChatCompletionToolCall[] };
+    finish_reason?: string;
+  }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_cache_hit_tokens?: number };
 }
 
@@ -57,6 +82,20 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly config: OpenAiCompatibleConfig) {
+    // Fail-closed, symmetric to `AnthropicProvider`'s own construction-time ZDR
+    // invariant: this provider can never carry a Zero Data Retention guarantee
+    // (see `zeroDataRetention` above), so it must never back a real deployment
+    // — including via the agentic tool-calling loop, which (unlike `complete`/
+    // `extract`) this provider now also implements. A regulated engagement must
+    // never silently end up here no matter which of the router's call paths it
+    // takes; refusing to construct at all under `NODE_ENV=production` closes
+    // that off for every call path at once, not just this one.
+    if (process.env.NODE_ENV === 'production') {
+      throw new DataRetentionError(
+        'OpenAiCompatibleProvider has no Zero Data Retention guarantee and must never run with ' +
+          'NODE_ENV=production — dev/CI only, never regulated engagements',
+      );
+    }
     this.fetchImpl = config.fetchImpl ?? globalThis.fetch;
     if (!config.quiet) {
       console.warn(
@@ -94,7 +133,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     request: ProviderCompleteRequest,
     jsonSchema: Record<string, unknown> | undefined,
   ): Promise<ChatCompletionResponse> {
-    const messages: { role: string; content: string }[] = [];
+    const messages: ChatCompletionMessage[] = [];
     if (request.system) messages.push({ role: 'system', content: request.system });
     if (jsonSchema) {
       messages.push({
@@ -117,23 +156,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       body.thinking = { type: 'disabled' };
     }
 
-    const timeout = AbortSignal.timeout(this.config.timeoutMs ?? 120_000);
-    const signal = request.signal ? AbortSignal.any([timeout, request.signal]) : timeout;
-
-    const res = await this.fetchImpl(chatCompletionsUrl(this.config.baseUrl), {
-      method: 'POST',
-      signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    // Status only — an error body can echo the prompt (transcript) content, which
-    // must never reach a log line on this platform.
-    if (!res.ok) throw new ProviderRequestError(res.status, res.statusText || 'request failed');
-
-    const data = (await res.json()) as ChatCompletionResponse;
+    const data = await this.post(body, request.signal);
     if (data.choices?.[0]?.finish_reason === 'length') {
       throw new StructuredOutputError(
         'model response hit the token limit before finishing',
@@ -143,6 +166,114 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     }
     return data;
   }
+
+  /**
+   * The single-turn tool-calling primitive `Router.runAgentLoop` drives: one
+   * `/chat/completions` round-trip using this provider's native function-calling
+   * wire format (`tools` array of JSON-schema function defs in, `tool_calls` +
+   * `role:"tool"` messages out). `history` is this provider's own
+   * `ChatCompletionMessage[]`, threaded through opaquely by `Router` — seeded
+   * from `request.messages` on the first turn, otherwise taken verbatim from the
+   * previous turn's returned `history` with `request.toolResults` appended as
+   * `role:"tool"` messages first.
+   */
+  async completeTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult> {
+    const seedHistory: ChatCompletionMessage[] =
+      (request.history as ChatCompletionMessage[] | undefined) ??
+      initialMessages(request.system, request.messages);
+
+    const historyWithToolResults: ChatCompletionMessage[] = [
+      ...seedHistory,
+      ...request.toolResults.map((r): ChatCompletionMessage => ({
+        role: 'tool',
+        tool_call_id: r.id,
+        content: mcpContentToText(r.content),
+      })),
+    ];
+
+    const body: Record<string, unknown> = {
+      model: request.model,
+      messages: historyWithToolResults,
+      temperature: 0,
+      max_tokens: request.maxTokens,
+      tools: request.tools.map(toOpenAiTool),
+    };
+    if (/deepseek/i.test(request.model)) body.thinking = { type: 'disabled' };
+
+    const data = await this.post(body, request.signal);
+    const message = data.choices?.[0]?.message;
+    if (!message)
+      throw new StructuredOutputError('empty completion from model', undefined, usageOf(data));
+
+    const toolCalls: ProviderToolCall[] = (message.tool_calls ?? []).map((tc) => ({
+      id: tc.id,
+      name: tc.function.name,
+      input: JSON.parse(tc.function.arguments || '{}') as unknown,
+    }));
+
+    const history: ChatCompletionMessage[] = [
+      ...historyWithToolResults,
+      {
+        role: 'assistant',
+        content: message.content ?? null,
+        ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
+      },
+    ];
+
+    const finishReason = data.choices?.[0]?.finish_reason;
+    const stopReason: ProviderStopReason =
+      toolCalls.length > 0 ? 'tool_use' : finishReason === 'length' ? 'max_tokens' : 'end_turn';
+
+    return { history, toolCalls, text: message.content ?? '', usage: usageOf(data), stopReason };
+  }
+
+  /** Bare `/chat/completions` POST — status check + JSON parse only. Truncation
+   * handling differs by caller (`call()` always treats it as failure; `completeTurn`
+   * folds it into `stopReason` since a truncated turn can still carry usable tool
+   * calls), so it lives in each caller, not here. */
+  private async post(
+    body: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+  ): Promise<ChatCompletionResponse> {
+    const timeout = AbortSignal.timeout(this.config.timeoutMs ?? 120_000);
+    const combinedSignal = signal ? AbortSignal.any([timeout, signal]) : timeout;
+
+    const res = await this.fetchImpl(chatCompletionsUrl(this.config.baseUrl), {
+      method: 'POST',
+      signal: combinedSignal,
+      headers: {
+        'content-type': 'application/json',
+        ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    // Status only — an error body can echo the prompt (transcript) content, which
+    // must never reach a log line on this platform.
+    if (!res.ok) throw new ProviderRequestError(res.status, res.statusText || 'request failed');
+    return (await res.json()) as ChatCompletionResponse;
+  }
+}
+
+function initialMessages(
+  system: string | undefined,
+  messages: { role: string; content: string }[],
+): ChatCompletionMessage[] {
+  const out: ChatCompletionMessage[] = [];
+  if (system) out.push({ role: 'system', content: system });
+  for (const m of messages)
+    out.push({ role: m.role as ChatCompletionMessage['role'], content: m.content });
+  return out;
+}
+
+function toOpenAiTool(tool: McpTool): Record<string, unknown> {
+  return {
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
+  };
 }
 
 function contentOf(data: ChatCompletionResponse): string {
