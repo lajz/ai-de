@@ -439,8 +439,45 @@ input[type='checkbox'] {
    Engagement view — ask panel + fact list
 --------------------------------------------------------------------------- */
 
-.ask {
-  margin-bottom: var(--space-6);
+.engagement-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  align-items: flex-start;
+}
+
+.engagement-split-chat,
+.engagement-split-facts {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (min-width: 56rem) {
+  main:has(.engagement-split) {
+    max-width: 72rem;
+  }
+
+  .engagement-split {
+    flex-direction: row;
+  }
+
+  .engagement-split-chat,
+  .engagement-split-facts {
+    flex: 1 1 0;
+    /* Pinned to the viewport (not the page) and independently scrollable,
+       same technique as `.lineage-picker`/`.lineage-detail` — a long chat
+       transcript and a long, paginated fact list each scroll in place
+       instead of dragging the other pane's scroll position with them. */
+    max-height: calc(100vh - 2 * var(--space-4));
+    overflow-y: auto;
+    position: sticky;
+    top: var(--space-4);
+  }
+
+  .engagement-split-facts {
+    border-left: 1px solid var(--line);
+    padding-left: var(--space-5);
+  }
 }
 
 .ask-head {
