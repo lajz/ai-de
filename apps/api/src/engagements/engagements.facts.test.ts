@@ -6,7 +6,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { EngagementId, TenantId, UserId } from '@fde/core';
 import { InMemoryAuthzClient } from '@fde/authz';
-import type { EngagementCipher } from '@fde/crypto';
+import type { EngagementCipher, KeyProvider } from '@fde/crypto';
 import type { Database } from '@fde/db';
 import type { EmbeddingClient, Router } from '@fde/llm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +21,7 @@ import { EngagementsController } from './engagements.controller.js';
 const agenticQa = {} as AgenticQaService;
 const db = {} as Database;
 const temporalCryptoShred = {} as TemporalCryptoShred;
+const keyProvider = {} as KeyProvider;
 
 /**
  * Controller-level coverage for `GET :id/facts`'s query-param parsing —
@@ -92,6 +93,7 @@ function controller(): EngagementsController {
     agenticQa,
     db,
     temporalCryptoShred,
+    keyProvider,
     config(false),
   );
 }

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 import type { EngagementId, TenantId } from '@fde/core';
-import { getCipher, FakeKeyProvider } from '@fde/crypto';
+import { getCipher, type KeyProvider, FakeKeyProvider } from '@fde/crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDbClient, type Database } from './client.js';
-import { shredEngagement, withEngagement } from './engagement.js';
+import { rotateEngagementKey, shredEngagement, withEngagement } from './engagement.js';
 import { withTenant } from './rls.js';
 import { engagements, facts, tenants } from './schema/index.js';
 
@@ -137,6 +137,137 @@ describe.skipIf(!url)('withEngagement / shredEngagement', () => {
       }),
     ).toBe(false);
     expect(await shredLog()).toHaveLength(1);
+  });
+
+  it('rotateEngagementKey: the DEK survives a rewrap unchanged — a fact encrypted before rotation decrypts after it', async () => {
+    const engagementId = await seedEngagement();
+    const factId = randomUUID();
+
+    await withEngagement(handle.db, provider, { tenantId, engagementId }, async (tx) => {
+      const body = await getCipher().encryptString('facts.body', 'customer chose Postgres');
+      await tx.insert(facts).values({
+        id: factId,
+        tenantId,
+        engagementId,
+        type: 'decision',
+        summary: 'db choice',
+        body,
+      });
+    });
+
+    await rotateEngagementKey(handle.db, provider, {
+      tenantId,
+      engagementId,
+      actorId: 'admin-1',
+      byokKeyArn: 'fake:customer-key',
+    });
+
+    const [row] = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ byokKeyArn: engagements.byokKeyArn })
+        .from(engagements)
+        .where(eq(engagements.id, engagementId)),
+    );
+    expect(row?.byokKeyArn).toBe('fake:customer-key');
+
+    // same ciphertext, unwrapped under the new key ref — proves it's a rewrap
+    // of the SAME DEK, not a fresh one that would orphan this fact's ciphertext
+    const plaintext = await withEngagement(
+      handle.db,
+      provider,
+      { tenantId, engagementId },
+      async (tx) => {
+        const [f] = await tx.select({ body: facts.body }).from(facts).where(eq(facts.id, factId));
+        return getCipher().decryptString('facts.body', f!.body!);
+      },
+    );
+    expect(plaintext).toBe('customer chose Postgres');
+
+    const rotateLog = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ action: sql<string>`action` })
+        .from(sql`access_log`)
+        .where(sql`engagement_id = ${engagementId} and action = 'byok_key_rotated'`),
+    );
+    expect(rotateLog).toHaveLength(1);
+  });
+
+  it('rotateEngagementKey fails closed: a failed rewrap leaves wrapped_dek/byok_key_arn completely untouched', async () => {
+    const engagementId = await seedEngagement();
+
+    const before = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ wrappedDek: engagements.wrappedDek, byokKeyArn: engagements.byokKeyArn })
+        .from(engagements)
+        .where(eq(engagements.id, engagementId)),
+    );
+
+    const failingProvider: KeyProvider = {
+      generateDek: (ref) => provider.generateDek(ref),
+      unwrapDek: (ref, wrapped) => provider.unwrapDek(ref, wrapped),
+      rewrapDek: async () => {
+        throw new Error('AccessDeniedException: cross-account grant not found');
+      },
+    };
+
+    await expect(
+      rotateEngagementKey(handle.db, failingProvider, {
+        tenantId,
+        engagementId,
+        actorId: 'admin-1',
+        byokKeyArn: 'fake:bad-arn',
+      }),
+    ).rejects.toThrow(/grant not found/);
+
+    const after = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ wrappedDek: engagements.wrappedDek, byokKeyArn: engagements.byokKeyArn })
+        .from(engagements)
+        .where(eq(engagements.id, engagementId)),
+    );
+    expect(after[0]?.wrappedDek).toBe(before[0]?.wrappedDek);
+    expect(after[0]?.byokKeyArn).toBe(before[0]?.byokKeyArn);
+
+    const rotateLog = await withTenant(handle.db, tenantId, (tx) =>
+      tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(sql`access_log`)
+        .where(sql`engagement_id = ${engagementId} and action = 'byok_key_rotated'`),
+    );
+    expect(rotateLog[0]?.n).toBe(0);
+  });
+
+  it('rotateEngagementKey refuses on a shredded engagement', async () => {
+    const engagementId = await seedEngagement();
+    await shredEngagement(handle.db, {
+      tenantId,
+      engagementId,
+      actorId: 'admin-1',
+      reason: 'offboarded',
+    });
+
+    await expect(
+      rotateEngagementKey(handle.db, provider, {
+        tenantId,
+        engagementId,
+        actorId: 'admin-1',
+        byokKeyArn: 'fake:customer-key',
+      }),
+    ).rejects.toThrow(/shred/i);
+  });
+
+  it('rotateEngagementKey respects tenant isolation: another tenant cannot rotate this engagement', async () => {
+    const engagementId = await seedEngagement();
+    const otherTenantId = randomUUID() as TenantId;
+
+    await expect(
+      rotateEngagementKey(handle.db, provider, {
+        tenantId: otherTenantId,
+        engagementId,
+        actorId: 'admin-1',
+        byokKeyArn: 'fake:customer-key',
+      }),
+    ).rejects.toThrow(/not found/i);
   });
 
   it('two concurrent shreds: exactly one wins, exactly one audit row', async () => {

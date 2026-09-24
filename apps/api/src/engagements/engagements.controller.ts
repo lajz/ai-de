@@ -4,6 +4,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  GoneException,
   HttpCode,
   Inject,
   type MessageEvent,
@@ -36,12 +37,20 @@ import {
 } from '@fde/core';
 import { listAccess, logAccess } from '@fde/audit';
 import { AuthzClient, ENGAGEMENT_ROLES, type EngagementRole } from '@fde/authz';
-import { engagements, shredEngagement, withTenant, type Database } from '@fde/db';
+import { EngagementShreddedError, type KeyProvider } from '@fde/crypto';
+import {
+  engagements,
+  rotateEngagementKey,
+  shredEngagement,
+  withTenant,
+  type Database,
+} from '@fde/db';
 import { desc, eq } from 'drizzle-orm';
 import { from, map, type Observable } from 'rxjs';
 
 import type { Env } from '../config/env.js';
 import { DB } from '../db/db.module.js';
+import { KEY_PROVIDER } from '../key-provider/key-provider.module.js';
 import { EngagementScope, NoTransactionScope } from '../request-context/metadata.js';
 import { getEngagementContext, getRequestContext } from '@fde/request-context';
 import { AgenticQaService } from '../retrieval/agentic-qa.service.js';
@@ -55,6 +64,13 @@ class EngagementResponse {
   @ApiProperty({ type: String, enum: ['us', 'eu'] }) regionPin!: string;
   @ApiProperty({ type: String }) retentionPolicy!: string;
   @ApiProperty({ type: String, enum: ['active', 'closed', 'shredded'] }) status!: string;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'customer-supplied KMS key ARN when BYOK/CMEK is in effect; absent on the platform-managed tenant key',
+  })
+  byokKeyArn!: string | null;
   @ApiProperty({ type: String, format: 'date-time' }) createdAt!: string;
 }
 
@@ -144,6 +160,19 @@ class CryptoShredResponse {
   alreadyShredded!: boolean;
 }
 
+class SetByokKeyBody {
+  @ApiProperty({
+    type: String,
+    description: "customer-supplied KMS key ARN to BYOK/CMEK-wrap this engagement's DEK under",
+  })
+  byokKeyArn!: string;
+}
+
+class SetByokKeyResponse {
+  @ApiProperty({ type: Boolean }) ok!: boolean;
+  @ApiProperty({ type: String }) byokKeyArn!: string;
+}
+
 @ApiTags('engagements')
 @ApiBearerAuth()
 @Controller('engagements')
@@ -156,6 +185,7 @@ export class EngagementsController {
     @Inject(AgenticQaService) private readonly agenticQa: AgenticQaService,
     @Inject(DB) private readonly db: Database,
     @Inject(TemporalCryptoShred) private readonly temporalCryptoShred: TemporalCryptoShred,
+    @Inject(KEY_PROVIDER) private readonly keyProvider: KeyProvider,
     @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     this.enforce = config.get('AUTHZ_ENFORCE', { infer: true }) === 'true';
@@ -177,6 +207,7 @@ export class EngagementsController {
         regionPin: engagements.regionPin,
         retentionPolicy: engagements.retentionPolicy,
         status: engagements.status,
+        byokKeyArn: engagements.byokKeyArn,
         createdAt: engagements.createdAt,
       })
       .from(engagements)
@@ -466,9 +497,99 @@ export class EngagementsController {
 
     return { ok: true, alreadyShredded: !didShred };
   }
+
+  /**
+   * Set or rotate BYOK/CMEK on an already-existing engagement: re-wraps its
+   * *existing* DEK under a customer-supplied KMS key (`rotateEngagementKey` in
+   * `@fde/db`) — no ciphertext is touched, only which key can unwrap the DEK
+   * changes (see that function's doc comment for the locking/atomicity/failure
+   * story). This does not create engagements; there is deliberately no such
+   * route in this API yet (see the PR description).
+   *
+   * `@NoTransactionScope()`, same chicken-and-egg reason as `cryptoShred`
+   * above: this handler is itself replacing the crypto material the
+   * interceptor's `withEngagement` would otherwise unwrap up front.
+   *
+   * Authz mirrors `cryptoShred`/`addMember`: engagement-admin or tenant-admin,
+   * checked before any DB or KMS work.
+   *
+   * Submitting is itself the verification step: a syntactically valid ARN
+   * whose cross-account grant hasn't been set up (or hasn't propagated, or is
+   * in the wrong region) fails the KMS `Encrypt` call inside
+   * `rotateEngagementKey`, which fails closed — the engagement's previous key
+   * is left completely untouched — and this handler turns that into a 400
+   * with the upstream detail, rather than a 500 or a silently-broken
+   * engagement.
+   */
+  @Post(':id/crypto/byok-key')
+  @HttpCode(200)
+  @NoTransactionScope()
+  async setByokKey(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SetByokKeyBody,
+    @Req() req: AuthedRequest,
+  ): Promise<SetByokKeyResponse> {
+    const session = req.fdeSession;
+    if (!session) throw new UnauthorizedException('authentication required');
+    const engagementId = id as EngagementId;
+    const { tenantId, userId } = session;
+
+    // Authorize before doing any work or echoing validation detail back.
+    const allowed =
+      (await this.authz.canAdministerEngagement(userId, engagementId)) ||
+      (await this.authz.canAdministerTenant(userId, tenantId));
+    if (!allowed) throw new ForbiddenException("not authorized to manage this engagement's keys");
+
+    const { byokKeyArn } = parseSetByokKeyBody(body);
+
+    // Tenant-scoped existence check — same 404-on-cross-tenant convention as
+    // `cryptoShred` above.
+    const [exists] = await withTenant(this.db, tenantId, (tx) =>
+      tx.select({ id: engagements.id }).from(engagements).where(eq(engagements.id, engagementId)),
+    );
+    if (!exists) throw new NotFoundException('engagement not found');
+
+    try {
+      await rotateEngagementKey(this.db, this.keyProvider, {
+        tenantId,
+        engagementId,
+        actorId: userId,
+        byokKeyArn,
+      });
+    } catch (err) {
+      if (err instanceof EngagementShreddedError) {
+        throw new GoneException('engagement is crypto-shredded');
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        `could not rewrap this engagement's key under the supplied ARN — confirm the cross-account KMS grant permits Decrypt and Encrypt for this platform's principal, and that the key is in the expected region (${detail})`,
+      );
+    }
+
+    return { ok: true, byokKeyArn };
+  }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// arn:aws:kms:<region>:<account-id>:key/<id> or :alias/<name> — also accepts
+// the aws-us-gov / aws-cn partitions. Format-only; a well-formed but
+// nonexistent/inaccessible key still fails later, at the KMS call itself.
+const KMS_KEY_ARN = /^arn:aws(?:-[a-z]+)*:kms:[a-z0-9-]+:\d{12}:(key\/[\w-]+|alias\/[\w/-]+)$/;
+
+/** Shape-check the `POST /engagements/:id/crypto/byok-key` body. Throws 400 on anything off — including a malformed ARN, before any KMS call is made. */
+function parseSetByokKeyBody(body: unknown): { byokKeyArn: string } {
+  if (typeof body !== 'object' || body === null) {
+    throw new BadRequestException('request body is required');
+  }
+  const { byokKeyArn } = body as Record<string, unknown>;
+  if (typeof byokKeyArn !== 'string' || !KMS_KEY_ARN.test(byokKeyArn)) {
+    throw new BadRequestException(
+      'byokKeyArn must be a KMS key ARN, e.g. arn:aws:kms:us-east-1:111122223333:key/1234abcd-...',
+    );
+  }
+  return { byokKeyArn };
+}
 
 /** Shape-check the `POST /engagements/:id/members` body. Throws 400 on anything off. */
 function parseAddMemberBody(body: unknown): { userId: string; role: EngagementRole } {

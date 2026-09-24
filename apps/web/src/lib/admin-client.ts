@@ -1,4 +1,10 @@
-import type { ConnectorConfig, CryptoShredResult, PutConnectorBody, SyncMode } from './types';
+import type {
+  ConnectorConfig,
+  CryptoShredResult,
+  PutConnectorBody,
+  SetByokKeyResult,
+  SyncMode,
+} from './types';
 
 async function readError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -47,4 +53,18 @@ export async function triggerCryptoShred(
   });
   if (!res.ok) throw new Error(await readError(res));
   return (await res.json()) as CryptoShredResult;
+}
+
+/** Browser → same-origin proxy → `POST /engagements/:id/crypto/byok-key`. Sets or rotates BYOK/CMEK. */
+export async function submitByokKey(
+  engagementId: string,
+  byokKeyArn: string,
+): Promise<SetByokKeyResult> {
+  const res = await fetch('/api/admin/byok-key', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engagementId, byokKeyArn }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as SetByokKeyResult;
 }

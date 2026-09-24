@@ -1,5 +1,6 @@
 import { AdminError } from '../../../../../components/admin/admin-error';
 import { DangerZone } from '../../../../../components/admin/danger-zone';
+import { KeyManagementPanel } from '../../../../../components/admin/key-management-panel';
 import { SignInNotice } from '../../../../../components/sign-in-notice';
 import { ApiError, getEngagements } from '../../../../../lib/api';
 import { getSessionToken } from '../../../../../lib/session';
@@ -24,6 +25,9 @@ export default async function DangerZonePage({ params }: { params: Promise<{ id:
 
   return (
     <section>
+      <h2>Key management</h2>
+      <KeyManagementPanel engagementId={id} initialByokKeyArn={engagement.byokKeyArn} />
+
       <h1>Danger Zone</h1>
       <DangerZone
         engagementId={id}

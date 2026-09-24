@@ -9,6 +9,8 @@ export interface Engagement {
   regionPin: string;
   retentionPolicy: string;
   status: string;
+  /** customer-supplied KMS key ARN when BYOK/CMEK is in effect; null on the platform-managed tenant key */
+  byokKeyArn: string | null;
   createdAt: string;
 }
 
@@ -228,4 +230,11 @@ export interface CryptoShredResult {
   ok: boolean;
   /** true if the engagement was already shredded before this call */
   alreadyShredded: boolean;
+}
+
+// --- /admin: key management (BYOK/CMEK) --------------------------------------
+
+export interface SetByokKeyResult {
+  ok: boolean;
+  byokKeyArn: string;
 }

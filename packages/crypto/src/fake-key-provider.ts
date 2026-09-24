@@ -23,4 +23,20 @@ export class FakeKeyProvider implements KeyProvider {
     }
     return new Uint8Array(buf.subarray(MARKER.length));
   }
+
+  /**
+   * The fake wrap format doesn't depend on the key ref at all, so "re-wrapping
+   * under a new key" is: unwrap (validates the old wrap, same as real KMS would
+   * reject a wrong key) and re-wrap the same DEK bytes. `_newRef` is unused —
+   * there's no real key to switch to — but kept in the signature so call sites
+   * are identical to `KmsKeyProvider`.
+   */
+  async rewrapDek(
+    oldRef: EngagementKeyRef,
+    wrappedDek: Uint8Array,
+    _newRef: EngagementKeyRef,
+  ): Promise<Uint8Array> {
+    const dek = await this.unwrapDek(oldRef, wrappedDek);
+    return new Uint8Array(Buffer.concat([MARKER, Buffer.from(dek)]));
+  }
 }

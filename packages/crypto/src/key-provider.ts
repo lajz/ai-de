@@ -27,6 +27,19 @@ export interface KeyProvider {
   generateDek(ref: EngagementKeyRef): Promise<GeneratedDek>;
   /** Recover an existing engagement's DEK from its wrapped form. */
   unwrapDek(ref: EngagementKeyRef, wrappedDek: Uint8Array): Promise<Uint8Array>;
+  /**
+   * Re-wrap an engagement's *existing* DEK under a different KMS key — the key
+   * material itself never changes, only the key that wraps it. This is what
+   * BYOK rotation must use: unwrapping under `oldRef` and generating a fresh
+   * DEK would silently orphan every ciphertext already encrypted under the old
+   * one. Implementations must decrypt under `oldRef`'s key and encrypt (not
+   * generate) under `newRef`'s key, so callers never see the plaintext DEK.
+   */
+  rewrapDek(
+    oldRef: EngagementKeyRef,
+    wrappedDek: Uint8Array,
+    newRef: EngagementKeyRef,
+  ): Promise<Uint8Array>;
 }
 
 /** Encryption context bound into the KMS wrap, so a wrapped DEK can't be relocated. */
