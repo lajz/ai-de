@@ -1,4 +1,4 @@
-import type { ConnectorConfig, PutConnectorBody, SyncMode } from './types';
+import type { ConnectorConfig, CryptoShredResult, PutConnectorBody, SyncMode } from './types';
 
 async function readError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -33,4 +33,18 @@ export async function triggerSync(
   });
   if (!res.ok) throw new Error(await readError(res));
   return (await res.json()) as { workflowId: string };
+}
+
+/** Browser → same-origin proxy → `POST /engagements/:id/crypto-shred`. Irreversible. */
+export async function triggerCryptoShred(
+  engagementId: string,
+  reason: string,
+): Promise<CryptoShredResult> {
+  const res = await fetch('/api/admin/crypto-shred', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engagementId, reason }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as CryptoShredResult;
 }

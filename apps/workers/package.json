@@ -11,6 +11,7 @@
     "seed:demo": "tsx scripts/seed-demo/seed-demo.ts"
   },
   "dependencies": {
+    "@fde/audit": "workspace:*",
     "@fde/connectors": "workspace:*",
     "@fde/core": "workspace:*",
     "@fde/crypto": "workspace:*",

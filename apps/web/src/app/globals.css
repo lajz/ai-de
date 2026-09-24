@@ -240,6 +240,39 @@ main {
   border-color: var(--accent-strong);
 }
 
+.btn-danger {
+  background: var(--error-wash);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--surface);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-tile);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.status-pill-active {
+  background: var(--success-wash);
+  color: var(--success);
+}
+
+.status-pill-shredded {
+  background: var(--error-wash);
+  color: var(--error);
+}
+
 .field-input {
   font: inherit;
   font-size: 0.875rem;

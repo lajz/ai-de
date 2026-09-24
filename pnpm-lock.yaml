@@ -269,6 +269,9 @@ importers:
 
   apps/workers:
     dependencies:
+      '@fde/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
       '@fde/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors

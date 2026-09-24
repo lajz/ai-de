@@ -221,3 +221,11 @@ export interface PipelineStatus {
   recentExtractionRuns: PipelineRun[];
   rollups: PipelineRollups;
 }
+
+// --- /admin: danger zone (crypto-shred) --------------------------------------
+
+export interface CryptoShredResult {
+  ok: boolean;
+  /** true if the engagement was already shredded before this call */
+  alreadyShredded: boolean;
+}

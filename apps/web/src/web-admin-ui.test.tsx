@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ConnectorCard } from './components/admin/connector-card';
+import { DangerZone, shredConfirmed } from './components/admin/danger-zone';
 import { EntityProvenanceView } from './components/admin/entity-provenance-panel';
 import { PipelineView } from './components/admin/pipeline-view';
 import { ProvenanceChain } from './components/admin/provenance-chain';
@@ -38,6 +39,35 @@ describe('ConnectorCard', () => {
     expect(html).toContain('•••• set');
     expect(html).toContain('cursor set');
     expect(html).not.toContain('secret-value');
+  });
+});
+
+describe('shredConfirmed', () => {
+  it('requires the typed name to match exactly and a non-empty reason', () => {
+    expect(shredConfirmed('Acme', 'Acme', 'offboarded')).toBe(true);
+    expect(shredConfirmed('Acme', 'acme', 'offboarded')).toBe(false);
+    expect(shredConfirmed('Acme', 'Acme', '')).toBe(false);
+    expect(shredConfirmed('Acme', 'Acme', '   ')).toBe(false);
+    expect(shredConfirmed('Acme', '', 'offboarded')).toBe(false);
+  });
+});
+
+describe('DangerZone', () => {
+  it('renders the shred control disabled until the confirmation gate is satisfied — cannot fire the request without typing the engagement name', () => {
+    const html = renderToStaticMarkup(
+      <DangerZone engagementId="eng-1" endCustomerName="Acme" initialStatus="active" />,
+    );
+    expect(html).toContain('Crypto-shred this engagement');
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Crypto-shred this engagement/);
+    expect(html).toContain('active');
+  });
+
+  it('renders the post-shred state instead of the destructive form once already shredded', () => {
+    const html = renderToStaticMarkup(
+      <DangerZone engagementId="eng-1" endCustomerName="Acme" initialStatus="shredded" />,
+    );
+    expect(html).toContain('This engagement has been crypto-shredded.');
+    expect(html).not.toContain('Crypto-shred this engagement');
   });
 });
 
