@@ -4,3 +4,4 @@ export * from './capture-session.js';
 export * from './extraction-pipeline.js';
 export * from './connector-sync.js';
 export * from './agentic-linking.js';
+export * from './crypto-shred.js';

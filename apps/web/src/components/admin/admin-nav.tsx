@@ -8,6 +8,7 @@ const TABS = [
   ['lineage', 'Lineage'],
   ['graph', 'Graph'],
   ['pipeline', 'Pipeline'],
+  ['danger-zone', 'Danger Zone'],
 ] as const;
 
 /** Tab bar for the `/admin` section + a link back to the engagement view. */

@@ -1,5 +1,6 @@
 import type {
   ConnectorConfig,
+  CryptoShredResult,
   Engagement,
   EngagementGraph,
   EntityProvenance,
@@ -163,6 +164,19 @@ export function getGraph(
   if (filters?.predicate) qs.set('predicate', filters.predicate);
   const suffix = qs.toString() ? `?${qs}` : '';
   return apiJson<EngagementGraph>(`/engagements/${engagementId}/graph${suffix}`, token);
+}
+
+// --- /admin: danger zone (crypto-shred) --------------------------------------
+
+export function cryptoShredEngagement(
+  token: string | undefined,
+  engagementId: string,
+  reason: string,
+): Promise<CryptoShredResult> {
+  return apiJson<CryptoShredResult>(`/engagements/${engagementId}/crypto-shred`, token, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
 }
 
 export function getPipeline(

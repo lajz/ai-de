@@ -7,6 +7,7 @@ import type { RecallClient } from '../capture/recall-client.js';
 import { createAgenticLinkingActivities } from './agentic-linking.js';
 import { createCaptureSessionActivities } from './capture-session.js';
 import { createConnectorSyncActivities } from './connector-sync.js';
+import { createCryptoShredActivities } from './crypto-shred.js';
 import { createDescribeEngagementActivity } from './describe-engagement.js';
 import { createExtractionActivities } from './extraction-pipeline.js';
 import { pingActivity } from './ping.js';
@@ -41,6 +42,7 @@ export function createActivities(deps: ActivityDeps) {
     ...createExtractionActivities(deps),
     ...createConnectorSyncActivities(deps),
     ...createAgenticLinkingActivities({ ...deps, embeddingClient: deps.queryEmbeddingClient }),
+    ...createCryptoShredActivities(deps),
   };
 }
 
@@ -106,3 +108,12 @@ export {
   type RunAgenticLinkingInput,
   type RunAgenticLinkingResult,
 } from './agentic-linking.js';
+export {
+  createCryptoShredActivities,
+  type CryptoShredActivitiesDeps,
+  type CryptoShredActivities,
+  type ShredEngagementDekInput,
+  type ShredEngagementDekResult,
+  type PurgeShreddedCiphertextInput,
+  type PurgeShreddedCiphertextResult,
+} from './crypto-shred.js';

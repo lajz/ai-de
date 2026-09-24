@@ -21,6 +21,8 @@ const CONNECTOR_SYNC_WORKFLOW_TYPE = 'connectorSyncWorkflow';
 const DEFAULT_TASK_QUEUE = 'fde-default';
 /** Must match `apps/workers`' `workflows/agentic-linking.ts` `agenticLinkingPipelineWorkflow`. */
 const AGENTIC_LINKING_WORKFLOW_TYPE = 'agenticLinkingPipelineWorkflow';
+/** Must match `apps/workers`' `workflows/crypto-shred.ts` `cryptoShredWorkflow`. */
+const CRYPTO_SHRED_WORKFLOW_TYPE = 'cryptoShredWorkflow';
 
 /** Shape must match `apps/workers` `ConnectorSyncWorkflowInput`. */
 export interface ConnectorSyncStartInput {
@@ -121,6 +123,59 @@ export class TemporalAgenticLinking {
   }
 }
 
+/** Shape must match `apps/workers` `CryptoShredWorkflowInput`. */
+export interface CryptoShredStartInput {
+  tenantId: TenantId;
+  engagementId: EngagementId;
+  /** the user id that authorised the shred — forwarded to the workflow's own `shredEngagementDekActivity` re-assertion */
+  actorId: string;
+  reason: string;
+}
+
+/**
+ * Starts `cryptoShredWorkflow` for the async purge phase of a crypto-shred.
+ * Called **after** the API has already destroyed the engagement's DEK directly
+ * and synchronously via `shredEngagement()` (`@fde/db`) — this is best-effort
+ * from the caller's side, same convention as `TemporalAgenticLinking`: the
+ * security guarantee ("revoke a key, the data is unreadable") does not depend
+ * on Temporal being reachable, only the ciphertext-purge storage-hygiene step
+ * does. `workflowId` is derived from the engagement id alone (not a
+ * timestamp) so a caller that retries the shred request after a Temporal
+ * hiccup resolves to the same workflow execution instead of starting a
+ * duplicate purge.
+ */
+@Injectable()
+export class TemporalCryptoShred {
+  constructor(
+    @Inject(TEMPORAL_WORKFLOW_CLIENT) private readonly client: WorkflowClient | null,
+    @Inject(TEMPORAL_TASK_QUEUE) private readonly taskQueue: string,
+  ) {}
+
+  get configured(): boolean {
+    return this.client !== null;
+  }
+
+  async start(input: CryptoShredStartInput): Promise<{ workflowId: string }> {
+    if (!this.client) {
+      throw new ServiceUnavailableException(
+        'Temporal is not configured — set TEMPORAL_ADDRESS to enable the crypto-shred purge workflow',
+      );
+    }
+    const workflowId = `crypto-shred-${input.engagementId}`;
+    try {
+      await this.client.start(CRYPTO_SHRED_WORKFLOW_TYPE, {
+        taskQueue: this.taskQueue,
+        workflowId,
+        args: [input],
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ServiceUnavailableException(`could not reach Temporal: ${message}`);
+    }
+    return { workflowId };
+  }
+}
+
 @Global()
 @Module({
   providers: [
@@ -152,7 +207,8 @@ export class TemporalAgenticLinking {
     },
     TemporalConnectorSync,
     TemporalAgenticLinking,
+    TemporalCryptoShred,
   ],
-  exports: [TemporalConnectorSync, TemporalAgenticLinking],
+  exports: [TemporalConnectorSync, TemporalAgenticLinking, TemporalCryptoShred],
 })
 export class TemporalModule {}

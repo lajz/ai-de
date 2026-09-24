@@ -179,6 +179,46 @@ describe('POST /api/admin/sync proxy', () => {
   });
 });
 
+describe('POST /api/admin/crypto-shred proxy', () => {
+  async function post(body: unknown) {
+    const { POST } = await import('./app/api/admin/crypto-shred/route');
+    return POST(
+      new Request('http://localhost/api/admin/crypto-shred', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  it('rejects a missing engagementId or an empty reason before ever calling upstream', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await post({ reason: 'offboard' })).status).toBe(400);
+    expect((await post({ engagementId: 'e', reason: '   ' })).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards to the upstream crypto-shred route and relays its result', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => okJson({ ok: true, alreadyShredded: false })),
+    );
+    const res = await post({ engagementId: 'e', reason: 'customer offboarded' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, alreadyShredded: false });
+  });
+
+  it('relays an upstream 403 with a human-readable message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => okJson({}, false, 403)),
+    );
+    const res = await post({ engagementId: 'e', reason: 'customer offboarded' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining('not authorized') });
+  });
+});
+
 describe('GET /api/admin/entity-provenance proxy', () => {
   async function get(qs: string) {
     const { GET } = await import('./app/api/admin/entity-provenance/route');

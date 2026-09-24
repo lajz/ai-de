@@ -671,3 +671,59 @@ main.admin {
   color: var(--muted);
   margin-left: var(--space-2);
 }
+
+/* ---------------------------------------------------------------------------
+   Danger zone (crypto-shred)
+--------------------------------------------------------------------------- */
+
+.danger-zone {
+  border: 1px solid var(--error);
+  border-radius: var(--radius-tile);
+  padding: var(--space-4);
+  background: var(--surface);
+}
+
+.danger-zone-status {
+  margin-bottom: var(--space-4);
+}
+
+.danger-zone-warning {
+  color: var(--muted);
+  max-width: none;
+}
+
+.danger-zone-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.danger-zone-form .field-label {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.danger-zone-error {
+  margin-top: var(--space-3);
+}
+
+.danger-zone-shredded {
+  border: 1px solid var(--error);
+  border-radius: var(--radius-tile);
+  padding: var(--space-4);
+  background: var(--error-wash);
+}
+
+.danger-zone-shredded-title {
+  font-weight: 600;
+  color: var(--error);
+  margin: 0 0 var(--space-2);
+}
+
+.danger-zone-shredded-body {
+  color: var(--ink);
+  max-width: none;
+  margin: 0;
+}

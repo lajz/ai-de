@@ -7,6 +7,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { EngagementId, TenantId, UserId } from '@fde/core';
 import { InMemoryAuthzClient } from '@fde/authz';
 import type { EngagementCipher } from '@fde/crypto';
+import type { Database } from '@fde/db';
 import type { EmbeddingClient, Router } from '@fde/llm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,9 +15,12 @@ import type { Env } from '../config/env.js';
 import { runWithRequestContext } from '@fde/request-context';
 import type { AgenticQaService } from '../retrieval/agentic-qa.service.js';
 import { RetrievalService } from '../retrieval/retrieval.service.js';
+import type { TemporalCryptoShred } from '../temporal/temporal.module.js';
 import { EngagementsController } from './engagements.controller.js';
 
 const agenticQa = {} as AgenticQaService;
+const db = {} as Database;
+const temporalCryptoShred = {} as TemporalCryptoShred;
 
 /**
  * Controller-level coverage for `GET :id/facts`'s query-param parsing —
@@ -82,7 +86,14 @@ function fact(id: string, createdAt: Date) {
 function controller(): EngagementsController {
   const authz = new InMemoryAuthzClient();
   const retrieval = new RetrievalService(authz, fakeRouter, fakeEmbeddings, config(false));
-  return new EngagementsController(authz, retrieval, agenticQa, config(false));
+  return new EngagementsController(
+    authz,
+    retrieval,
+    agenticQa,
+    db,
+    temporalCryptoShred,
+    config(false),
+  );
 }
 
 beforeEach(() => vi.clearAllMocks());

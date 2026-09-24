@@ -7,6 +7,7 @@ import {
   HttpCode,
   Inject,
   type MessageEvent,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -35,15 +36,17 @@ import {
 } from '@fde/core';
 import { listAccess, logAccess } from '@fde/audit';
 import { AuthzClient, ENGAGEMENT_ROLES, type EngagementRole } from '@fde/authz';
-import { engagements } from '@fde/db';
-import { desc } from 'drizzle-orm';
+import { engagements, shredEngagement, withTenant, type Database } from '@fde/db';
+import { desc, eq } from 'drizzle-orm';
 import { from, map, type Observable } from 'rxjs';
 
 import type { Env } from '../config/env.js';
+import { DB } from '../db/db.module.js';
 import { EngagementScope, NoTransactionScope } from '../request-context/metadata.js';
 import { getEngagementContext, getRequestContext } from '@fde/request-context';
 import { AgenticQaService } from '../retrieval/agentic-qa.service.js';
 import { RetrievalService } from '../retrieval/retrieval.service.js';
+import { TemporalCryptoShred } from '../temporal/temporal.module.js';
 import type { AuthedRequest } from '../request-context/tenant-context.guard.js';
 
 class EngagementResponse {
@@ -127,6 +130,20 @@ class AddMemberResponse {
   @ApiProperty({ type: Boolean }) ok!: boolean;
 }
 
+class CryptoShredBody {
+  @ApiProperty({ type: String, description: 'why this engagement is being crypto-shredded' })
+  reason!: string;
+}
+
+class CryptoShredResponse {
+  @ApiProperty({ type: Boolean }) ok!: boolean;
+  @ApiProperty({
+    type: Boolean,
+    description: 'true if the engagement was already shredded before this call',
+  })
+  alreadyShredded!: boolean;
+}
+
 @ApiTags('engagements')
 @ApiBearerAuth()
 @Controller('engagements')
@@ -137,6 +154,8 @@ export class EngagementsController {
     @Inject(AuthzClient) private readonly authz: AuthzClient,
     @Inject(RetrievalService) private readonly retrieval: RetrievalService,
     @Inject(AgenticQaService) private readonly agenticQa: AgenticQaService,
+    @Inject(DB) private readonly db: Database,
+    @Inject(TemporalCryptoShred) private readonly temporalCryptoShred: TemporalCryptoShred,
     @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     this.enforce = config.get('AUTHZ_ENFORCE', { infer: true }) === 'true';
@@ -372,6 +391,81 @@ export class EngagementsController {
     await this.authz.grantEngagementRole(grantee as UserId, engagement.id, role);
     return { ok: true };
   }
+
+  /**
+   * Crypto-shred: engagement DEK destruction + (best-effort) async ciphertext
+   * purge + audit entry (M4). Genuinely irreversible — once this returns
+   * `ok: true`, the engagement's content is permanently unreadable.
+   *
+   * `@NoTransactionScope()`, not `@EngagementScope()`: the interceptor's
+   * `withEngagement` opens a crypto context by unwrapping the DEK this
+   * handler is about to destroy — same chicken-and-egg shape as `qaAgentic`
+   * and the `api_keys` RLS-exclusion precedent (PR #47). Identity comes
+   * straight off `req.fdeSession`, and the one DB touch this handler needs
+   * (a tenant-scoped existence check) opens its own short-lived `withTenant`.
+   *
+   * Authz is self-authorizing, not break-glass (`@fde/audit`'s
+   * `break-glass.ts` is a distinct, second-person-approved mechanism for
+   * internal employee support access) — the caller just needs engagement- or
+   * tenant-admin authz, the same `canAdministerEngagement` /
+   * `canAdministerTenant` pair `addMember` above already uses, checked before
+   * any DB work or echoed validation detail.
+   *
+   * `shredEngagement()` runs directly and synchronously against `@fde/db` —
+   * never via Temporal — so the security guarantee never depends on Temporal
+   * being reachable. Only after that succeeds does this best-effort start the
+   * `cryptoShredWorkflow` purge phase (storage hygiene, safe to run late or
+   * not at all): a down/unconfigured Temporal is swallowed here and never
+   * fails the shred response, same convention as `TemporalAgenticLinking`.
+   */
+  @Post(':id/crypto-shred')
+  @HttpCode(200)
+  @NoTransactionScope()
+  async cryptoShred(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: CryptoShredBody,
+    @Req() req: AuthedRequest,
+  ): Promise<CryptoShredResponse> {
+    const session = req.fdeSession;
+    if (!session) throw new UnauthorizedException('authentication required');
+    const engagementId = id as EngagementId;
+    const { tenantId, userId } = session;
+
+    // Authorize before doing any work.
+    const allowed =
+      (await this.authz.canAdministerEngagement(userId, engagementId)) ||
+      (await this.authz.canAdministerTenant(userId, tenantId));
+    if (!allowed) throw new ForbiddenException('not authorized to crypto-shred this engagement');
+
+    const { reason } = parseCryptoShredBody(body);
+
+    // Tenant-scoped existence check — RLS-invisible (another tenant's
+    // engagement id) resolves to no row, same 404-on-cross-tenant convention
+    // `TenantContextInterceptor` applies to every `@EngagementScope()` route.
+    const [exists] = await withTenant(this.db, tenantId, (tx) =>
+      tx.select({ id: engagements.id }).from(engagements).where(eq(engagements.id, engagementId)),
+    );
+    if (!exists) throw new NotFoundException('engagement not found');
+
+    const didShred = await shredEngagement(this.db, {
+      tenantId,
+      engagementId,
+      actorId: userId,
+      reason,
+    });
+
+    if (this.temporalCryptoShred.configured) {
+      try {
+        await this.temporalCryptoShred.start({ tenantId, engagementId, actorId: userId, reason });
+      } catch {
+        // Best-effort — the DEK is already gone regardless of whether the
+        // async purge could be scheduled. A future admin surface can list
+        // engagements whose purge never ran and re-trigger it.
+      }
+    }
+
+    return { ok: true, alreadyShredded: !didShred };
+  }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -389,4 +483,16 @@ function parseAddMemberBody(body: unknown): { userId: string; role: EngagementRo
     throw new BadRequestException(`role must be one of: ${ENGAGEMENT_ROLES.join(', ')}`);
   }
   return { userId, role: role as EngagementRole };
+}
+
+/** Shape-check the `POST /engagements/:id/crypto-shred` body. Throws 400 on anything off. */
+function parseCryptoShredBody(body: unknown): { reason: string } {
+  if (typeof body !== 'object' || body === null) {
+    throw new BadRequestException('request body is required');
+  }
+  const { reason } = body as Record<string, unknown>;
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new BadRequestException('reason must be a non-empty string');
+  }
+  return { reason };
 }
