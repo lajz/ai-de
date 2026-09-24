@@ -9,6 +9,7 @@ import type {
   PipelineStatus,
   PutConnectorBody,
   QaResult,
+  SetByokKeyResult,
   SyncMode,
 } from './types';
 
@@ -46,6 +47,16 @@ export class ApiError extends Error {
   }
 }
 
+/** Nest's default exception filter serializes `{ statusCode, message, error }`. */
+async function upstreamErrorDetail(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { message?: unknown } | null;
+    return typeof body?.message === 'string' ? body.message : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Server-side proxied call to `@fde/api`. The caller's session token (from the
  * `fde_session` cookie, or the documented dev fallback) is forwarded as a bearer
@@ -67,7 +78,8 @@ async function apiJson<T>(
     cache: 'no-store',
   });
   if (!res.ok) {
-    throw new ApiError(res.status, `${init?.method ?? 'GET'} ${path} → ${res.status}`);
+    const detail = await upstreamErrorDetail(res);
+    throw new ApiError(res.status, detail ?? `${init?.method ?? 'GET'} ${path} → ${res.status}`);
   }
   return (await res.json()) as T;
 }
@@ -176,6 +188,19 @@ export function cryptoShredEngagement(
   return apiJson<CryptoShredResult>(`/engagements/${engagementId}/crypto-shred`, token, {
     method: 'POST',
     body: JSON.stringify({ reason }),
+  });
+}
+
+// --- /admin: key management (BYOK/CMEK) --------------------------------------
+
+export function setByokKey(
+  token: string | undefined,
+  engagementId: string,
+  byokKeyArn: string,
+): Promise<SetByokKeyResult> {
+  return apiJson<SetByokKeyResult>(`/engagements/${engagementId}/crypto/byok-key`, token, {
+    method: 'POST',
+    body: JSON.stringify({ byokKeyArn }),
   });
 }
 

@@ -6,7 +6,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { EngagementId, TenantId, UserId } from '@fde/core';
 import { InMemoryAuthzClient } from '@fde/authz';
-import type { EngagementCipher } from '@fde/crypto';
+import type { EngagementCipher, KeyProvider } from '@fde/crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../config/env.js';
@@ -22,6 +22,7 @@ const retrieval = {} as RetrievalService;
 const agenticQa = {} as AgenticQaService;
 const db = {} as Database;
 const temporalCryptoShred = {} as TemporalCryptoShred;
+const keyProvider = {} as KeyProvider;
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -87,6 +88,7 @@ describe('EngagementsController — AUTHZ_ENFORCE on', () => {
       agenticQa,
       db,
       temporalCryptoShred,
+      keyProvider,
       config(true),
     );
   });
@@ -169,6 +171,7 @@ describe('EngagementsController — AUTHZ_ENFORCE off', () => {
       agenticQa,
       db,
       temporalCryptoShred,
+      keyProvider,
       config(false),
     );
     const res = await run(fakeTx([]), engagement, () => controller.audit(engagementA));

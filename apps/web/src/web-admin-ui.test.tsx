@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConnectorCard } from './components/admin/connector-card';
 import { DangerZone, shredConfirmed } from './components/admin/danger-zone';
 import { EntityProvenanceView } from './components/admin/entity-provenance-panel';
+import { KeyManagementPanel } from './components/admin/key-management-panel';
 import { PipelineView } from './components/admin/pipeline-view';
 import { ProvenanceChain } from './components/admin/provenance-chain';
-import { saveConnector, triggerSync } from './lib/admin-client';
+import { saveConnector, submitByokKey, triggerSync } from './lib/admin-client';
 import { buildFlowGraph, graphFacets } from './lib/graph-layout';
 import { relativeTime } from './lib/relative-time';
 import type {
@@ -71,6 +72,32 @@ describe('DangerZone', () => {
   });
 });
 
+describe('KeyManagementPanel', () => {
+  it('renders the platform-managed state with a "set" call to action', () => {
+    const html = renderToStaticMarkup(
+      <KeyManagementPanel engagementId="eng-1" initialByokKeyArn={null} />,
+    );
+    expect(html).toContain('platform-managed tenant key');
+    expect(html).toContain('Set customer-managed key');
+    expect(html).not.toContain('customer-managed (BYOK)');
+  });
+
+  it('renders the BYOK state, showing the key ARN as an identifier and offering rotation', () => {
+    const html = renderToStaticMarkup(
+      <KeyManagementPanel
+        engagementId="eng-1"
+        initialByokKeyArn="arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+      />,
+    );
+    expect(html).toContain('customer-managed (BYOK)');
+    expect(html).toContain(
+      'arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab',
+    );
+    expect(html).toContain('Rotate key');
+    expect(html).not.toContain('platform-managed tenant key');
+  });
+});
+
 describe('admin-client actions', () => {
   it('saveConnector PUTs the patch to the same-origin proxy', async () => {
     const fetchMock = vi.fn(
@@ -98,6 +125,45 @@ describe('admin-client actions', () => {
       ),
     );
     await expect(triggerSync('eng-1', 'granola', 'backfill')).rejects.toThrow('not enabled');
+  });
+
+  it('submitByokKey POSTs the ARN to the same-origin proxy', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, byokKeyArn: 'arn:test' }),
+        }) as Response,
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await submitByokKey('eng-1', 'arn:test');
+    expect(res).toEqual({ ok: true, byokKeyArn: 'arn:test' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/byok-key');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      engagementId: 'eng-1',
+      byokKeyArn: 'arn:test',
+    });
+  });
+
+  it('submitByokKey surfaces the proxy error message — the "verification failed" case', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'the cross-account KMS grant has not propagated yet' }),
+          }) as Response,
+      ),
+    );
+    await expect(submitByokKey('eng-1', 'arn:test')).rejects.toThrow(
+      'the cross-account KMS grant has not propagated yet',
+    );
   });
 });
 
