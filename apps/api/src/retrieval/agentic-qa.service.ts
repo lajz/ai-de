@@ -9,6 +9,7 @@ import {
   AGENTIC_QA_PROMPT_NAME,
   redactUsage,
   traceAgentLoop,
+  type ChatMessage,
   type McpToolCaller,
   type Router,
   type TraceHandle,
@@ -26,6 +27,15 @@ import { RetrievalService, type QaCitation, type QaResult } from './retrieval.se
 export const MAX_LLM_TURNS = 6;
 /** Tool calls per question — checked independently, since a turn could always call a tool. */
 export const MAX_TOOL_CALLS = 4;
+/**
+ * Prior conversation turns kept when threading `history` into a new question —
+ * the client sends its full transcript every call (this service is stateless
+ * across requests, same posture as the underlying chat-completions APIs), so
+ * this bounds one caller's ability to balloon the prompt/cost via an
+ * artificially long `history` array. Oldest turns are dropped first; a
+ * genuinely long-running conversation degrades gracefully rather than erroring.
+ */
+export const MAX_HISTORY_MESSAGES = 20;
 
 export type AgenticQaEvent =
   | { type: 'tool_step'; tool: string; status: 'started' | 'ok' | 'error' }
@@ -53,6 +63,13 @@ export interface AgenticQaContext {
  * (`@fde/mcp`'s `withToolContext`) — there is no ambient request transaction
  * held open for the life of this (potentially long, streamed) call. The
  * controller route driving this service is `@NoTransactionScope()`.
+ *
+ * Stateless across calls, like the chat-completions APIs it sits on: this
+ * service holds no conversation state of its own between questions. A
+ * follow-up question only sees prior turns if the caller resends them as
+ * `history` — the same array-of-turns contract `Router.runAgentLoop`'s
+ * `messages` already accepts, just carried across HTTP requests by the
+ * client instead of within one call.
  */
 @Injectable()
 export class AgenticQaService {
@@ -67,11 +84,23 @@ export class AgenticQaService {
     @Inject(TRACER) private readonly tracer: Tracer,
   ) {}
 
-  async *ask(question: string, ctx: AgenticQaContext): AsyncGenerator<AgenticQaEvent> {
+  /**
+   * `history` is this conversation's prior turns, oldest first, `question`
+   * not yet among them — trimmed to `MAX_HISTORY_MESSAGES` (keeping the most
+   * recent) before being threaded onto the new question as one `messages`
+   * array. Never persisted here; if the caller drops it, the next question
+   * is answered with no memory of this one, same as today.
+   */
+  async *ask(
+    question: string,
+    ctx: AgenticQaContext,
+    history: ChatMessage[] = [],
+  ): AsyncGenerator<AgenticQaEvent> {
     const queue = new AsyncQueue<AgenticQaEvent>();
+    const boundedHistory = history.slice(-MAX_HISTORY_MESSAGES);
 
     const runPromise = traceAgentLoop(this.tracer, { engagementId: ctx.engagementId }, (trace) =>
-      this.runLoop(question, ctx, trace, queue),
+      this.runLoop(question, boundedHistory, ctx, trace, queue),
     )
       .catch(async (err) => {
         this.logger.warn(`agentic loop failed, falling back to one-shot: ${errorMessage(err)}`);
@@ -85,6 +114,7 @@ export class AgenticQaService {
 
   private async runLoop(
     question: string,
+    history: ChatMessage[],
     ctx: AgenticQaContext,
     trace: TraceHandle,
     queue: AsyncQueue<AgenticQaEvent>,
@@ -105,10 +135,12 @@ export class AgenticQaService {
       await Promise.all([mcpServer.connect(serverTransport), mcpClient.connect(clientTransport)]);
       const { tools } = await mcpClient.listTools();
 
+      const messages: ChatMessage[] = [...history, { role: 'user', content: question }];
+
       for await (const event of this.router.runAgentLoop({
         tier: 'default',
         prompt: { name: AGENTIC_QA_PROMPT_NAME },
-        messages: question,
+        messages,
         maxIterations: MAX_LLM_TURNS,
         mcpTools: tools,
         mcpClient: asMcpToolCaller(mcpClient),

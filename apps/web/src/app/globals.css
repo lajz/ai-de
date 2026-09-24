@@ -252,6 +252,17 @@ main {
   color: var(--surface);
 }
 
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -432,13 +443,36 @@ input[type='checkbox'] {
   margin-bottom: var(--space-6);
 }
 
+.ask-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .ask form {
   display: flex;
   gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
 .ask input {
   flex: 1;
+}
+
+.qa-turns {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.qa-turn-user {
+  margin-top: var(--space-4);
+}
+
+.qa-question {
+  font-weight: 600;
 }
 
 .answer {

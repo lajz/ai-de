@@ -226,7 +226,7 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
       expect(events.some((e) => e.type === 'answer' || e.type === 'error')).toBe(true);
     });
 
-    it("never lets tenant A's session reach tenant B's engagement content — the fallback's own withEngagement 404s via RLS, surfaced as an error event, never an answer", async () => {
+    it("never lets tenant A's session reach tenant B's engagement content — every tool call against it 404s via RLS, and the caller never sees an answer built from it", async () => {
       const token = await login('code-a7', 'wos_a', 'org_a');
       const res = await request(app.getHttpServer())
         .post(`/engagements/${engagementB}/qa/agentic`)
@@ -234,9 +234,24 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
         .send({ question: 'what is Globex working on?' });
 
       expect(res.status).toBe(200); // SSE already started; the failure is in-band
-      const events = sseEvents(res.text) as { type: string; message?: string }[];
-      expect(events.some((e) => e.type === 'answer')).toBe(false);
-      expect(events.some((e) => e.type === 'error')).toBe(true);
+      const events = sseEvents(res.text) as {
+        type: string;
+        tool?: string;
+        status?: string;
+        message?: string;
+      }[];
+      // The security invariant: RLS gates every tool read of engagementB, so
+      // every tool call the agent makes errors out — regardless of whether it
+      // then answers gracefully from that ("That is not in the retrieved
+      // context.") or the loop gives up and falls back to the one-shot path's
+      // own 404 (an `error` event). Either ending is fine; a `tool_step`
+      // that's *not* `status: 'error'`, or any leaked content, is not.
+      // Each tool call emits a `started` step, then an `ok`/`error` step —
+      // only the latter says how the call actually resolved.
+      const settledSteps = events.filter((e) => e.type === 'tool_step' && e.status !== 'started');
+      expect(settledSteps.length).toBeGreaterThan(0);
+      expect(settledSteps.every((e) => e.status === 'error')).toBe(true);
+      expect(events.some((e) => e.type === 'answer' || e.type === 'error')).toBe(true);
       expect(JSON.stringify(events)).not.toContain('Globex');
     });
 
@@ -245,6 +260,33 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
         .post(`/engagements/${engagementA}/qa/agentic`)
         .send({ question: 'anything?' });
       expect(res.status).toBe(401);
+    });
+
+    it('accepts a conversation history and still answers — the loop is stateless server-side, so a follow-up only works if the caller resends prior turns', async () => {
+      const token = await login('code-a8', 'wos_a', 'org_a');
+      const res = await request(app.getHttpServer())
+        .post(`/engagements/${engagementA}/qa/agentic`)
+        .set('authorization', `Bearer ${token}`)
+        .send({
+          question: 'why not the alternative?',
+          history: [
+            { role: 'user', content: 'what did we decide?' },
+            { role: 'assistant', content: 'We decided on option A.' },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      const events = sseEvents(res.text) as { type: string }[];
+      expect(events.some((e) => e.type === 'answer' || e.type === 'error')).toBe(true);
+    });
+
+    it('rejects a malformed history entry before any transaction opens', async () => {
+      const token = await login('code-a9', 'wos_a', 'org_a');
+      const res = await request(app.getHttpServer())
+        .post(`/engagements/${engagementA}/qa/agentic`)
+        .set('authorization', `Bearer ${token}`)
+        .send({ question: 'anything?', history: [{ role: 'system', content: 'nope' }] });
+      expect(res.status).toBe(400);
     });
   });
 });

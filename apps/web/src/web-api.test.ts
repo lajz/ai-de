@@ -198,6 +198,35 @@ describe('POST /api/qa/agentic proxy', () => {
     expect(await readAll(res.body!)).toContain('tool_step');
   });
 
+  it('forwards a valid history array to the upstream call, dropping anything malformed', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: sseBody(['data: {"type":"answer","answer":"ok","citations":[]}\n\n']),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await post({
+      engagementId: 'eng-1',
+      question: 'why not DynamoDB?',
+      history: [
+        { role: 'user', content: 'what db?' },
+        { role: 'assistant', content: 'Postgres.' },
+        { role: 'not-a-role', content: 'garbage' },
+        'not even an object',
+      ],
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse(init.body as string)).toEqual({
+      question: 'why not DynamoDB?',
+      history: [
+        { role: 'user', content: 'what db?' },
+        { role: 'assistant', content: 'Postgres.' },
+      ],
+    });
+  });
+
   it('relays an upstream error status without a body', async () => {
     vi.stubGlobal(
       'fetch',
