@@ -168,9 +168,70 @@ whitepaper for sales.
     for now); `fde` fact-permalink URLs as an additional decision-link marker.
   - **Slack Marketplace submission** (~7-week review) is a parallel human task —
     **start it now.**
-- **M4 — per-user authz-filtered retrieval + regulated-tier controls**: SpiceDB source-ACL mirroring + retrieval as the asking user; BYOK/CMEK (cross-account KMS grant, XKS) + `CryptoShred` Temporal workflow (DEK destruction + async ciphertext purge + audit); self-hosted embedding model option; `retentionPolicy` + region pin enforced end to end; Google Docs via Nango (`drive.file` scope, defers CASA); stakeholder + relationship-graph UI.
-- **M5 — Slack**: Marketplace app + Data Access API; `reference-only` (summary + permalink + ≤N-char quote, no body storage); ACL re-checked at query time.
-- **M6 — dedicated tier + public extensibility**: T1 Terraform workspace per tenant (self-hosted Temporal/SpiceDB/Nango, dedicated Aurora + S3, region pin), proven with one design partner; inbound ingestion API + MCP server GA + connector SDK; Jira / Asana / Notion / MS Graph as demand dictates.
+- **Landed between M3 and M4 (not previously logged here):** a **GitHub connector**
+  (pull requests via the shared webhook receiver, same `fde:decision:<id>` marker
+  convention as Linear) + a **connector-agnostic webhook receiver** generalized off
+  the Linear one; the decision-marker convention hoisted into a shared module used
+  by both connectors; a **`status_change` fact** synthesized on an observed
+  work-item transition; **agentic linking** — a Temporal workflow that
+  auto-writes `relates_to` edges for a new work item via a small tool-calling
+  pass over the existing graph; provenance/lineage and graph-view UI legibility
+  passes.
+- **Agentic Q&A + MCP server — landed, pulled forward from M6** (PRs #47/#48):
+  `apps/mcp` exposes the retrieval/lineage read path (`search_context`,
+  `list_facts`, `get_fact_provenance`, `get_entity_provenance`, `get_graph`) as
+  real MCP tools over `@modelcontextprotocol/sdk`, bound server-side per
+  question/caller (`tenantId`/`userId`/`engagementId` never in a tool's input
+  schema, never model-controlled). `packages/request-context` extracted the
+  `AsyncLocalStorage` request-context seam out of `apps/api` so both the HTTP
+  interceptor path and the MCP tool handlers share it; a `@NoTransactionScope()`
+  route decorator lets a handler read identity off the session directly instead
+  of an ambient transaction, for routes (like this one) that can't use the
+  normal `withEngagement`-opening interceptor path. `AgenticQaService` drives a
+  tool-calling loop over an in-process MCP connection (step-capped, falls back to
+  the original one-shot `answerQuestion` on error/cap — same guaranteed-answer
+  contract). A new `api_keys` table (deliberately excluded from RLS — resolving
+  a bare key has to happen _before_ `app.tenant_id` can be set — least-privilege,
+  timing-safe compare) lets external callers authenticate the same MCP surface.
+  **The agent loop itself is provider-agnostic** (PR #48): `LlmProvider` exposes
+  a single-turn `completeTurn()` primitive (no vendor SDK types leak into
+  `packages/llm`'s interface layer — MCP-facing shapes come from
+  `@modelcontextprotocol/sdk` directly), and the actual multi-turn loop lives
+  once, generically, in `Router.runAgentLoop()` — so Anthropic and any
+  OpenAI-compatible backend (DeepSeek, Ollama) both drive the same loop.
+  `OpenAiCompatibleProvider` now refuses to construct under `NODE_ENV=production`
+  (no ZDR guarantee — dev/CI only), closing the compliance gap this made
+  possible for every router call path at once, not just the agentic one.
+- **M4 — per-user authz-filtered retrieval + regulated-tier controls:**
+  - **CryptoShred workflow — landed** (PR #49): `shredEngagement()` (`@fde/db`,
+    pre-existing) does the actual, irreversible, synchronous thing — drop the
+    wrapped DEK + one atomic `access_log` row — now reachable via `POST
+/engagements/:id/crypto-shred` (engagement/tenant-admin authz,
+    `@NoTransactionScope()`) and followed by a best-effort async
+    `cryptoShredWorkflow` (Temporal) that purges the now-permanently-unreadable
+    ciphertext out of every `CRYPTO_COLUMNS`-registered, engagement-scoped table
+    (a drift guard fails the build if a new 🔒 table isn't wired into the
+    purger) — storage hygiene, not the security boundary, which already holds
+    the instant the DEK is gone. Type-to-confirm danger-zone UI on the
+    engagement admin page.
+  - **BYOK/CMEK — landed** (PR #50): a new `KeyProvider.rewrapDek()` primitive
+    (`Decrypt` under the old key, `Encrypt` — never `GenerateDataKey` — under
+    the new one, so the DEK's own bytes never change and existing ciphertext is
+    never orphaned) backs `POST /engagements/:id/crypto/byok-key`, which lets a
+    tenant/engagement admin set or rotate a customer-supplied KMS key ARN on an
+    _already-existing_ engagement (there is still no engagement-creation API —
+    out of scope, a separate feature). Submitting the ARN is itself the
+    verification: a bad ARN or a not-yet-propagated cross-account grant fails
+    the KMS call and leaves the previous key completely untouched (`FOR UPDATE`
+    lock, KMS round-trip before any write). Key-management panel on the
+    engagement admin page.
+  - **Still open:** SpiceDB source-ACL mirroring + per-user retrieval filtering
+    (deferred to M5 — see below, there's no connector producing real per-source
+    ACLs to filter on until Slack); self-hosted embedding model option;
+    `retentionPolicy` + region pin enforced end to end; Google Docs via Nango
+    (`drive.file` scope, defers CASA); stakeholder + relationship-graph UI.
+- **M5 — Slack**: Marketplace app + Data Access API; `reference-only` (summary + permalink + ≤N-char quote, no body storage); ACL re-checked at query time; this is also where SpiceDB source-ACL mirroring + per-user-filtered retrieval actually lands (Slack is the first connector with real per-source ACLs to mirror — see M4 above).
+- **M6 — dedicated tier + public extensibility**: T1 Terraform workspace per tenant (self-hosted Temporal/SpiceDB/Nango, dedicated Aurora + S3, region pin), proven with one design partner; inbound ingestion API + MCP server GA (**MCP server itself already landed, see above — GA here means the external `api_keys` auth path opened up beyond internal use**) + connector SDK; Jira / Asana / Notion / MS Graph as demand dictates.
 
 ---
 
