@@ -35,13 +35,19 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
       <p>
         <span className="id-chip">{id}</span>
       </p>
-      <AskPanel engagementId={id} />
-      <h2>Facts</h2>
-      <FactList
-        engagementId={id}
-        initialFacts={factPage.rows}
-        initialCursor={factPage.nextCursor}
-      />
+      <div className="engagement-split">
+        <div className="engagement-split-chat">
+          <AskPanel engagementId={id} />
+        </div>
+        <div className="engagement-split-facts">
+          <h2>Facts</h2>
+          <FactList
+            engagementId={id}
+            initialFacts={factPage.rows}
+            initialCursor={factPage.nextCursor}
+          />
+        </div>
+      </div>
     </main>
   );
 }
