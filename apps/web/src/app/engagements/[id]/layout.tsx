@@ -16,10 +16,11 @@ export default async function EngagementLayout({
     <main className="engagement">
       <nav className="breadcrumb">
         <Link href="/">← Engagements</Link>
-      </nav>
-      <p>
+        <span className="breadcrumb-sep" aria-hidden="true">
+          /
+        </span>
         <span className="id-chip">{id}</span>
-      </p>
+      </nav>
       <EngagementNav engagementId={id} />
       {children}
     </main>

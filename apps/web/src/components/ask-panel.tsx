@@ -220,7 +220,7 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
           className="btn btn-primary"
           disabled={pending || question.trim() === ''}
         >
-          {pending ? 'Asking…' : 'Ask'}
+          {pending ? 'Sending…' : 'Send'}
         </button>
       </form>
     </section>

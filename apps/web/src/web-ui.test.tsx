@@ -66,7 +66,7 @@ describe('AskPanel', () => {
   it('renders the question form for an engagement', () => {
     const html = renderToStaticMarkup(<AskPanel engagementId="eng-1" />);
     expect(html).toContain('aria-label="question"');
-    expect(html).toContain('Ask</button>');
+    expect(html).toContain('Send</button>');
   });
 });
 

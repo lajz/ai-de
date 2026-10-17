@@ -384,7 +384,7 @@ input[type='checkbox'] {
   gap: var(--space-3);
   font-size: 0.8125rem;
   color: var(--muted);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-3);
 }
 
 .breadcrumb a {
@@ -463,8 +463,18 @@ input[type='checkbox'] {
     /* Pinned to the viewport (not the page), same technique as
        `.lineage-picker`/`.lineage-detail` — a long chat transcript and a
        long, paginated fact list each scroll in place instead of dragging
-       the other pane's scroll position with them. */
-    max-height: calc(100vh - 2 * var(--space-4));
+       the other pane's scroll position with them.
+       `max-height` has to account for everything above this pane in the
+       viewport — the app bar plus the engagement header (breadcrumb + tab
+       bar) — not just `top`'s own offset, or the pane overflows below the
+       fold at the page's initial scroll position and you get a second,
+       outer page-level scrollbar on top of this pane's own one (this was a
+       real bug: the old `calc(100vh - 2 * var(--space-4))` assumed almost
+       nothing sat above the pane). `9rem` is a deliberately conservative
+       estimate of that chrome's height, erring toward "pane stops a bit
+       short of the fold" over "pane overflows it" — exact to the pixel
+       would need a measured height, not a CSS constant. */
+    max-height: calc(100vh - 9rem);
     position: sticky;
     top: var(--space-4);
   }
@@ -493,14 +503,16 @@ input[type='checkbox'] {
  * Ask — a bounded, internally-scrolling chat box (standard chat-UI shape)
  * rather than a page section: a fixed-height column with the message list
  * as its one scrolling region and the composer pinned below it, never
- * interleaved with tool-step/error state above the input. `height: 28rem`
- * is the mobile/narrow default; `>=56rem` (above) stretches it to fill the
- * sticky `.engagement-split-chat` pane instead.
+ * interleaved with tool-step/error state above the input. `min(70vh, 32rem)`
+ * is the mobile/narrow default — scales down on a short viewport instead of
+ * a flat constant that's too tall on a phone and too short on a tablet;
+ * `>=56rem` (below) stretches it to fill the sticky `.engagement-split-chat`
+ * pane instead.
  */
 .ask {
   display: flex;
   flex-direction: column;
-  height: 28rem;
+  height: min(70vh, 32rem);
   min-height: 0;
 }
 
@@ -773,6 +785,10 @@ input[type='checkbox'] {
    frame matters more than maximizing one tab's canvas. */
 main.engagement {
   max-width: 78rem;
+  /* Tighter than the generic `main` top padding — the breadcrumb + tab bar
+     are chrome, not content; `var(--space-6)` of air above them read as
+     dead space once the tab bar gave this page a second header row. */
+  padding-top: var(--space-4);
 }
 
 /* Opt-in for tabs whose content (a simple form list, a stat table) reads
@@ -788,8 +804,8 @@ main.engagement {
   align-items: center;
   gap: var(--space-2) var(--space-5);
   border-bottom: 1px solid var(--line);
-  padding-bottom: var(--space-3);
-  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .engagement-nav-tabs {
