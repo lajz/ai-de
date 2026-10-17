@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AskPanel } from './components/ask-panel';
+import { AskPanel, AskTurnBubble } from './components/ask-panel';
 import { FactList } from './components/fact-list';
 import type { Fact } from './lib/types';
 
@@ -67,5 +67,57 @@ describe('AskPanel', () => {
     const html = renderToStaticMarkup(<AskPanel engagementId="eng-1" />);
     expect(html).toContain('aria-label="question"');
     expect(html).toContain('Ask</button>');
+  });
+});
+
+describe('AskTurnBubble', () => {
+  it('renders a user turn as a plain-text bubble, not markdown', () => {
+    const html = renderToStaticMarkup(
+      <AskTurnBubble engagementId="eng-1" turn={{ role: 'user', content: '**not bold**' }} />,
+    );
+    expect(html).toContain('qa-bubble-user');
+    expect(html).toContain('**not bold**'); // literal, not parsed as markdown
+    expect(html).not.toContain('<strong>');
+  });
+
+  it('renders an assistant turn as markdown inside a distinct bubble', () => {
+    const html = renderToStaticMarkup(
+      <AskTurnBubble
+        engagementId="eng-1"
+        turn={{ role: 'assistant', content: 'We chose **Postgres** for the system of record.' }}
+      />,
+    );
+    expect(html).toContain('qa-bubble-assistant');
+    expect(html).toContain('<strong>Postgres</strong>');
+  });
+
+  it('links a citation to both its Lineage provenance chain and its external permalink', () => {
+    const html = renderToStaticMarkup(
+      <AskTurnBubble
+        engagementId="eng-1"
+        turn={{
+          role: 'assistant',
+          content: 'Postgres was chosen.',
+          citations: [
+            {
+              sourceId: 's1',
+              permalink: 'https://ex.com/transcript/1',
+              quote: 'we will standardize on Postgres',
+              factId: 'f1',
+            },
+          ],
+        }}
+      />,
+    );
+    expect(html).toContain('href="/engagements/eng-1/lineage?factId=f1"');
+    expect(html).toContain('href="https://ex.com/transcript/1"');
+    expect(html).toContain('we will standardize on Postgres');
+  });
+
+  it('renders no citations list when the answer has none', () => {
+    const html = renderToStaticMarkup(
+      <AskTurnBubble engagementId="eng-1" turn={{ role: 'assistant', content: 'No sources.' }} />,
+    );
+    expect(html).not.toContain('citations');
   });
 });

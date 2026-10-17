@@ -21,7 +21,7 @@ export default async function PipelinePage({ params }: { params: Promise<{ id: s
   }
 
   return (
-    <section>
+    <section className="engagement-narrow">
       <h1>Pipeline</h1>
       <RefreshButton />
       <PipelineView pipeline={pipeline} />

@@ -73,6 +73,7 @@ describe.skipIf(!url)('apps/api retrieval read path (integration)', () => {
   let closeApp: () => Promise<void>;
   let workos: FakeWorkOsService;
   let userId: string;
+  let factId: string;
 
   beforeAll(async () => {
     handle = createDbClient({ url: url!, max: 1 });
@@ -114,6 +115,7 @@ describe.skipIf(!url)('apps/api retrieval read path (integration)', () => {
           extractionRunId: runId,
         })
         .returning({ id: facts.id });
+      factId = f!.id;
       const evRow = await encryptRow(cipher, CRYPTO_COLUMNS.evidence, { quote: QUOTE });
       await tx.insert(evidence).values({
         tenantId,
@@ -233,6 +235,7 @@ describe.skipIf(!url)('apps/api retrieval read path (integration)', () => {
     expect(res.body.citations[0]).toMatchObject({
       permalink: 'https://ex.com/transcript/1',
       quote: QUOTE,
+      factId,
     });
   });
 });

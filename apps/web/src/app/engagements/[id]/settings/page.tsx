@@ -40,7 +40,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
   if (!engagement) return <AdminError status={404} />;
 
   return (
-    <section>
+    <section className="engagement-narrow">
       <h1>Settings</h1>
 
       <h2>Connectors</h2>

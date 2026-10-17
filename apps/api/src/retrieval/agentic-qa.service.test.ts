@@ -116,7 +116,7 @@ describe('AgenticQaService.ask', () => {
         permalink: 'https://ex.com/1',
         factSummaries: ['fact'],
         quotes: ['q1'],
-        citations: [{ sourceId: 's1', permalink: 'https://ex.com/1', quote: 'q1' }],
+        citations: [{ sourceId: 's1', permalink: 'https://ex.com/1', quote: 'q1', factId: 'f1' }],
       },
     ];
 
@@ -151,7 +151,7 @@ describe('AgenticQaService.ask', () => {
       {
         type: 'answer',
         answer: 'We chose Postgres (https://ex.com/1)',
-        citations: [{ sourceId: 's1', permalink: 'https://ex.com/1', quote: 'q1' }],
+        citations: [{ sourceId: 's1', permalink: 'https://ex.com/1', quote: 'q1', factId: 'f1' }],
       },
     ]);
     expect(retrieval.answerQuestion).not.toHaveBeenCalled();

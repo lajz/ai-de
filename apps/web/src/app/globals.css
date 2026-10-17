@@ -453,10 +453,6 @@ input[type='checkbox'] {
 }
 
 @media (min-width: 56rem) {
-  main:has(.engagement-split) {
-    max-width: 72rem;
-  }
-
   .engagement-split {
     flex-direction: row;
   }
@@ -464,20 +460,48 @@ input[type='checkbox'] {
   .engagement-split-chat,
   .engagement-split-facts {
     flex: 1 1 0;
-    /* Pinned to the viewport (not the page) and independently scrollable,
-       same technique as `.lineage-picker`/`.lineage-detail` — a long chat
-       transcript and a long, paginated fact list each scroll in place
-       instead of dragging the other pane's scroll position with them. */
+    /* Pinned to the viewport (not the page), same technique as
+       `.lineage-picker`/`.lineage-detail` — a long chat transcript and a
+       long, paginated fact list each scroll in place instead of dragging
+       the other pane's scroll position with them. */
     max-height: calc(100vh - 2 * var(--space-4));
-    overflow-y: auto;
     position: sticky;
     top: var(--space-4);
   }
 
   .engagement-split-facts {
+    overflow-y: auto;
     border-left: 1px solid var(--line);
     padding-left: var(--space-5);
   }
+
+  .engagement-split-chat {
+    /* Unlike `.engagement-split-facts`, this pane doesn't scroll itself —
+       `.ask` fills it exactly and `.ask-messages` is the scrollable part,
+       so the composer can stay pinned at the pane's bottom instead of
+       scrolling away with a long transcript. */
+    display: flex;
+    overflow: hidden;
+  }
+
+  .ask {
+    height: 100%;
+  }
+}
+
+/*
+ * Ask — a bounded, internally-scrolling chat box (standard chat-UI shape)
+ * rather than a page section: a fixed-height column with the message list
+ * as its one scrolling region and the composer pinned below it, never
+ * interleaved with tool-step/error state above the input. `height: 28rem`
+ * is the mobile/narrow default; `>=56rem` (above) stretches it to fill the
+ * sticky `.engagement-split-chat` pane instead.
+ */
+.ask {
+  display: flex;
+  flex-direction: column;
+  height: 28rem;
+  min-height: 0;
 }
 
 .ask-head {
@@ -485,37 +509,94 @@ input[type='checkbox'] {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
+  flex: 0 0 auto;
+  margin-bottom: var(--space-2);
 }
 
-.ask form {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-
-.ask input {
-  flex: 1;
-}
-
-.qa-turns {
+.ask-messages {
   list-style: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  padding: var(--space-2) 0;
+}
+
+.ask-empty {
+  color: var(--muted);
+  font-size: 0.875rem;
+  padding: var(--space-3) 0;
+}
+
+.ask-composer {
+  display: flex;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.ask-composer input {
+  flex: 1;
+}
+
+.qa-turn {
+  list-style: none;
+  display: flex;
 }
 
 .qa-turn-user {
-  margin-top: var(--space-4);
+  justify-content: flex-end;
 }
 
-.qa-question {
-  font-weight: 600;
+.qa-turn-assistant {
+  justify-content: flex-start;
 }
 
-.answer {
-  margin-top: var(--space-4);
-  border-left: 3px solid var(--accent);
-  padding: 0.2rem 0 0.2rem var(--space-4);
+.qa-turn-error {
+  justify-content: center;
+}
+
+.qa-bubble {
+  max-width: 85%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.qa-bubble-user {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.qa-bubble-assistant {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.qa-bubble-pending {
+  color: var(--muted);
+}
+
+.qa-thinking {
+  font-style: italic;
+}
+
+.tool-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8125rem;
+}
+
+.qa-error {
+  color: var(--error);
+  font-size: 0.875rem;
+  margin: 0;
 }
 
 .citations {
@@ -523,12 +604,83 @@ input[type='checkbox'] {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--muted);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
 }
 
 .citations q {
   color: var(--ink);
+}
+
+/* Minimal typographic reset for `react-markdown`'s output inside a
+   `.qa-bubble-assistant` — formatting only (no raw HTML is ever rendered;
+   see `AskPanel`'s doc comment), so headings are normalized to body size
+   rather than allowed to blow up the bubble. */
+.markdown-content :first-child {
+  margin-top: 0;
+}
+
+.markdown-content :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p {
+  margin: 0.5em 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.3em;
+}
+
+.markdown-content li {
+  margin: 0.15em 0;
+}
+
+.markdown-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.markdown-content code {
+  font-family: var(--font-data);
+  font-size: 0.85em;
+  background: var(--surface);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-tile);
+}
+
+.markdown-content pre {
+  background: var(--surface);
+  padding: var(--space-3);
+  border-radius: var(--radius-tile);
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--line-strong);
+  margin: 0.5em 0;
+  padding-left: var(--space-3);
+  color: var(--muted);
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.7em 0 0.3em;
 }
 
 .citation-relation {
@@ -610,7 +762,23 @@ input[type='checkbox'] {
    /engagements/[id]/... instead of a separate /admin route tree)
 --------------------------------------------------------------------------- */
 
+/* One constant width for every engagement tab — Ask, Lineage, Graph,
+   Pipeline and Settings all render this same frame, so switching tabs never
+   resizes the page. 78rem comfortably fits the Lineage two-pane layout
+   (previously 68rem) and the Ask chat/facts split (previously 72rem)
+   without starving Settings/Pipeline's simpler content; those two opt into
+   `.engagement-narrow` below instead of stretching edge-to-edge. The Graph
+   tab's network canvas previously got 92rem — it's narrower now, but
+   ReactFlow's pan/zoom/controls keep it fully usable, and a tab-stable
+   frame matters more than maximizing one tab's canvas. */
 main.engagement {
+  max-width: 78rem;
+}
+
+/* Opt-in for tabs whose content (a simple form list, a stat table) reads
+   better as a centered column than stretched across the full shared frame
+   — Settings and Pipeline use this; Ask/Lineage/Graph fill the frame. */
+.engagement-narrow {
   max-width: 56rem;
 }
 
@@ -807,10 +975,6 @@ main.engagement {
 }
 
 @media (min-width: 56rem) {
-  main.engagement:has(.lineage-layout) {
-    max-width: 68rem;
-  }
-
   .lineage-layout {
     flex-direction: row;
     align-items: flex-start;
@@ -1089,10 +1253,6 @@ main.engagement {
 }
 
 @media (min-width: 64rem) {
-  main.engagement:has(.graph-view) {
-    max-width: 92rem;
-  }
-
   .graph-body {
     flex-direction: row;
     align-items: flex-start;

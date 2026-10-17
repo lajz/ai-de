@@ -45,6 +45,8 @@ export interface QaCitation {
   sourceId: string;
   permalink: string | null;
   quote: string;
+  /** the fact this citation's evidence belongs to — links onward to `/engagements/[id]/lineage?factId=`. */
+  factId: string;
 }
 
 export interface QaResult {

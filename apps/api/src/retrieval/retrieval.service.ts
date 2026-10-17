@@ -63,6 +63,8 @@ export interface QaCitation {
   sourceId: string;
   permalink: string | null;
   quote: string;
+  /** the `facts.id` this citation's evidence row belongs to — lets the caller link onward to that fact's Lineage provenance chain. */
+  factId: string;
 }
 
 export interface QaResult {
@@ -308,7 +310,12 @@ export class RetrievalService {
       const quote = await decrypt(engagement.cipher, EVIDENCE_PATH, r.quote);
       if (quote !== null) {
         entry.quotes.push(quote);
-        entry.citations.push({ sourceId: r.sourceId, permalink: r.permalink, quote });
+        entry.citations.push({
+          sourceId: r.sourceId,
+          permalink: r.permalink,
+          quote,
+          factId: r.factId,
+        });
       }
     }
     return [...bySource.values()];
