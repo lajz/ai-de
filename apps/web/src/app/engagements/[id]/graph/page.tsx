@@ -1,8 +1,8 @@
-import { AdminError } from '../../../../../components/admin/admin-error';
-import { GraphView } from '../../../../../components/admin/graph-view';
-import { SignInNotice } from '../../../../../components/sign-in-notice';
-import { ApiError, getGraph } from '../../../../../lib/api';
-import { getSessionToken } from '../../../../../lib/session';
+import { AdminError } from '../../../../components/admin/admin-error';
+import { GraphView } from '../../../../components/admin/graph-view';
+import { SignInNotice } from '../../../../components/sign-in-notice';
+import { ApiError, getGraph } from '../../../../lib/api';
+import { getSessionToken } from '../../../../lib/session';
 
 export const dynamic = 'force-dynamic';
 

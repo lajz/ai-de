@@ -68,7 +68,7 @@ export type AgenticQaEvent =
   | { type: 'answer'; answer: string; citations: QaCitation[] }
   | { type: 'error'; message: string };
 
-// --- /admin: connector configuration -----------------------------------------
+// --- Connector configuration -------------------------------------------------
 
 export type RetentionPolicy = 'reference-only' | 'derived-ephemeral-raw' | 'full-retention';
 
@@ -95,7 +95,7 @@ export interface PutConnectorBody {
 
 export type SyncMode = 'backfill' | 'incremental';
 
-// --- /admin: data lineage --------------------------------------------------
+// --- Data lineage ------------------------------------------------------------
 
 export interface AclSummary {
   ruleCount: number;
@@ -176,7 +176,7 @@ export interface EngagementGraph {
   truncated: boolean;
 }
 
-// --- /admin: entity provenance -----------------------------------------------
+// --- Entity provenance --------------------------------------------------------
 
 export interface EntityDerivationCounterpart {
   kind: 'entity' | 'fact';
@@ -234,7 +234,7 @@ export interface PipelineStatus {
   rollups: PipelineRollups;
 }
 
-// --- /admin: danger zone (crypto-shred) --------------------------------------
+// --- Danger zone (crypto-shred) -----------------------------------------------
 
 export interface CryptoShredResult {
   ok: boolean;
@@ -242,7 +242,7 @@ export interface CryptoShredResult {
   alreadyShredded: boolean;
 }
 
-// --- /admin: key management (BYOK/CMEK) --------------------------------------
+// --- Key management (BYOK/CMEK) -----------------------------------------------
 
 export interface SetByokKeyResult {
   ok: boolean;

@@ -124,7 +124,7 @@ export function ProvenanceChain({
       </section>
 
       <p className="prov-graph-link">
-        <Link href={`/engagements/${engagementId}/admin/graph`}>View in entity graph</Link>
+        <Link href={`/engagements/${engagementId}/graph`}>View in entity graph</Link>
       </p>
     </div>
   );

@@ -7,7 +7,7 @@ import type { Fact, FactPage } from '../lib/types';
 import { factTypeColor } from '../lib/type-color';
 
 /**
- * The fact-picker column on `/admin/lineage` — same "server fetches page one,
+ * The fact-picker column on `/engagements/[id]/lineage` — same "server fetches page one,
  * client appends more" split as `FactList`. Scrolls its own bounded-height
  * list (`.lineage-picker` in globals.css); "Load more" appends onto the end
  * of that same scroll area rather than paging to a new view.
@@ -47,7 +47,7 @@ export function LineagePicker({
       {facts.map((f) => (
         <li key={f.id}>
           <Link
-            href={`/engagements/${engagementId}/admin/lineage?factId=${f.id}`}
+            href={`/engagements/${engagementId}/lineage?factId=${f.id}`}
             aria-current={f.id === selectedFactId ? 'true' : undefined}
           >
             <span className="fact-type" style={{ color: factTypeColor(f.type) }}>

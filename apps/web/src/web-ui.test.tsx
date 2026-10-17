@@ -40,7 +40,7 @@ describe('FactList', () => {
 
   it('links each fact to its full provenance chain', () => {
     const html = renderToStaticMarkup(<FactList engagementId="eng-1" initialFacts={facts} />);
-    expect(html).toContain('href="/engagements/eng-1/admin/lineage?factId=f1"');
+    expect(html).toContain('href="/engagements/eng-1/lineage?factId=f1"');
   });
 
   it('renders an empty state when there are no facts', () => {

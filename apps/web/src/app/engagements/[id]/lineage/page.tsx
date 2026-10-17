@@ -1,9 +1,9 @@
-import { AdminError } from '../../../../../components/admin/admin-error';
-import { ProvenanceChain } from '../../../../../components/admin/provenance-chain';
-import { LineagePicker } from '../../../../../components/lineage-picker';
-import { SignInNotice } from '../../../../../components/sign-in-notice';
-import { ApiError, getFactProvenance, getFacts } from '../../../../../lib/api';
-import { getSessionToken } from '../../../../../lib/session';
+import { AdminError } from '../../../../components/admin/admin-error';
+import { ProvenanceChain } from '../../../../components/admin/provenance-chain';
+import { LineagePicker } from '../../../../components/lineage-picker';
+import { SignInNotice } from '../../../../components/sign-in-notice';
+import { ApiError, getFactProvenance, getFacts } from '../../../../lib/api';
+import { getSessionToken } from '../../../../lib/session';
 
 export const dynamic = 'force-dynamic';
 

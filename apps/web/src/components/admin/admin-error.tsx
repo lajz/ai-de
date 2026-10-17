@@ -1,4 +1,4 @@
-/** Friendly inline state for an upstream `ApiError` on an `/admin` page. */
+/** Friendly inline state for an upstream `ApiError` on an engagement sub-page. */
 export function AdminError({ status }: { status: number }) {
   if (status === 410) {
     return (
