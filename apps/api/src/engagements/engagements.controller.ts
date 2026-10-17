@@ -205,6 +205,7 @@ class SetByokKeyResponse {
 @ApiBearerAuth()
 @Controller('engagements')
 export class EngagementsController {
+  private readonly logger = new Logger(EngagementsController.name);
   private readonly enforce: boolean;
 
   constructor(
@@ -461,9 +462,7 @@ export class EngagementsController {
         });
       }
       void server.close();
-      new Logger('EngagementsMcp').error(
-        `MCP request failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.logger.error(`MCP request failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
