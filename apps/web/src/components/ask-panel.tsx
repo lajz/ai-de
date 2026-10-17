@@ -97,7 +97,17 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const messagesRef = useRef<HTMLUListElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer with its content, up to `.ask-textarea`'s
+  // `max-height` (which then scrolls internally) — a plain `rows` count
+  // doesn't track multi-line input typed via Shift+Enter.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [question]);
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -157,6 +167,14 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
     setTurns([]);
     setSteps([]);
     setError(null);
+  }
+
+  /** Enter sends (standard chat composer behavior); Shift+Enter inserts a newline. */
+  function onComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      e.currentTarget.form?.requestSubmit();
+    }
   }
 
   /**
@@ -238,16 +256,19 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
       </ul>
 
       <form className="ask-composer" onSubmit={onSubmit}>
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
-          className="field-input"
+          className="field-input ask-textarea"
           aria-label="question"
+          rows={1}
           placeholder={
-            turns.length > 0 ? 'Ask a follow-up question' : 'Ask a question about this engagement'
+            turns.length > 0
+              ? 'Ask a follow-up question (Shift+Enter for a new line)'
+              : 'Ask a question about this engagement (Shift+Enter for a new line)'
           }
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={onComposerKeyDown}
         />
         <button
           type="submit"

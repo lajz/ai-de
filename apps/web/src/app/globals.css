@@ -570,12 +570,25 @@ input[type='checkbox'] {
 .ask {
   display: flex;
   flex-direction: column;
-  height: min(70vh, 32rem);
   min-height: 0;
   border-radius: var(--radius-tile);
   transition: outline-color 120ms ease;
   outline: 2px solid transparent;
   outline-offset: -2px;
+}
+
+/* Below `56rem`, `.engagement-split-chat` isn't a flex-filled pane (the
+   split stacks instead), so `.ask` has no ambient height to fill — give it
+   one here. A plain, unconditional `.ask { height: … }` at this same
+   specificity previously sat *later* in the file than the `>=56rem` rule
+   that sets `height: 100%`, so it always won the cascade regardless of
+   viewport — the pane silently never actually filled its pane. Scoping
+   this to its own, narrower-only media query removes the conflict instead
+   of relying on getting the source order right. */
+@media (max-width: 55.99rem) {
+  .ask {
+    height: min(70vh, 32rem);
+  }
 }
 
 .ask-drag-over {
@@ -622,14 +635,24 @@ input[type='checkbox'] {
 
 .ask-composer {
   display: flex;
+  align-items: flex-end;
   gap: var(--space-2);
   flex: 0 0 auto;
   padding-top: var(--space-3);
   border-top: 1px solid var(--line);
 }
 
-.ask-composer input {
+/* Auto-grows with content (`AskPanel` sets `scrollHeight` on each change)
+   up to `max-height`, then scrolls internally — Enter sends, Shift+Enter
+   inserts a newline (see `AskPanel`'s `onKeyDown`). `resize: none` because
+   growth is already handled automatically; a manual drag handle would
+   fight with it. */
+.ask-textarea {
   flex: 1;
+  resize: none;
+  max-height: 8rem;
+  line-height: 1.4;
+  font-family: inherit;
 }
 
 .qa-turn {
@@ -1102,27 +1125,42 @@ main.engagement {
 }
 
 @media (min-width: 56rem) {
+  /* Same principle as the Ask tab's split (see `main.engagement`'s doc
+     comment): the picker and detail panes are the things that should
+     scroll, not their container. The old approach bounded `.lineage-picker`
+     to a *guessed* slice of `100vh` via `position: sticky` — that was
+     always going to be wrong once this page stopped being scrolled by the
+     viewport directly and started being scrolled by `.engagement-content`
+     instead, whose own height is less than `100vh` by the app bar and
+     header's height. `.lineage-page` now fills `.engagement-content`'s
+     exact (flex-resolved, not guessed) height, `.lineage-layout` fills the
+     rest of `.lineage-page` below the `<h1>`, and each pane fills *that* —
+     a real containing block at every step, not a viewport-relative
+     estimate. */
+  .lineage-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
   .lineage-layout {
     flex-direction: row;
-    align-items: flex-start;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .lineage-picker {
     flex: 0 0 18rem;
-    /* Pinned to the viewport (not the page), and independently scrollable
-       within it — so scrolling through a long provenance chain in
-       `.lineage-detail` never drags the fact picker along with it, and vice
-       versa: a long fact list scrolls in place instead of pushing the page
-       height out. `max-height` leaves the same `--space-4` margin below
-       that `top` already leaves above. */
-    max-height: calc(100vh - 2 * var(--space-4));
+    height: 100%;
+    max-height: none;
     overflow-y: auto;
-    position: sticky;
-    top: var(--space-4);
   }
 
   .lineage-detail {
     flex: 1 1 auto;
+    height: 100%;
+    overflow-y: auto;
   }
 }
 

@@ -39,7 +39,7 @@ export default async function LineagePage({
   }
 
   return (
-    <section>
+    <section className="lineage-page">
       <h1>Lineage</h1>
       <div className="lineage-layout">
         <LineagePicker
