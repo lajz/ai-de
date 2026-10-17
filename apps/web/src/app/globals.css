@@ -1348,6 +1348,19 @@ main.engagement {
    Graph
 --------------------------------------------------------------------------- */
 
+@media (min-width: 64rem) {
+  /* `.graph-page` (the page's `<h1>` + this div) is the flex column that
+     fills `.engagement-content` — see the `.graph-page` rule further down —
+     so this div, as `.graph-page`'s one non-heading child, has to pass that
+     fill-the-rest sizing on down to `.graph-body`. */
+  .graph-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
 .graph-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1434,23 +1447,50 @@ main.engagement {
 }
 
 @media (min-width: 64rem) {
+  /* Same principle as the Ask/Lineage tabs (see `main.engagement`'s doc
+     comment): the canvas and the detail panel are the things that should
+     scroll — the panel already did; the canvas is its own pan/zoom surface
+     and never needs to. Everything *above* them (filters, legend, the
+     truncated warning) used to just stack in the page's normal flow, so
+     reaching the canvas/controls meant first scrolling past all of that
+     inside `.engagement-content`, which produced the "controls are below
+     the fold" feel on top of the outer scrollbar `.graph-panel`'s old
+     `max-height: 640px` + `position: sticky` guess already risked once the
+     app-bar/tab-bar chrome grew taller than that guess accounted for.
+     `.graph-page` now fills `.engagement-content`'s exact (flex-resolved,
+     not guessed) height; the filters/legend/warning stay their natural
+     size as fixed flex items, and `.graph-body` absorbs whatever's left, so
+     the canvas and panel are always fully visible together with nothing
+     above them pushing them past the fold. */
+  .graph-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .graph-filters,
+  .graph-legend,
+  .graph-truncated {
+    flex: 0 0 auto;
+  }
+
   .graph-body {
     flex-direction: row;
-    align-items: flex-start;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .graph-canvas {
     flex: 1 1 auto;
     min-width: 0;
-    height: 640px;
+    height: 100%;
   }
 
   .graph-panel {
     flex: 0 0 22rem;
-    max-height: 640px;
+    height: 100%;
     overflow-y: auto;
-    position: sticky;
-    top: var(--space-4);
   }
 }
 
