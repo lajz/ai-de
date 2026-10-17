@@ -60,7 +60,7 @@ export function GraphView({
     const next = { ...filters, [key]: value || undefined };
     if (next.entityType) qs.set('entityType', next.entityType);
     if (next.predicate) qs.set('predicate', next.predicate);
-    router.push(`/engagements/${engagementId}/admin/graph${qs.toString() ? `?${qs}` : ''}`);
+    router.push(`/engagements/${engagementId}/graph${qs.toString() ? `?${qs}` : ''}`);
   }
 
   return (
@@ -176,7 +176,7 @@ export function GraphView({
               />
             )}
             {selected.kind === 'fact' && (
-              <Link href={`/engagements/${engagementId}/admin/lineage?factId=${selected.id}`}>
+              <Link href={`/engagements/${engagementId}/lineage?factId=${selected.id}`}>
                 Trace provenance
               </Link>
             )}

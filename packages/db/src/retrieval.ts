@@ -154,8 +154,10 @@ export function selectNearestChunks(
 
 /**
  * The evidence stamped from the given sources, joined to its fact and source:
- * plaintext `factSummary`, encrypted `factBody` + `quote`, and the source
- * permalink. Feeds the Q&A context block after the authz gate.
+ * `factId`, plaintext `factSummary`, encrypted `factBody` + `quote`, and the
+ * source permalink. Feeds the Q&A context block after the authz gate —
+ * `factId` lets a Q&A citation link onward to that fact's full Lineage
+ * provenance chain, same as every other citation surface in this app.
  */
 export function selectSourceContext(
   tx: DbTransaction,
@@ -168,6 +170,7 @@ export function selectSourceContext(
       sourceId: evidence.sourceId,
       permalink: sources.urlPermalink,
       quote: evidence.quote,
+      factId: evidence.factId,
       factSummary: facts.summary,
       factBody: facts.body,
     })

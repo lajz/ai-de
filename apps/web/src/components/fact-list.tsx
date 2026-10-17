@@ -7,6 +7,7 @@ import type { CSSProperties } from 'react';
 import type { Fact, FactPage } from '../lib/types';
 import { DecisionMarker } from './decision-marker';
 import { describeQuoteRelation } from '../lib/quote-relation';
+import { FACT_DRAG_MIME, serializeFactDrag } from '../lib/fact-drag';
 import { factTypeColor } from '../lib/type-color';
 import { safeHttpUrl } from '../lib/url';
 
@@ -15,9 +16,10 @@ import { safeHttpUrl } from '../lib/url';
  * citations, paged via `/api/facts` — the server component that renders this
  * fetches the first page (`initialFacts`/`initialCursor`), and "Load more"
  * appends subsequent pages client-side. Every card links onward to that
- * fact's full provenance chain (`/admin/lineage?factId=`) — the citation here
- * is just the quote + a permalink; the chain has the ACL summary and
- * extraction run too, and is reachable from any viewer, not only an admin role.
+ * fact's full provenance chain (`/engagements/[id]/lineage?factId=`) — the
+ * citation here is just the quote + a permalink; the chain has the ACL
+ * summary and extraction run too, and is reachable from any viewer, not only
+ * an admin role.
  */
 export function FactList({
   engagementId,
@@ -63,6 +65,13 @@ export function FactList({
             key={fact.id}
             className="fact"
             style={{ '--fact-color': factTypeColor(fact.type) } as CSSProperties}
+            draggable
+            onDragStart={(e) => {
+              const payload = serializeFactDrag({ factId: fact.id, summary: fact.summary });
+              e.dataTransfer.setData(FACT_DRAG_MIME, payload);
+              e.dataTransfer.setData('text/plain', fact.summary);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
           >
             <div className="fact-head">
               <span className="fact-type">{fact.type}</span>
@@ -101,7 +110,7 @@ export function FactList({
               </ul>
             )}
             <p className="fact-foot">
-              <Link href={`/engagements/${engagementId}/admin/lineage?factId=${fact.id}`}>
+              <Link href={`/engagements/${engagementId}/lineage?factId=${fact.id}`}>
                 Full provenance
               </Link>
             </p>

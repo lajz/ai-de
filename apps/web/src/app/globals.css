@@ -44,6 +44,11 @@
   --space-4: 1rem;
   --space-5: 1.5rem;
   --space-6: 2.5rem;
+
+  /* `.app-bar`'s declared (not estimated) height — the one real constant the
+     viewport-height math on the engagement shell (`main.engagement`) is
+     built from, so that math is exact rather than a guessed subtraction. */
+  --app-bar-h: 3.25rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -178,17 +183,26 @@ main {
 --------------------------------------------------------------------------- */
 
 .app-bar {
+  height: var(--app-bar-h);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
 
+/* `max-width: 46rem` used to match every page's content column, back when
+   every page used the same one. Now that the engagement shell is wider
+   (`main.engagement`, 78rem) than a plain page (`main`, 46rem), the brand
+   mark has to pick one to align with — 78rem, since the engagement surface
+   is where someone actually spends time; a 46rem page's own content is
+   already independently centered, so this just means the mark sits above
+   the left edge of that narrower column rather than flush with it. */
 .app-mark {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  max-width: 46rem;
+  height: 100%;
+  max-width: 78rem;
   margin: 0 auto;
-  padding: var(--space-3) var(--space-4);
+  padding: 0 var(--space-4);
   font-weight: 600;
   font-size: 0.9375rem;
   color: var(--ink);
@@ -261,6 +275,31 @@ main {
 .btn-quiet:hover:not(:disabled) {
   border-color: var(--line-strong);
   color: var(--ink);
+}
+
+/* Collapse/expand toggle on the Facts pane (`FactsPane`) — only meaningful
+   at the `>=56rem` row layout (see `.engagement-split-facts-collapsed`),
+   but styled unconditionally so it isn't an unstyled native button at
+   narrower widths where it renders but has no layout effect yet. */
+.facts-collapse-toggle {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.facts-collapse-toggle:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
 }
 
 .status-pill {
@@ -357,6 +396,13 @@ input[type='checkbox'] {
   border-radius: var(--radius-tile);
 }
 
+/* The engagement's own name, read before the raw id — the id chip stays
+   (it's still a useful, copyable identifier) but isn't the only label. */
+.engagement-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .empty-state {
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius-tile);
@@ -384,7 +430,7 @@ input[type='checkbox'] {
   gap: var(--space-3);
   font-size: 0.8125rem;
   color: var(--muted);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-3);
 }
 
 .breadcrumb a {
@@ -442,7 +488,7 @@ input[type='checkbox'] {
 .engagement-split {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-5);
   align-items: flex-start;
 }
 
@@ -453,31 +499,128 @@ input[type='checkbox'] {
 }
 
 @media (min-width: 56rem) {
-  main:has(.engagement-split) {
-    max-width: 72rem;
-  }
-
+  /* `.engagement-content` (the scrolling ancestor — see `main.engagement`'s
+     doc comment) already has a definite, flex-resolved height, so the two
+     panes can just fill it exactly (`height: 100%`) and scroll internally.
+     No `position: sticky` / `max-height: calc(100vh - …)` needed — that
+     approach required estimating everything above this element in the
+     viewport as a constant, which drifted out of sync with the header more
+     than once. A flex-filled height can't drift: it's derived, not guessed. */
   .engagement-split {
     flex-direction: row;
+    height: 100%;
   }
 
   .engagement-split-chat,
   .engagement-split-facts {
     flex: 1 1 0;
-    /* Pinned to the viewport (not the page) and independently scrollable,
-       same technique as `.lineage-picker`/`.lineage-detail` — a long chat
-       transcript and a long, paginated fact list each scroll in place
-       instead of dragging the other pane's scroll position with them. */
-    max-height: calc(100vh - 2 * var(--space-4));
-    overflow-y: auto;
-    position: sticky;
-    top: var(--space-4);
+    height: 100%;
+    overflow: hidden;
   }
 
   .engagement-split-facts {
+    overflow-y: auto;
     border-left: 1px solid var(--line);
-    padding-left: var(--space-5);
+    /* The row `gap` above already provides the breathing room on both
+       sides of the divider — stacking a second `padding-left` on top of it
+       was the "weird extra space before the sidebar" bug. A little padding
+       so content doesn't touch the rule itself is still right. */
+    padding-left: var(--space-3);
   }
+
+  /* Collapsed (see `FactsPane`): shrinks to a narrow rail instead of its
+     usual `flex: 1 1 0` share — `.engagement-split-chat` is still
+     `flex: 1 1 0`, so it automatically fills the freed width, no
+     coordination between the two panes needed. */
+  .engagement-split-facts-collapsed {
+    flex: 0 0 auto;
+    width: 2.25rem;
+    overflow: visible;
+    padding-left: var(--space-2);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: var(--space-2);
+  }
+
+  .engagement-split-chat {
+    /* `.ask` fills it exactly and `.ask-messages` is the scrollable part,
+       so the composer can stay pinned at the pane's bottom instead of
+       scrolling away with a long transcript. */
+    display: flex;
+  }
+
+  .ask {
+    height: 100%;
+  }
+}
+
+/*
+ * Ask — a bounded, internally-scrolling chat box (standard chat-UI shape)
+ * rather than a page section: a fixed-height column with the message list
+ * as its one scrolling region and the composer pinned below it, never
+ * interleaved with tool-step/error state above the input. `min(70vh, 32rem)`
+ * is the mobile/narrow default — scales down on a short viewport instead of
+ * a flat constant that's too tall on a phone and too short on a tablet;
+ * `>=56rem` (above, `.engagement-split-chat`) stretches it to fill the
+ * flex-resolved height of that pane instead. Also the drop target for a
+ * fact dragged from `FactList` — `ask-drag-over` is the hover state while
+ * a drag carrying `FACT_DRAG_MIME` is over it (see `AskPanel`/`fact-drag.ts`).
+ *
+ * `max-width` + `margin: 0 auto` deliberately keeps this narrower than
+ * whatever width `.engagement-split-chat` actually has (half the 78rem
+ * frame, or nearly all of it once the Facts pane is collapsed) — a chat
+ * column that stretches edge-to-edge to fill arbitrary available width
+ * doesn't read as a chat UI at all once that width gets past ~40rem, it
+ * reads as broken: a two-word placeholder floating in a mostly-empty box.
+ * `padding` is small but real: `.engagement-split-chat` has
+ * `overflow: hidden` (so its own height can't cause outer scroll — see
+ * `main.engagement`'s doc comment), which was clipping the composer's own
+ * focus ring (`:focus-visible`'s `outline-offset: 2px` in the base rules)
+ * right at this box's edges with nothing left to render it against.
+ */
+.ask {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--space-1);
+  border-radius: var(--radius-tile);
+  transition: outline-color 120ms ease;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+
+/* Below `56rem`, `.engagement-split-chat` isn't a flex-filled pane (the
+   split stacks instead), so `.ask` has no ambient height to fill — give it
+   one here. A plain, unconditional `.ask { height: … }` at this same
+   specificity previously sat *later* in the file than the `>=56rem` rule
+   that sets `height: 100%`, so it always won the cascade regardless of
+   viewport — the pane silently never actually filled its pane. Scoping
+   this to its own, narrower-only media query removes the conflict instead
+   of relying on getting the source order right. */
+@media (max-width: 55.99rem) {
+  .ask {
+    height: min(70vh, 32rem);
+  }
+}
+
+.ask-drag-over {
+  outline-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.ask-drop-hint {
+  flex: 0 0 auto;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-tile);
+  color: var(--accent-strong);
+  font-size: 0.8125rem;
 }
 
 .ask-head {
@@ -485,37 +628,104 @@ input[type='checkbox'] {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
+  flex: 0 0 auto;
+  margin-bottom: var(--space-2);
 }
 
-.ask form {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-
-.ask input {
-  flex: 1;
-}
-
-.qa-turns {
+.ask-messages {
   list-style: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  padding: var(--space-2) 0;
+}
+
+.ask-empty {
+  color: var(--muted);
+  font-size: 0.875rem;
+  padding: var(--space-3) 0;
+}
+
+.ask-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+/* Auto-grows with content (`AskPanel` sets `scrollHeight` on each change)
+   up to `max-height`, then scrolls internally — Enter sends, Shift+Enter
+   inserts a newline (see `AskPanel`'s `onKeyDown`). `resize: none` because
+   growth is already handled automatically; a manual drag handle would
+   fight with it. */
+.ask-textarea {
+  flex: 1;
+  resize: none;
+  max-height: 8rem;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
+.qa-turn {
+  list-style: none;
+  display: flex;
 }
 
 .qa-turn-user {
-  margin-top: var(--space-4);
+  justify-content: flex-end;
 }
 
-.qa-question {
-  font-weight: 600;
+.qa-turn-assistant {
+  justify-content: flex-start;
 }
 
-.answer {
-  margin-top: var(--space-4);
-  border-left: 3px solid var(--accent);
-  padding: 0.2rem 0 0.2rem var(--space-4);
+.qa-turn-error {
+  justify-content: center;
+}
+
+.qa-bubble {
+  max-width: 85%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.qa-bubble-user {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.qa-bubble-assistant {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.qa-bubble-pending {
+  color: var(--muted);
+}
+
+.qa-thinking {
+  font-style: italic;
+}
+
+.tool-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8125rem;
+}
+
+.qa-error {
+  color: var(--error);
+  font-size: 0.875rem;
+  margin: 0;
 }
 
 .citations {
@@ -523,12 +733,83 @@ input[type='checkbox'] {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--muted);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
 }
 
 .citations q {
   color: var(--ink);
+}
+
+/* Minimal typographic reset for `react-markdown`'s output inside a
+   `.qa-bubble-assistant` — formatting only (no raw HTML is ever rendered;
+   see `AskPanel`'s doc comment), so headings are normalized to body size
+   rather than allowed to blow up the bubble. */
+.markdown-content :first-child {
+  margin-top: 0;
+}
+
+.markdown-content :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p {
+  margin: 0.5em 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.3em;
+}
+
+.markdown-content li {
+  margin: 0.15em 0;
+}
+
+.markdown-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.markdown-content code {
+  font-family: var(--font-data);
+  font-size: 0.85em;
+  background: var(--surface);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-tile);
+}
+
+.markdown-content pre {
+  background: var(--surface);
+  padding: var(--space-3);
+  border-radius: var(--radius-tile);
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--line-strong);
+  margin: 0.5em 0;
+  padding-left: var(--space-3);
+  color: var(--muted);
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.7em 0 0.3em;
 }
 
 .citation-relation {
@@ -552,6 +833,13 @@ input[type='checkbox'] {
   padding: var(--space-4) 0 var(--space-4) var(--space-4);
   border-left: 3px solid var(--fact-color, var(--line-strong));
   margin-left: -1px;
+  /* Draggable onto the Ask composer (see `AskPanel`'s drop handler) to
+     reference this fact in the next question. */
+  cursor: grab;
+}
+
+.fact:active {
+  cursor: grabbing;
 }
 
 .fact-head {
@@ -602,4 +890,871 @@ input[type='checkbox'] {
 .decision-marker code {
   font-size: 0.8125rem;
   color: var(--muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Engagement sub-pages — Lineage/Graph/Pipeline/Settings shared chrome
+   (merged from the retired admin.css now that these live directly under
+   /engagements/[id]/... instead of a separate /admin route tree)
+--------------------------------------------------------------------------- */
+
+/* One constant width for every engagement tab — Ask, Lineage, Graph,
+   Pipeline and Settings all render this same frame, so switching tabs never
+   resizes the page. 78rem comfortably fits the Lineage two-pane layout
+   (previously 68rem) and the Ask chat/facts split (previously 72rem)
+   without starving Settings/Pipeline's simpler content; those two opt into
+   `.engagement-narrow` below instead of stretching edge-to-edge. The Graph
+   tab's network canvas previously got 92rem — it's narrower now, but
+   ReactFlow's pan/zoom/controls keep it fully usable, and a tab-stable
+   frame matters more than maximizing one tab's canvas.
+   `main.engagement` also replaces the generic `main` rule's padding/scroll
+   model entirely: it's a `height`-bounded (not min-height) flex column
+   pinned to exactly the viewport minus `--app-bar-h`, with `overflow:
+   hidden` — so `main` itself can never be the thing that scrolls, or the
+   thing that overflows the fold. `.engagement-header` (breadcrumb + tab
+   bar) is a fixed-size flex item; `.engagement-content` is the one
+   `flex: 1 1 auto; overflow-y: auto` region every tab's content actually
+   scrolls within. This was a real, previously-recurring bug: the old
+   approach tried to *estimate* the header's height as a constant subtracted
+   from `100vh` on each scrolling pane individually, which drifted out of
+   sync every time the header's own content changed and produced a second,
+   outer page-level scrollbar. Flexbox computes "whatever's left" exactly,
+   so there's nothing left to estimate. */
+main.engagement {
+  max-width: 78rem;
+  height: calc(100dvh - var(--app-bar-h));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.engagement-header {
+  flex: 0 0 auto;
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.engagement-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-6);
+}
+
+/* Opt-in for tabs whose content (a simple form list, a stat table) reads
+   better as a centered column than stretched across the full shared frame
+   — Settings and Pipeline use this; Ask/Lineage/Graph fill the frame. */
+.engagement-narrow {
+  max-width: 56rem;
+}
+
+.engagement-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.engagement-nav-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.engagement-nav-tabs a {
+  display: inline-block;
+  padding: 0.2rem 0;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+}
+
+.engagement-nav-tabs a:hover {
+  color: var(--ink);
+}
+
+.engagement-nav-tabs a[aria-current='page'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* Settings is reached deliberately (gear icon = configuration, not primary
+   content), so it sits apart from the main tabs and reads quieter: smaller,
+   muted by default, pushed to the far right via margin-left: auto. */
+.engagement-nav-settings {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  border-bottom: 2px solid transparent;
+}
+
+.engagement-nav-settings:hover {
+  color: var(--ink);
+}
+
+.engagement-nav-settings[aria-current='page'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Connectors
+--------------------------------------------------------------------------- */
+
+.connector-list {
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.connector-card {
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-4) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.connector-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.connector-name {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.connector-authkind {
+  font-family: var(--font-data);
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface-sunken);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-tile);
+}
+
+.connector-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.connector-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+}
+
+.connector-retention-effective,
+.connector-notice {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.connector-error {
+  color: var(--error);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.sync-meta {
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Lineage / provenance — the signature chain-of-custody rail
+--------------------------------------------------------------------------- */
+
+.lineage-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.lineage-picker {
+  list-style: none;
+  max-height: 12rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  width: 100%;
+}
+
+.lineage-picker li {
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.lineage-picker li:last-child {
+  border-bottom: none;
+}
+
+.lineage-picker a {
+  display: block;
+  padding: 0.45rem 0.75rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.875rem;
+  border-left: 3px solid transparent;
+}
+
+.lineage-picker a:hover {
+  background: var(--surface-sunken);
+}
+
+.lineage-picker a[aria-current] {
+  background: var(--accent-wash);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.lineage-detail {
+  min-width: 0;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+@media (min-width: 56rem) {
+  /* Same principle as the Ask tab's split (see `main.engagement`'s doc
+     comment): the picker and detail panes are the things that should
+     scroll, not their container. The old approach bounded `.lineage-picker`
+     to a *guessed* slice of `100vh` via `position: sticky` — that was
+     always going to be wrong once this page stopped being scrolled by the
+     viewport directly and started being scrolled by `.engagement-content`
+     instead, whose own height is less than `100vh` by the app bar and
+     header's height. `.lineage-page` now fills `.engagement-content`'s
+     exact (flex-resolved, not guessed) height, `.lineage-layout` fills the
+     rest of `.lineage-page` below the `<h1>`, and each pane fills *that* —
+     a real containing block at every step, not a viewport-relative
+     estimate. */
+  .lineage-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .lineage-layout {
+    flex-direction: row;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .lineage-picker {
+    flex: 0 0 18rem;
+    height: 100%;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .lineage-detail {
+    flex: 1 1 auto;
+    height: 100%;
+    overflow-y: auto;
+  }
+}
+
+.provenance {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.prov-section-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--accent);
+  line-height: 1.4;
+}
+
+.prov-fact-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+
+.prov-status {
+  text-transform: capitalize;
+}
+
+.prov-fact-note {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.4rem 0 0;
+}
+
+.prov-evidence {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.prov-ev {
+  list-style: none;
+}
+
+.prov-ev-quote {
+  background: var(--surface-sunken);
+  border-radius: var(--radius-tile);
+  padding: 0.6rem 0.8rem;
+}
+
+.prov-ev-quote q {
+  font-style: italic;
+  color: var(--ink);
+}
+
+.prov-ev-sentence {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+.prov-ev-relation-good {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.prov-ev-relation-bad {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.prov-ev-span {
+  font-family: var(--font-data);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0.2rem 0 0;
+}
+
+/* shared source citation presentation — provenance chain evidence lines +
+   the entity derivation panel; see components/source-badge.tsx */
+.source-badge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.5rem 0;
+}
+
+.source-badge-connector {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.source-badge-container,
+.source-badge-author {
+  font-family: var(--font-data);
+}
+
+.prov-access-summary {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+.prov-access-detail {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.prov-access-detail summary {
+  cursor: pointer;
+}
+
+.prov-access-detail p {
+  margin: 0.3rem 0 0;
+  max-width: none;
+}
+
+.prov-run {
+  font-size: 0.875rem;
+  color: var(--muted);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-tile);
+  padding: var(--space-3) var(--space-4);
+}
+
+.prov-run p {
+  margin: 0;
+}
+
+.prov-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem var(--space-4);
+  margin: 0;
+}
+
+.prov-run-meta dt {
+  color: var(--muted);
+}
+
+.prov-run-meta dt::after {
+  content: ':';
+}
+
+.prov-run-meta dd {
+  margin: 0 var(--space-4) 0 0.3rem;
+  color: var(--ink);
+}
+
+.prov-dates {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0.4rem 0 0;
+}
+
+.prov-graph-link {
+  padding-top: var(--space-2);
+}
+
+/* ---------------------------------------------------------------------------
+   Graph
+--------------------------------------------------------------------------- */
+
+.graph-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.graph-count {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+
+.graph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.graph-legend-swatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  flex: none;
+}
+
+.graph-truncated {
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-tile);
+  background: var(--warning-wash);
+  color: var(--warning);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  max-width: none;
+}
+
+.graph-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.graph-canvas {
+  width: 100%;
+  height: 520px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.graph-canvas .react-flow__controls-button {
+  background: var(--surface);
+  border-bottom-color: var(--line);
+  fill: var(--ink);
+}
+
+.graph-canvas .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+}
+
+.graph-canvas .react-flow__edge-path {
+  stroke-width: 1.25px;
+}
+
+.graph-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  padding: var(--space-4);
+  background: var(--surface);
+}
+
+@media (min-width: 64rem) {
+  .graph-body {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .graph-canvas {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 640px;
+  }
+
+  .graph-panel {
+    flex: 0 0 22rem;
+    max-height: 640px;
+    overflow-y: auto;
+    position: sticky;
+    top: var(--space-4);
+  }
+}
+
+.graph-panel h2 {
+  margin: 0 0 var(--space-3);
+}
+
+.graph-panel dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem var(--space-3);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.graph-panel dt {
+  color: var(--muted);
+}
+
+.graph-refs-details {
+  margin-top: var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.graph-refs-details summary {
+  cursor: pointer;
+}
+
+.graph-refs {
+  font-size: 0.75rem;
+  overflow-x: auto;
+  background: var(--surface-sunken);
+  padding: var(--space-2);
+  border-radius: var(--radius-tile);
+  margin: var(--space-2) 0 0;
+}
+
+.entity-derivations-status {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.entity-derivations {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.entity-derivation {
+  list-style: none;
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+}
+
+.entity-derivation-sentence {
+  font-size: 0.875rem;
+  margin: 0 0 0.3rem;
+}
+
+.entity-derivation-predicate-word {
+  color: var(--muted);
+}
+
+.entity-derivation-predicate-raw {
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface-sunken);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-tile);
+}
+
+.entity-derivation-counterpart {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* agentically-suggested edge audit marker — see entity-provenance-panel.tsx's ConfidenceBadge */
+.entity-derivation-confidence {
+  display: inline-block;
+  margin: 0.2rem 0 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-tile);
+  background: var(--accent-soft, rgba(99, 102, 241, 0.12));
+  color: var(--accent, #4f46e5);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   Pipeline
+--------------------------------------------------------------------------- */
+
+.stat-cards {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+}
+
+.stat-cards li {
+  list-style: none;
+  background: var(--surface);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.stat-value {
+  font-family: var(--font-data);
+  font-size: 1.375rem;
+  font-weight: 500;
+}
+
+.stat-label {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.sources-by-connector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-bottom: var(--space-5);
+}
+
+.sources-by-connector-item {
+  background: var(--surface-sunken);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-tile);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: var(--space-5);
+}
+
+.table-scroll table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8125rem;
+}
+
+.table-scroll th {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+
+.table-scroll td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table-scroll td:first-child,
+.table-scroll td:nth-child(3) {
+  font-family: var(--font-data);
+}
+
+.refresh {
+  margin: 0 0 var(--space-4);
+}
+
+.refresh-at {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-left: var(--space-2);
+}
+
+/* ---------------------------------------------------------------------------
+   Key management (BYOK/CMEK)
+--------------------------------------------------------------------------- */
+
+.key-management {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-tile);
+  padding: var(--space-4);
+  background: var(--surface);
+  margin-bottom: var(--space-5);
+}
+
+.key-management-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.key-management-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-tile);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.key-management-badge-byok {
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+}
+
+.key-management-key-id {
+  font-family: var(--font-data);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.key-management-help {
+  color: var(--muted);
+  max-width: none;
+}
+
+.key-management-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.key-management-form .field-label {
+  width: 100%;
+  max-width: 32rem;
+}
+
+.key-management-error {
+  margin-top: var(--space-3);
+  color: var(--error);
+}
+
+.key-management-success {
+  margin-top: var(--space-3);
+  color: var(--success);
+}
+
+/* ---------------------------------------------------------------------------
+   Danger zone (crypto-shred)
+--------------------------------------------------------------------------- */
+
+.danger-zone {
+  border: 1px solid var(--error);
+  border-radius: var(--radius-tile);
+  padding: var(--space-4);
+  background: var(--surface);
+}
+
+.danger-zone-status {
+  margin-bottom: var(--space-4);
+}
+
+.danger-zone-warning {
+  color: var(--muted);
+  max-width: none;
+}
+
+.danger-zone-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.danger-zone-form .field-label {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.danger-zone-error {
+  margin-top: var(--space-3);
+}
+
+.danger-zone-shredded {
+  border: 1px solid var(--error);
+  border-radius: var(--radius-tile);
+  padding: var(--space-4);
+  background: var(--error-wash);
+}
+
+.danger-zone-shredded-title {
+  font-weight: 600;
+  color: var(--error);
+  margin: 0 0 var(--space-2);
+}
+
+.danger-zone-shredded-body {
+  color: var(--ink);
+  max-width: none;
+  margin: 0;
 }

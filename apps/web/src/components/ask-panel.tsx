@@ -1,7 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 
+import { FACT_DRAG_MIME, parseFactDrag } from '../lib/fact-drag';
 import { parseSseStream } from '../lib/sse';
 import type { AgenticQaEvent, QaCitation, QaTurn } from '../lib/types';
 import { safeHttpUrl } from '../lib/url';
@@ -17,6 +20,53 @@ interface RenderedTurn extends QaTurn {
 }
 
 /**
+ * One message bubble — pulled out of `AskPanel` as its own pure component
+ * so it's unit-testable by itself (`renderToStaticMarkup` over a fixed
+ * `RenderedTurn`) without needing to drive `AskPanel`'s full fetch/SSE flow.
+ */
+export function AskTurnBubble({
+  turn,
+  engagementId,
+}: {
+  turn: RenderedTurn;
+  engagementId: string;
+}) {
+  if (turn.role === 'user') {
+    return <div className="qa-bubble qa-bubble-user">{turn.content}</div>;
+  }
+  return (
+    <div className="qa-bubble qa-bubble-assistant">
+      <div className="markdown-content">
+        <ReactMarkdown>{turn.content}</ReactMarkdown>
+      </div>
+      {turn.citations && turn.citations.length > 0 && (
+        <ul className="citations">
+          {turn.citations.map((c, j) => {
+            const href = safeHttpUrl(c.permalink);
+            return (
+              <li key={j}>
+                <q>{c.quote}</q>{' '}
+                <Link href={`/engagements/${engagementId}/lineage?factId=${c.factId}`}>
+                  provenance
+                </Link>
+                {href && (
+                  <>
+                    {' · '}
+                    <a href={href} target="_blank" rel="noreferrer">
+                      source
+                    </a>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * Single-engagement Q&A box. POSTs to the same-origin `/api/qa/agentic` proxy
  * (which forwards the session cookie server-side to `@fde/api` and streams
  * its SSE body straight through), rendering each tool call live as it
@@ -27,6 +77,17 @@ interface RenderedTurn extends QaTurn {
  * every question and answer, and each new question resends the whole
  * transcript so far as `history`. "New conversation" is the only way to
  * drop it and start over.
+ *
+ * Shaped like a standard chat UI: `.ask-messages` is the one scrolling
+ * region (auto-scrolled to the latest turn), the composer stays pinned
+ * below it, and the in-flight tool-steps render as a "thinking" bubble in
+ * the assistant's own slot rather than a disconnected list under the
+ * input. The assistant's answer is rendered as markdown for formatting
+ * only — `react-markdown` never executes raw HTML (no `rehype-raw`), which
+ * matters here specifically: the answer text ultimately derives from
+ * ingested, untrusted source content via the extraction pipeline, so it
+ * gets the same "data, never instructions, never raw HTML" treatment every
+ * connector gives ingested content.
  */
 export function AskPanel({ engagementId }: { engagementId: string }) {
   const [question, setQuestion] = useState('');
@@ -34,6 +95,24 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
   const [steps, setSteps] = useState<ToolStep[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const messagesRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer with its content, up to `.ask-textarea`'s
+  // `max-height` (which then scrolls internally) — a plain `rows` count
+  // doesn't track multi-line input typed via Shift+Enter.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [question]);
+
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns, steps, pending, error]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,8 +169,44 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
     setError(null);
   }
 
+  /** Enter sends (standard chat composer behavior); Shift+Enter inserts a newline. */
+  function onComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      e.currentTarget.form?.requestSubmit();
+    }
+  }
+
+  /**
+   * Drop target for a fact card dragged from `FactList` (the facts pane
+   * sits right next to this one in the split layout — see `fact-drag.ts`
+   * for the payload contract). Prepends a quoted reference to whatever's
+   * already typed and focuses the input, rather than sending anything on
+   * its own — dropping attaches context to the next question, it doesn't
+   * ask one.
+   */
+  function onFactDrop(e: React.DragEvent<HTMLElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const raw = e.dataTransfer.getData(FACT_DRAG_MIME);
+    const fact = raw ? parseFactDrag(raw) : null;
+    if (!fact) return;
+    setQuestion((prev) => `Regarding "${fact.summary}": ${prev}`);
+    inputRef.current?.focus();
+  }
+
   return (
-    <section className="ask">
+    <section
+      className={`ask${dragOver ? ' ask-drag-over' : ''}`}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(FACT_DRAG_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onFactDrop}
+    >
       <div className="ask-head">
         <h2>Ask</h2>
         {turns.length > 0 && (
@@ -100,69 +215,69 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
           </button>
         )}
       </div>
-      {turns.length > 0 && (
-        <ul className="qa-turns" aria-label="conversation">
-          {turns.map((t, i) => (
-            <li key={i} className={`qa-turn qa-turn-${t.role}`}>
-              {t.role === 'user' ? (
-                <p className="qa-question">{t.content}</p>
+
+      {dragOver && <p className="ask-drop-hint">Drop to reference this fact in your question</p>}
+
+      <ul className="ask-messages" aria-label="conversation" ref={messagesRef}>
+        {turns.length === 0 && !pending && (
+          <li className="ask-empty">Ask a question about this engagement to get started.</li>
+        )}
+        {turns.map((t, i) => (
+          <li key={i} className={`qa-turn qa-turn-${t.role}`}>
+            <AskTurnBubble turn={t} engagementId={engagementId} />
+          </li>
+        ))}
+        {pending && (
+          <li className="qa-turn qa-turn-assistant">
+            <div className="qa-bubble qa-bubble-assistant qa-bubble-pending">
+              {steps.length === 0 ? (
+                <span className="qa-thinking">Thinking…</span>
               ) : (
-                <div className="answer">
-                  <p>{t.content}</p>
-                  {t.citations && t.citations.length > 0 && (
-                    <ul className="citations">
-                      {t.citations.map((c, j) => {
-                        const href = safeHttpUrl(c.permalink);
-                        return (
-                          <li key={j}>
-                            {c.quote}{' '}
-                            {href && (
-                              <a href={href} target="_blank" rel="noreferrer">
-                                source
-                              </a>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
+                <ul className="tool-steps" aria-label="tool steps">
+                  {steps.map((s, i) => (
+                    <li key={i}>
+                      {s.status === 'started' && `Checking ${s.tool}…`}
+                      {s.status === 'ok' && `Checked ${s.tool}`}
+                      {s.status === 'error' && `${s.tool} failed`}
+                    </li>
+                  ))}
+                </ul>
               )}
-            </li>
-          ))}
-        </ul>
-      )}
-      <form onSubmit={onSubmit}>
-        <input
-          type="text"
-          className="field-input"
+            </div>
+          </li>
+        )}
+        {error && (
+          <li className="qa-turn qa-turn-error">
+            <p role="alert" className="qa-error">
+              {error}
+            </p>
+          </li>
+        )}
+      </ul>
+
+      <form className="ask-composer" onSubmit={onSubmit}>
+        <textarea
+          ref={inputRef}
+          className="field-input ask-textarea"
           aria-label="question"
+          rows={1}
           placeholder={
-            turns.length > 0 ? 'Ask a follow-up question' : 'Ask a question about this engagement'
+            turns.length > 0
+              ? 'Ask a follow-up question (Shift+Enter for a new line)'
+              : 'Ask a question about this engagement (Shift+Enter for a new line)'
           }
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={onComposerKeyDown}
         />
         <button
           type="submit"
           className="btn btn-primary"
           disabled={pending || question.trim() === ''}
         >
-          {pending ? 'Asking…' : 'Ask'}
+          {pending ? 'Sending…' : 'Send'}
         </button>
       </form>
-      {steps.length > 0 && (
-        <ul className="tool-steps" aria-label="tool steps">
-          {steps.map((s, i) => (
-            <li key={i}>
-              {s.status === 'started' && `Checking ${s.tool}…`}
-              {s.status === 'ok' && `Checked ${s.tool}`}
-              {s.status === 'error' && `${s.tool} failed`}
-            </li>
-          ))}
-        </ul>
-      )}
-      {error && <p role="alert">{error}</p>}
     </section>
   );
 }

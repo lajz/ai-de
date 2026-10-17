@@ -111,7 +111,7 @@ export function askQuestion(
   });
 }
 
-// --- /admin: connector configuration -----------------------------------------
+// --- Connector configuration -------------------------------------------------
 
 export function getConnectors(
   token: string | undefined,
@@ -145,7 +145,7 @@ export function startConnectorSync(
   );
 }
 
-// --- /admin: data lineage --------------------------------------------------
+// --- Data lineage ------------------------------------------------------------
 
 export function getFactProvenance(
   token: string | undefined,
@@ -178,7 +178,7 @@ export function getGraph(
   return apiJson<EngagementGraph>(`/engagements/${engagementId}/graph${suffix}`, token);
 }
 
-// --- /admin: danger zone (crypto-shred) --------------------------------------
+// --- Danger zone (crypto-shred) -----------------------------------------------
 
 export function cryptoShredEngagement(
   token: string | undefined,
@@ -191,7 +191,7 @@ export function cryptoShredEngagement(
   });
 }
 
-// --- /admin: key management (BYOK/CMEK) --------------------------------------
+// --- Key management (BYOK/CMEK) -----------------------------------------------
 
 export function setByokKey(
   token: string | undefined,

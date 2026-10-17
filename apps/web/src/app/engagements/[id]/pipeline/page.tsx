@@ -1,9 +1,9 @@
-import { AdminError } from '../../../../../components/admin/admin-error';
-import { PipelineView } from '../../../../../components/admin/pipeline-view';
-import { RefreshButton } from '../../../../../components/admin/refresh-button';
-import { SignInNotice } from '../../../../../components/sign-in-notice';
-import { ApiError, getPipeline } from '../../../../../lib/api';
-import { getSessionToken } from '../../../../../lib/session';
+import { AdminError } from '../../../../components/admin/admin-error';
+import { PipelineView } from '../../../../components/admin/pipeline-view';
+import { RefreshButton } from '../../../../components/admin/refresh-button';
+import { SignInNotice } from '../../../../components/sign-in-notice';
+import { ApiError, getPipeline } from '../../../../lib/api';
+import { getSessionToken } from '../../../../lib/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +21,7 @@ export default async function PipelinePage({ params }: { params: Promise<{ id: s
   }
 
   return (
-    <section>
+    <section className="engagement-narrow">
       <h1>Pipeline</h1>
       <RefreshButton />
       <PipelineView pipeline={pipeline} />

@@ -147,6 +147,11 @@ class QaCitationResponse {
   @ApiProperty({ type: String }) sourceId!: string;
   @ApiProperty({ type: String, nullable: true }) permalink!: string | null;
   @ApiProperty({ type: String }) quote!: string;
+  @ApiProperty({
+    type: String,
+    description: 'the fact this citation belongs to — links to its Lineage provenance chain',
+  })
+  factId!: string;
 }
 
 class QaResponse {

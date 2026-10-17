@@ -100,6 +100,7 @@ describe('RetrievalService.answerQuestion', () => {
           sourceId,
           permalink: 'https://ex.com/p/1',
           quote: 'ct-quote',
+          factId: 'f1',
           factSummary: 'The team will use Postgres.',
           factBody: null,
         },
@@ -114,7 +115,7 @@ describe('RetrievalService.answerQuestion', () => {
     expect(arg.messages[0]!.content).toContain('DEC(ct-quote)'); // decrypted, in-context
     expect(res.answer).toBe('We chose Postgres (https://ex.com/p/1)');
     expect(res.citations).toEqual([
-      { sourceId, permalink: 'https://ex.com/p/1', quote: 'DEC(ct-quote)' },
+      { sourceId, permalink: 'https://ex.com/p/1', quote: 'DEC(ct-quote)', factId: 'f1' },
     ]);
     expect(inserts.map((r) => r.action)).toEqual(['retrieval', 'content_read']);
     for (const row of inserts) expect(JSON.stringify(row)).not.toContain('DEC(');
@@ -182,6 +183,7 @@ describe('RetrievalService.searchContext', () => {
           sourceId,
           permalink: 'https://ex.com/p/1',
           quote: 'ct-quote',
+          factId: 'f1',
           factSummary: 'The team will use Postgres.',
           factBody: null,
         },
@@ -196,7 +198,9 @@ describe('RetrievalService.searchContext', () => {
         permalink: 'https://ex.com/p/1',
         factSummaries: ['The team will use Postgres.'],
         quotes: ['DEC(ct-quote)'],
-        citations: [{ sourceId, permalink: 'https://ex.com/p/1', quote: 'DEC(ct-quote)' }],
+        citations: [
+          { sourceId, permalink: 'https://ex.com/p/1', quote: 'DEC(ct-quote)', factId: 'f1' },
+        ],
       },
     ]);
     expect(inserts.map((r) => r.action)).toEqual(['retrieval', 'content_read']);

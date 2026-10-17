@@ -115,7 +115,7 @@ export function EntityProvenanceView({
         {derivedFrom.map((d) => {
           const fact = d.counterpart.kind === 'fact' ? factById.get(d.counterpart.id) : undefined;
           const counterpartNode = fact ? (
-            <Link href={`/engagements/${engagementId}/admin/lineage?factId=${fact.id}`}>
+            <Link href={`/engagements/${engagementId}/lineage?factId=${fact.id}`}>
               {fact.type}: {fact.summary}
             </Link>
           ) : (
