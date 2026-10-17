@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
+import { FACT_DRAG_MIME, parseFactDrag } from '../lib/fact-drag';
 import { parseSseStream } from '../lib/sse';
 import type { AgenticQaEvent, QaCitation, QaTurn } from '../lib/types';
 import { safeHttpUrl } from '../lib/url';
@@ -94,7 +95,9 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
   const [steps, setSteps] = useState<ToolStep[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const messagesRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -156,8 +159,36 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
     setError(null);
   }
 
+  /**
+   * Drop target for a fact card dragged from `FactList` (the facts pane
+   * sits right next to this one in the split layout — see `fact-drag.ts`
+   * for the payload contract). Prepends a quoted reference to whatever's
+   * already typed and focuses the input, rather than sending anything on
+   * its own — dropping attaches context to the next question, it doesn't
+   * ask one.
+   */
+  function onFactDrop(e: React.DragEvent<HTMLElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const raw = e.dataTransfer.getData(FACT_DRAG_MIME);
+    const fact = raw ? parseFactDrag(raw) : null;
+    if (!fact) return;
+    setQuestion((prev) => `Regarding "${fact.summary}": ${prev}`);
+    inputRef.current?.focus();
+  }
+
   return (
-    <section className="ask">
+    <section
+      className={`ask${dragOver ? ' ask-drag-over' : ''}`}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(FACT_DRAG_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onFactDrop}
+    >
       <div className="ask-head">
         <h2>Ask</h2>
         {turns.length > 0 && (
@@ -166,6 +197,8 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
           </button>
         )}
       </div>
+
+      {dragOver && <p className="ask-drop-hint">Drop to reference this fact in your question</p>}
 
       <ul className="ask-messages" aria-label="conversation" ref={messagesRef}>
         {turns.length === 0 && !pending && (
@@ -206,6 +239,7 @@ export function AskPanel({ engagementId }: { engagementId: string }) {
 
       <form className="ask-composer" onSubmit={onSubmit}>
         <input
+          ref={inputRef}
           type="text"
           className="field-input"
           aria-label="question"

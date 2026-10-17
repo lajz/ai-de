@@ -1,5 +1,5 @@
 import { AskPanel } from '../../../components/ask-panel';
-import { FactList } from '../../../components/fact-list';
+import { FactsPane } from '../../../components/facts-pane';
 import { SignInNotice } from '../../../components/sign-in-notice';
 import { getFacts } from '../../../lib/api';
 import { getSessionToken } from '../../../lib/session';
@@ -18,14 +18,11 @@ export default async function EngagementPage({ params }: { params: Promise<{ id:
       <div className="engagement-split-chat">
         <AskPanel engagementId={id} />
       </div>
-      <div className="engagement-split-facts">
-        <h2>Facts</h2>
-        <FactList
-          engagementId={id}
-          initialFacts={factPage.rows}
-          initialCursor={factPage.nextCursor}
-        />
-      </div>
+      <FactsPane
+        engagementId={id}
+        initialFacts={factPage.rows}
+        initialCursor={factPage.nextCursor}
+      />
     </div>
   );
 }
