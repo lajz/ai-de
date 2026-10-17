@@ -566,11 +566,27 @@ input[type='checkbox'] {
  * flex-resolved height of that pane instead. Also the drop target for a
  * fact dragged from `FactList` — `ask-drag-over` is the hover state while
  * a drag carrying `FACT_DRAG_MIME` is over it (see `AskPanel`/`fact-drag.ts`).
+ *
+ * `max-width` + `margin: 0 auto` deliberately keeps this narrower than
+ * whatever width `.engagement-split-chat` actually has (half the 78rem
+ * frame, or nearly all of it once the Facts pane is collapsed) — a chat
+ * column that stretches edge-to-edge to fill arbitrary available width
+ * doesn't read as a chat UI at all once that width gets past ~40rem, it
+ * reads as broken: a two-word placeholder floating in a mostly-empty box.
+ * `padding` is small but real: `.engagement-split-chat` has
+ * `overflow: hidden` (so its own height can't cause outer scroll — see
+ * `main.engagement`'s doc comment), which was clipping the composer's own
+ * focus ring (`:focus-visible`'s `outline-offset: 2px` in the base rules)
+ * right at this box's edges with nothing left to render it against.
  */
 .ask {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--space-1);
   border-radius: var(--radius-tile);
   transition: outline-color 120ms ease;
   outline: 2px solid transparent;
