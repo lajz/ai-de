@@ -7,7 +7,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
-import { buildFlowGraph, graphFacets } from '../../lib/graph-layout';
+import {
+  buildAdjacency,
+  buildFlowGraph,
+  expandNode,
+  graphFacets,
+  pickSeedNodes,
+  visibleSubgraph,
+} from '../../lib/graph-layout';
 import { entityTypeColor, entityTypeLine, factTypeColor, factTypeWash } from '../../lib/type-color';
 import type { EngagementGraph, GraphNode } from '../../lib/types';
 import { EntityProvenancePanel } from './entity-provenance-panel';
@@ -36,7 +43,10 @@ export function GraphView({
 }) {
   const router = useRouter();
   const dark = usePrefersDark();
-  const layout = useMemo(() => buildFlowGraph(graph, dark), [graph, dark]);
+  const adjacency = useMemo(() => buildAdjacency(graph), [graph]);
+  const [visible, setVisible] = useState<Set<string>>(() => new Set(pickSeedNodes(graph)));
+  const sub = useMemo(() => visibleSubgraph(graph, visible), [graph, visible]);
+  const layout = useMemo(() => buildFlowGraph(sub, dark), [sub, dark]);
   const facets = useMemo(() => graphFacets(graph), [graph]);
   const factTypes = useMemo(
     () => [...new Set(graph.nodes.filter((n) => n.kind === 'fact').map((n) => n.type))].sort(),
@@ -50,8 +60,13 @@ export function GraphView({
   useEffect(() => {
     setNodes(layout.nodes);
     setEdges(layout.edges);
-    setSelectedId(null);
   }, [layout, setNodes, setEdges]);
+
+  // A new server fetch (filters changed) starts over from the seed nodes.
+  useEffect(() => {
+    setVisible(new Set(pickSeedNodes(graph)));
+    setSelectedId(null);
+  }, [graph]);
 
   const selected: GraphNode | undefined = graph.nodes.find((n) => n.id === selectedId);
 
@@ -97,8 +112,19 @@ export function GraphView({
           </select>
         </label>
         <span className="graph-count">
-          <strong>{graph.nodes.length}</strong> nodes, <strong>{graph.edges.length}</strong> edges
+          <strong>{sub.nodes.length}</strong> of <strong>{graph.nodes.length}</strong> nodes shown ·{' '}
+          <strong>{sub.edges.length}</strong> edges
         </span>
+        <button
+          type="button"
+          className="btn btn-quiet"
+          onClick={() => {
+            setVisible(new Set(pickSeedNodes(graph)));
+            setSelectedId(null);
+          }}
+        >
+          Reset view
+        </button>
       </div>
 
       <div className="graph-legend">
@@ -143,7 +169,10 @@ export function GraphView({
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onNodeClick={(_, node) => setSelectedId(node.id)}
+            onNodeClick={(_, node) => {
+              setSelectedId(node.id);
+              setVisible((prev) => expandNode(adjacency, prev, node.id));
+            }}
             onPaneClick={() => setSelectedId(null)}
             fitView
             proOptions={{ hideAttribution: true }}

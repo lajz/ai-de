@@ -8,7 +8,14 @@ import { KeyManagementPanel } from './components/admin/key-management-panel';
 import { PipelineView } from './components/admin/pipeline-view';
 import { ProvenanceChain } from './components/admin/provenance-chain';
 import { saveConnector, submitByokKey, triggerSync } from './lib/admin-client';
-import { buildFlowGraph, graphFacets } from './lib/graph-layout';
+import {
+  buildAdjacency,
+  buildFlowGraph,
+  expandNode,
+  graphFacets,
+  pickSeedNodes,
+  visibleSubgraph,
+} from './lib/graph-layout';
 import { relativeTime } from './lib/relative-time';
 import type {
   ConnectorConfig,
@@ -444,6 +451,36 @@ describe('graph-layout', () => {
       entityTypes: ['org', 'person'],
       predicates: ['decided_by', 'works_at'],
     });
+  });
+
+  it('builds undirected adjacency, ignoring edges to unknown nodes', () => {
+    const adj = buildAdjacency(graph);
+    expect([...(adj.get('e1') ?? [])].sort()).toEqual(['e2', 'f1']);
+    expect([...(adj.get('e2') ?? [])]).toEqual(['e1']);
+    expect(adj.has('missing')).toBe(false);
+  });
+
+  it('picks all nodes when count covers the graph or there are no edges', () => {
+    expect(pickSeedNodes(graph, 3).sort()).toEqual(['e1', 'e2', 'f1']);
+    expect(pickSeedNodes({ ...graph, edges: [] }, 1).sort()).toEqual(['e1', 'e2', 'f1']);
+  });
+
+  it('picks highest-degree seeds, ties broken by ascending id', () => {
+    expect(pickSeedNodes(graph, 2)).toEqual(['e1', 'e2']);
+  });
+
+  it('expands a node with its neighbours without mutating the input', () => {
+    const visible = new Set(['e2']);
+    const next = expandNode(buildAdjacency(graph), visible, 'e1');
+    expect([...next].sort()).toEqual(['e1', 'e2', 'f1']);
+    expect([...visible]).toEqual(['e2']);
+  });
+
+  it('keeps only edges with both endpoints visible', () => {
+    const sub = visibleSubgraph(graph, new Set(['e1', 'e2']));
+    expect(sub.nodes.map((n) => n.id)).toEqual(['e1', 'e2']);
+    expect(sub.edges.map((e) => e.id)).toEqual(['r1']);
+    expect(sub.truncated).toBe(false);
   });
 });
 

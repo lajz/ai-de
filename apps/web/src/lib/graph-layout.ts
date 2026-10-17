@@ -94,3 +94,57 @@ export function graphFacets(graph: EngagementGraph): {
     predicates: [...predicates].sort(),
   };
 }
+
+/** Undirected adjacency over edges whose endpoints are both known nodes. */
+export function buildAdjacency(graph: EngagementGraph): Map<string, Set<string>> {
+  const known = new Set(graph.nodes.map((n) => n.id));
+  const adjacency = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    let set = adjacency.get(a);
+    if (!set) adjacency.set(a, (set = new Set()));
+    set.add(b);
+  };
+  for (const e of graph.edges) {
+    if (known.has(e.fromId) && known.has(e.toId)) {
+      link(e.fromId, e.toId);
+      link(e.toId, e.fromId);
+    }
+  }
+  return adjacency;
+}
+
+/**
+ * Starting nodes for the progressive ego-graph: the `count` highest-degree nodes
+ * (ties by ascending id). A graph with no edges, or no more than `count` nodes,
+ * has nothing to expand into, so every node is returned.
+ */
+export function pickSeedNodes(graph: EngagementGraph, count = 6): string[] {
+  const ids = graph.nodes.map((n) => n.id);
+  const adjacency = buildAdjacency(graph);
+  if (ids.length <= count || adjacency.size === 0) return ids;
+  const degree = (id: string) => adjacency.get(id)?.size ?? 0;
+  return [...ids]
+    .sort((a, b) => degree(b) - degree(a) || (a < b ? -1 : a > b ? 1 : 0))
+    .slice(0, count);
+}
+
+/** `visible` plus `nodeId` and its neighbours, as a new Set. */
+export function expandNode(
+  adjacency: Map<string, Set<string>>,
+  visible: Set<string>,
+  nodeId: string,
+): Set<string> {
+  const next = new Set(visible);
+  next.add(nodeId);
+  for (const id of adjacency.get(nodeId) ?? []) next.add(id);
+  return next;
+}
+
+/** The slice of `graph` whose nodes are in `visible` (edges need both endpoints visible). */
+export function visibleSubgraph(graph: EngagementGraph, visible: Set<string>): EngagementGraph {
+  return {
+    nodes: graph.nodes.filter((n) => visible.has(n.id)),
+    edges: graph.edges.filter((e) => visible.has(e.fromId) && visible.has(e.toId)),
+    truncated: graph.truncated,
+  };
+}
