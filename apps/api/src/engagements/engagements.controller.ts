@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   GoneException,
   HttpCode,
   Inject,
+  Logger,
   type MessageEvent,
   NotFoundException,
   Param,
@@ -15,13 +17,16 @@ import {
   Query,
   Req,
   RequestMethod,
+  Res,
   Sse,
   UnauthorizedException,
 } from '@nestjs/common';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiExcludeEndpoint,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
@@ -47,6 +52,7 @@ import {
 } from '@fde/db';
 import type { ChatMessage } from '@fde/llm';
 import { desc, eq } from 'drizzle-orm';
+import type { Response } from 'express';
 import { from, map, type Observable } from 'rxjs';
 
 import type { Env } from '../config/env.js';
@@ -411,6 +417,73 @@ export class EngagementsController {
   }
 
   /**
+   * The external counterpart to `qaAgentic`: the same MCP tools, served as raw
+   * MCP JSON-RPC over the SDK's *stateless* Streamable HTTP transport so a
+   * customer's own agent harness can connect directly (session or `x-api-key`
+   * auth, both resolved by `TenantContextGuard`). One server + transport per
+   * request, closed when the response closes — no `Mcp-Session-Id`, nothing
+   * held open across requests. `@NoTransactionScope()` for the same reason as
+   * `qaAgentic`: each tool call opens its own short-lived `withEngagement`
+   * transaction, which is also where cross-tenant access fails (as a JSON-RPC
+   * tool error, not a request-level 404). `engagementId` comes from the route
+   * param only, never from tool input.
+   */
+  @Post(':id/mcp')
+  @NoTransactionScope()
+  @ApiExcludeEndpoint()
+  async mcp(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: AuthedRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    const session = req.fdeSession;
+    if (!session) throw new UnauthorizedException('authentication required');
+
+    const server = this.agenticQa.buildMcpServer({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      engagementId: id as EngagementId,
+    });
+    try {
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on('close', () => {
+        void transport.close();
+        void server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null,
+        });
+      }
+      void server.close();
+      new Logger('EngagementsMcp').error(
+        `MCP request failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** Stateless mode never issues a session to GET-stream from. */
+  @Get(':id/mcp')
+  @NoTransactionScope()
+  @ApiExcludeEndpoint()
+  mcpGet(@Res() res: Response): void {
+    methodNotAllowed(res);
+  }
+
+  /** Stateless mode never issues a session to DELETE-terminate. */
+  @Delete(':id/mcp')
+  @NoTransactionScope()
+  @ApiExcludeEndpoint()
+  mcpDelete(@Res() res: Response): void {
+    methodNotAllowed(res);
+  }
+
+  /**
    * Grant a user a platform role on this engagement — the relationship-seeding
    * seam (`@fde/authz` `grantEngagementRole`). Admin-only: the caller must be an
    * engagement admin or a tenant admin, and the grantee must already belong to
@@ -670,4 +743,10 @@ function parseQaHistory(history: unknown): ChatMessage[] {
     }
     return { role, content };
   });
+}
+
+function methodNotAllowed(res: Response): void {
+  res
+    .status(405)
+    .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null });
 }

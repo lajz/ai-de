@@ -214,7 +214,7 @@ apps/
   api/         NestJS — HTTP API, webhook receivers, auth, admin, break-glass
   web/         Next.js frontend
   workers/     Temporal workers (ConnectorSync, CaptureSession, ExtractionPipeline, ACLRefresh, CryptoShred)
-  mcp/         MCP server — outward-facing; built, not GA until M6
+  mcp/         MCP server — outward-facing; built, external endpoint (`POST /engagements/:id/mcp`) landed, not GA until M6
 packages/
   core/        domain model, canonical entity schema, provenance types, RawArtifact, retentionPolicy   [built]
   crypto/      key hierarchy (tenant CMK / engagement DEK), envelope ops, field-encryption codecs       [built]

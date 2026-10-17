@@ -202,6 +202,10 @@ whitepaper for sales.
   `OpenAiCompatibleProvider` now refuses to construct under `NODE_ENV=production`
   (no ZDR guarantee — dev/CI only), closing the compliance gap this made
   possible for every router call path at once, not just the agentic one.
+  **External transport landed:** `POST /engagements/:id/mcp` serves the same
+  tool definitions/handlers over the SDK's stateless Streamable HTTP transport
+  (one server per request), authenticated by session or `x-api-key` — so a
+  customer's own agent harness can connect directly.
 - **M4 — per-user authz-filtered retrieval + regulated-tier controls:**
   - **CryptoShred workflow — landed** (PR #49): `shredEngagement()` (`@fde/db`,
     pre-existing) does the actual, irreversible, synchronous thing — drop the
@@ -231,7 +235,7 @@ whitepaper for sales.
     `retentionPolicy` + region pin enforced end to end; Google Docs via Nango
     (`drive.file` scope, defers CASA); stakeholder + relationship-graph UI.
 - **M5 — Slack**: Marketplace app + Data Access API; `reference-only` (summary + permalink + ≤N-char quote, no body storage); ACL re-checked at query time; this is also where SpiceDB source-ACL mirroring + per-user-filtered retrieval actually lands (Slack is the first connector with real per-source ACLs to mirror — see M4 above).
-- **M6 — dedicated tier + public extensibility**: T1 Terraform workspace per tenant (self-hosted Temporal/SpiceDB/Nango, dedicated Aurora + S3, region pin), proven with one design partner; inbound ingestion API + MCP server GA (**MCP server itself already landed, see above — GA here means the external `api_keys` auth path opened up beyond internal use**) + connector SDK; Jira / Asana / Notion / MS Graph as demand dictates.
+- **M6 — dedicated tier + public extensibility**: T1 Terraform workspace per tenant (self-hosted Temporal/SpiceDB/Nango, dedicated Aurora + S3, region pin), proven with one design partner; inbound ingestion API + MCP server GA (**MCP server itself and its external Streamable HTTP endpoint (`POST /engagements/:id/mcp`) already landed, see above — GA here means the external `api_keys` auth path opened up beyond internal use**) + connector SDK; Jira / Asana / Notion / MS Graph as demand dictates.
 
 ---
 
