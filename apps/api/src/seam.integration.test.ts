@@ -4,12 +4,21 @@ import { randomUUID } from 'node:crypto';
 
 import type { EngagementId, TenantId } from '@fde/core';
 import { FakeKeyProvider } from '@fde/crypto';
-import { createDbClient, type Database, engagements, tenants, users, withTenant } from '@fde/db';
+import {
+  apiKeys,
+  createDbClient,
+  type Database,
+  engagements,
+  tenants,
+  users,
+  withTenant,
+} from '@fde/db';
 import { eq } from 'drizzle-orm';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { generateApiKey } from './auth/api-key.service.js';
 import { FakeWorkOsService } from './auth/fake-workos.service.js';
 import { TEST_WEBHOOK_SECRET } from './test/harness.js';
 
@@ -82,6 +91,8 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
       await withTenant(handle.db, tenantB, (tx) =>
         tx.delete(engagements).where(eq(engagements.tenantId, tenantB)),
       );
+      // api_keys has no RLS and FKs users — must go first
+      await handle.db.delete(apiKeys).where(eq(apiKeys.tenantId, tenantA));
       await withTenant(handle.db, tenantA, (tx) =>
         tx.delete(users).where(eq(users.tenantId, tenantA)),
       );
@@ -287,6 +298,128 @@ describe.skipIf(!url)('apps/api request-context seam (integration)', () => {
         .set('authorization', `Bearer ${token}`)
         .send({ question: 'anything?', history: [{ role: 'system', content: 'nope' }] });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /engagements/:id/mcp — external MCP surface', () => {
+    /** Mirrors scripts/issue-api-key.ts: a service-account user + a hashed key. */
+    async function mintApiKey(tenantId: TenantId): Promise<string> {
+      const [user] = await handle.db
+        .insert(users)
+        .values({
+          tenantId,
+          email: `api-key+${randomUUID()}@service-accounts.internal`,
+          name: 'API key: test',
+          status: 'active',
+        })
+        .returning({ id: users.id });
+      const key = generateApiKey();
+      await handle.db.insert(apiKeys).values({
+        tenantId,
+        userId: user!.id,
+        keyHash: key.hashHex,
+        keyPrefix: key.prefix,
+        label: 'test',
+      });
+      return key.raw;
+    }
+
+    // Streamable HTTP requires the client to accept both; stateless mode needs
+    // no prior `initialize` (verified: tools/list and tools/call work bare).
+    function rpc(engagementId: string, body: object) {
+      return request(app.getHttpServer())
+        .post(`/engagements/${engagementId}/mcp`)
+        .set('accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', id: 1, ...body });
+    }
+
+    interface RpcMessage {
+      result?: { tools: { name: string }[]; content?: unknown; isError?: boolean };
+      error?: unknown;
+    }
+
+    /** The transport may answer as plain JSON or as one SSE frame. */
+    function parseRpc(res: request.Response): RpcMessage {
+      if (res.text && res.text.startsWith('event:')) {
+        const data = res.text
+          .split('\n')
+          .filter((l) => l.startsWith('data:'))
+          .map((l) => l.slice(5).trim())
+          .join('');
+        return JSON.parse(data);
+      }
+      return res.body;
+    }
+
+    it('lists all 5 tools via x-api-key', async () => {
+      const key = await mintApiKey(tenantA);
+      const res = await rpc(engagementA, { method: 'tools/list', params: {} }).set(
+        'x-api-key',
+        key,
+      );
+      expect(res.status).toBe(200);
+      const names = parseRpc(res)
+        .result!.tools.map((t) => t.name)
+        .sort();
+      expect(names).toEqual(
+        [
+          'get_entity_provenance',
+          'get_fact_provenance',
+          'get_graph',
+          'list_facts',
+          'search_context',
+        ].sort(),
+      );
+    });
+
+    it('calls a tool via x-api-key and returns a real result', async () => {
+      const key = await mintApiKey(tenantA);
+      const res = await rpc(engagementA, {
+        method: 'tools/call',
+        params: { name: 'list_facts', arguments: {} },
+      }).set('x-api-key', key);
+      expect(res.status).toBe(200);
+      const msg = parseRpc(res);
+      expect(msg.error).toBeUndefined();
+      expect(msg.result!.content).toBeDefined();
+      expect(msg.result.isError).toBeFalsy();
+    });
+
+    it('works identically with a session credential', async () => {
+      const token = await login('code-mcp1', 'wos_a', 'org_a');
+      const res = await rpc(engagementA, { method: 'tools/list', params: {} }).set(
+        'authorization',
+        `Bearer ${token}`,
+      );
+      expect(res.status).toBe(200);
+      expect(parseRpc(res).result!.tools).toHaveLength(5);
+    });
+
+    it('rejects a caller with no session and no api key before any transaction opens', async () => {
+      const res = await rpc(engagementA, { method: 'tools/list', params: {} });
+      expect(res.status).toBe(401);
+    });
+
+    it("never lets tenant A's credential reach tenant B's engagement — the tool call itself errors", async () => {
+      const key = await mintApiKey(tenantA);
+      const res = await rpc(engagementB, {
+        method: 'tools/call',
+        params: { name: 'list_facts', arguments: {} },
+      }).set('x-api-key', key);
+      expect(res.status).toBe(200); // request-level OK; the failure is in the tool result
+      const msg = parseRpc(res);
+      expect(msg.error !== undefined || msg.result?.isError === true).toBe(true);
+      expect(JSON.stringify(msg)).not.toContain('Globex');
+    });
+
+    it('answers GET and DELETE with a JSON-RPC 405', async () => {
+      const key = await mintApiKey(tenantA);
+      for (const method of ['get', 'delete'] as const) {
+        const agent = request(app.getHttpServer());
+        const res = await agent[method](`/engagements/${engagementA}/mcp`).set('x-api-key', key);
+        expect(res.status).toBe(405);
+        expect(res.body.error.code).toBe(-32000);
+      }
     });
   });
 });

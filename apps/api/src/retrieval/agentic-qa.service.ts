@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { EngagementId, TenantId, UserId } from '@fde/core';
 import { type KeyProvider } from '@fde/crypto';
@@ -112,6 +113,19 @@ export class AgenticQaService {
     await runPromise;
   }
 
+  /**
+   * Builds a fresh MCP server bound to one caller's identity + engagement —
+   * the exact same createDbToolDeps/createMcpServer wiring runLoop() uses for
+   * the in-platform Ask harness, for the external Streamable HTTP route in
+   * EngagementsController instead of an in-process transport. One server per
+   * HTTP request there (a stateless transport) — never shared/reused across
+   * requests, never cached.
+   */
+  buildMcpServer(ctx: AgenticQaContext): McpServer {
+    const mcpDeps = createDbToolDeps(this.db, this.keyProvider, this.retrieval, this.lineage);
+    return createMcpServer(mcpDeps, ctx);
+  }
+
   private async runLoop(
     question: string,
     history: ChatMessage[],
@@ -119,8 +133,7 @@ export class AgenticQaService {
     trace: TraceHandle,
     queue: AsyncQueue<AgenticQaEvent>,
   ): Promise<void> {
-    const mcpDeps = createDbToolDeps(this.db, this.keyProvider, this.retrieval, this.lineage);
-    const mcpServer = createMcpServer(mcpDeps, ctx);
+    const mcpServer = this.buildMcpServer(ctx);
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const mcpClient = new Client({ name: 'ai-de-agentic-qa', version: '0.0.0' });
 
