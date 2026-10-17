@@ -6,33 +6,26 @@ import { getSessionToken } from '../../../../lib/session';
 
 export const dynamic = 'force-dynamic';
 
-export default async function GraphPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<{ entityType?: string; predicate?: string }>;
-}) {
+export default async function GraphPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const filters = await searchParams;
   const token = await getSessionToken();
   if (!token) return <SignInNotice />;
 
   let graph;
   try {
-    graph = await getGraph(token, id, filters);
+    graph = await getGraph(token, id);
   } catch (err) {
     if (err instanceof ApiError) return <AdminError status={err.status} />;
     throw err;
   }
 
   return (
-    <section>
+    <section className="graph-page">
       <h1>Entity graph</h1>
       {graph.nodes.length === 0 ? (
-        <p className="empty-state">No entities or facts match these filters.</p>
+        <p className="empty-state">No entities or facts yet.</p>
       ) : (
-        <GraphView engagementId={id} graph={graph} filters={filters} />
+        <GraphView engagementId={id} graph={graph} />
       )}
     </section>
   );

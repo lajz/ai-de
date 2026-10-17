@@ -148,3 +148,32 @@ export function visibleSubgraph(graph: EngagementGraph, visible: Set<string>): E
     truncated: graph.truncated,
   };
 }
+
+/**
+ * Applies the entity-type / predicate facet filters client-side, over the one
+ * graph already fetched for the page — mirroring `GET …/graph`'s own filter
+ * semantics (`LineageService#getGraph`) so switching from the old
+ * server-filtered fetch to this doesn't change what a given filter shows:
+ * `entityType` keeps only entities of that type and drops fact nodes
+ * entirely (a fact node is not an entity), `predicate` keeps only edges with
+ * that predicate. Doing this over the unfiltered graph, rather than
+ * re-fetching a server-filtered one, is what keeps `graphFacets` always
+ * showing the full set of options — the previous approach recomputed facets
+ * from whatever graph the *last* filter had already narrowed down to, so
+ * picking a filter silently shrank the other dropdown's own choices too.
+ */
+export function filterGraph(
+  graph: EngagementGraph,
+  filters: { entityType?: string; predicate?: string },
+): EngagementGraph {
+  const nodes = graph.nodes.filter((n) => {
+    if (!filters.entityType) return true;
+    return n.kind === 'entity' && n.type === filters.entityType;
+  });
+  const known = new Set(nodes.map((n) => n.id));
+  const edges = graph.edges.filter((e) => {
+    if (filters.predicate && e.predicate !== filters.predicate) return false;
+    return known.has(e.fromId) && known.has(e.toId);
+  });
+  return { nodes, edges, truncated: graph.truncated };
+}

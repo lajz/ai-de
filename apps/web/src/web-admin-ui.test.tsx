@@ -12,6 +12,7 @@ import {
   buildAdjacency,
   buildFlowGraph,
   expandNode,
+  filterGraph,
   graphFacets,
   pickSeedNodes,
   visibleSubgraph,
@@ -481,6 +482,24 @@ describe('graph-layout', () => {
     expect(sub.nodes.map((n) => n.id)).toEqual(['e1', 'e2']);
     expect(sub.edges.map((e) => e.id)).toEqual(['r1']);
     expect(sub.truncated).toBe(false);
+  });
+
+  it('entityType filter keeps only that type and drops fact nodes', () => {
+    const filtered = filterGraph(graph, { entityType: 'person' });
+    expect(filtered.nodes.map((n) => n.id)).toEqual(['e1']);
+    expect(filtered.edges).toEqual([]);
+  });
+
+  it('predicate filter keeps all entities/facts but only matching edges', () => {
+    const filtered = filterGraph(graph, { predicate: 'works_at' });
+    expect(filtered.nodes.map((n) => n.id)).toEqual(['e1', 'e2', 'f1']);
+    expect(filtered.edges.map((e) => e.id)).toEqual(['r1']);
+  });
+
+  it('keeps every node and drops only edges to unknown nodes when no filters are set', () => {
+    const filtered = filterGraph(graph, {});
+    expect(filtered.nodes).toEqual(graph.nodes);
+    expect(filtered.edges.map((e) => e.id)).toEqual(['r1', 'r2']);
   });
 });
 

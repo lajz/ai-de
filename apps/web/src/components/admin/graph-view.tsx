@@ -4,13 +4,13 @@ import '@xyflow/react/dist/style.css';
 
 import { Background, Controls, ReactFlow, useEdgesState, useNodesState } from '@xyflow/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
   buildAdjacency,
   buildFlowGraph,
   expandNode,
+  filterGraph,
   graphFacets,
   pickSeedNodes,
   visibleSubgraph,
@@ -35,23 +35,34 @@ function usePrefersDark(): boolean {
 export function GraphView({
   engagementId,
   graph,
-  filters,
 }: {
   engagementId: string;
   graph: EngagementGraph;
-  filters: { entityType?: string; predicate?: string };
 }) {
-  const router = useRouter();
   const dark = usePrefersDark();
-  const adjacency = useMemo(() => buildAdjacency(graph), [graph]);
-  const [visible, setVisible] = useState<Set<string>>(() => new Set(pickSeedNodes(graph)));
-  const sub = useMemo(() => visibleSubgraph(graph, visible), [graph, visible]);
-  const layout = useMemo(() => buildFlowGraph(sub, dark), [sub, dark]);
+  const [entityType, setEntityType] = useState('');
+  const [predicate, setPredicate] = useState('');
+  // Facets always derive from the unfiltered `graph`, never from `filtered`
+  // below — that's the fix for the filters narrowing each other's own
+  // choices (see `filterGraph`'s doc comment).
   const facets = useMemo(() => graphFacets(graph), [graph]);
   const factTypes = useMemo(
     () => [...new Set(graph.nodes.filter((n) => n.kind === 'fact').map((n) => n.type))].sort(),
     [graph],
   );
+
+  const filtered = useMemo(
+    () =>
+      filterGraph(graph, {
+        entityType: entityType || undefined,
+        predicate: predicate || undefined,
+      }),
+    [graph, entityType, predicate],
+  );
+  const adjacency = useMemo(() => buildAdjacency(filtered), [filtered]);
+  const [visible, setVisible] = useState<Set<string>>(() => new Set(pickSeedNodes(filtered)));
+  const sub = useMemo(() => visibleSubgraph(filtered, visible), [filtered, visible]);
+  const layout = useMemo(() => buildFlowGraph(sub, dark), [sub, dark]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
@@ -62,21 +73,14 @@ export function GraphView({
     setEdges(layout.edges);
   }, [layout, setNodes, setEdges]);
 
-  // A new server fetch (filters changed) starts over from the seed nodes.
+  // A new `filtered` graph (the entityType/predicate filters changed, or the
+  // page got a new `graph`) starts over from its own seed nodes.
   useEffect(() => {
-    setVisible(new Set(pickSeedNodes(graph)));
+    setVisible(new Set(pickSeedNodes(filtered)));
     setSelectedId(null);
-  }, [graph]);
+  }, [filtered]);
 
   const selected: GraphNode | undefined = graph.nodes.find((n) => n.id === selectedId);
-
-  function setFilter(key: 'entityType' | 'predicate', value: string) {
-    const qs = new URLSearchParams();
-    const next = { ...filters, [key]: value || undefined };
-    if (next.entityType) qs.set('entityType', next.entityType);
-    if (next.predicate) qs.set('predicate', next.predicate);
-    router.push(`/engagements/${engagementId}/graph${qs.toString() ? `?${qs}` : ''}`);
-  }
 
   return (
     <div className="graph-view">
@@ -85,8 +89,8 @@ export function GraphView({
           Entity type
           <select
             className="field-input"
-            value={filters.entityType ?? ''}
-            onChange={(e) => setFilter('entityType', e.target.value)}
+            value={entityType}
+            onChange={(e) => setEntityType(e.target.value)}
           >
             <option value="">all</option>
             {facets.entityTypes.map((t) => (
@@ -100,8 +104,8 @@ export function GraphView({
           Predicate
           <select
             className="field-input"
-            value={filters.predicate ?? ''}
-            onChange={(e) => setFilter('predicate', e.target.value)}
+            value={predicate}
+            onChange={(e) => setPredicate(e.target.value)}
           >
             <option value="">all</option>
             {facets.predicates.map((p) => (
@@ -112,14 +116,14 @@ export function GraphView({
           </select>
         </label>
         <span className="graph-count">
-          <strong>{sub.nodes.length}</strong> of <strong>{graph.nodes.length}</strong> nodes shown ·{' '}
-          <strong>{sub.edges.length}</strong> edges
+          <strong>{sub.nodes.length}</strong> of <strong>{filtered.nodes.length}</strong> nodes
+          shown · <strong>{sub.edges.length}</strong> edges
         </span>
         <button
           type="button"
           className="btn btn-quiet"
           onClick={() => {
-            setVisible(new Set(pickSeedNodes(graph)));
+            setVisible(new Set(pickSeedNodes(filtered)));
             setSelectedId(null);
           }}
         >
