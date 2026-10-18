@@ -15,3 +15,5 @@ export * from './pagination.js';
 export * from './raw-artifact.js';
 export * from './canonical.js';
 export * from './connector.js';
+export * from './custom-integration-mapping.js';
+export * from './custom-integration-normalize.js';

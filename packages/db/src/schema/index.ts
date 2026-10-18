@@ -10,4 +10,5 @@ export * from './identities.js';
 export * from './identity.js';
 export * from './audit.js';
 export * from './api-keys.js';
+export * from './custom-integrations.js';
 export * from './tables.js';

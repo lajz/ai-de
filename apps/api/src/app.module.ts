@@ -6,6 +6,7 @@ import { AppConfigModule } from './config/config.module.js';
 import { DbModule } from './db/db.module.js';
 import { EngagementsController } from './engagements/engagements.controller.js';
 import { HealthController } from './health/health.controller.js';
+import { IntegrationsModule } from './integrations/integrations.module.js';
 import { KeyProviderModule } from './key-provider/key-provider.module.js';
 import { LineageModule } from './lineage/lineage.module.js';
 import { MeController } from './me/me.controller.js';
@@ -37,6 +38,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
     AdminModule,
     LineageModule,
     WebhooksModule,
+    IntegrationsModule,
   ],
   controllers: [HealthController, MeController, EngagementsController],
 })

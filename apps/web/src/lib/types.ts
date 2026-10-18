@@ -97,6 +97,90 @@ export interface PutConnectorBody {
 
 export type SyncMode = 'backfill' | 'incremental';
 
+// --- Custom integrations -----------------------------------------------------
+// Mirrors `customIntegrationMappingSchema` in `@fde/core` (the web app does not
+// depend on it); the API re-validates everything.
+
+export const CUSTOM_ENTITY_TYPES = [
+  'person',
+  'organization',
+  'work_item',
+  'document',
+  'meeting',
+] as const;
+export const CUSTOM_PREDICATES = [
+  'owns',
+  'accountable_for',
+  'informed_of',
+  'implemented_by',
+  'blocks',
+  'supersedes',
+  'relates_to',
+  'member_of',
+  'stakeholder_in',
+] as const;
+export const CUSTOM_SOURCE_KINDS = ['transcript', 'message', 'doc', 'issue', 'comment'] as const;
+
+export interface CustomEntityMapping {
+  key: string;
+  type: (typeof CUSTOM_ENTITY_TYPES)[number];
+  externalIdPath: string;
+  displayNamePath: string;
+  bodyPath?: string;
+  attributes: Record<string, string>;
+}
+
+export interface CustomRelationshipMapping {
+  from: string;
+  predicate: (typeof CUSTOM_PREDICATES)[number];
+  to: string;
+}
+
+export interface CustomIntegrationMapping {
+  artifact: {
+    externalIdPath: string;
+    kind: (typeof CUSTOM_SOURCE_KINDS)[number];
+    occurredAtPath: string;
+    urlPermalinkPath?: string;
+  };
+  entities: CustomEntityMapping[];
+  relationships: CustomRelationshipMapping[];
+}
+
+export interface CustomIntegration {
+  id: string;
+  name: string;
+  enabled: boolean;
+  mapping: CustomIntegrationMapping;
+  secretPrefix: string;
+  secretSetAt: string;
+  lastIngestedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  ingestUrl: string;
+}
+
+/** Returned once, by create / rotate. */
+export interface CustomIntegrationWithSecret extends CustomIntegration {
+  secret: string;
+}
+
+export interface CustomMappingIssue {
+  at: string;
+  message: string;
+}
+
+export interface CustomMappingTestResult {
+  records: unknown[];
+  issues: CustomMappingIssue[];
+}
+
+export interface UpdateCustomIntegrationBody {
+  name?: string;
+  enabled?: boolean;
+  mapping?: CustomIntegrationMapping;
+}
+
 // --- Data lineage ------------------------------------------------------------
 
 export interface AclSummary {

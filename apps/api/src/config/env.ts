@@ -104,6 +104,13 @@ export const envSchema = z
     WEB_BASE_URL: z.string().url().default('http://localhost:3001'),
 
     /**
+     * This API's own externally reachable origin — used only to build the
+     * ingest URL shown for a custom integration (`…/integrations/:id/ingest`),
+     * which a customer's system POSTs to. Defaults to the local dev port.
+     */
+    API_PUBLIC_URL: z.string().url().default('http://localhost:3000'),
+
+    /**
      * SpiceDB (`@fde/authz`). Unset in dev/test → the in-memory `AuthzClient`
      * (`createAuthzClientFromEnv`). Required under `NODE_ENV=production` — the
      * in-memory client refuses to run there.

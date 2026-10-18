@@ -1,6 +1,11 @@
 import type {
   ConnectorConfig,
   CryptoShredResult,
+  CustomIntegration,
+  CustomIntegrationMapping,
+  CustomIntegrationWithSecret,
+  CustomMappingTestResult,
+  UpdateCustomIntegrationBody,
   Engagement,
   EngagementGraph,
   EntityProvenance,
@@ -41,6 +46,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** per-field issues from a 422 (custom mapping validation), when present */
+    readonly issues?: { at: string; message: string }[],
   ) {
     super(message);
     this.name = 'ApiError';
@@ -48,12 +55,19 @@ export class ApiError extends Error {
 }
 
 /** Nest's default exception filter serializes `{ statusCode, message, error }`. */
-async function upstreamErrorDetail(res: Response): Promise<string | undefined> {
+async function upstreamErrorDetail(
+  res: Response,
+): Promise<{ message?: string; issues?: { at: string; message: string }[] }> {
   try {
-    const body = (await res.json()) as { message?: unknown } | null;
-    return typeof body?.message === 'string' ? body.message : undefined;
+    const body = (await res.json()) as { message?: unknown; issues?: unknown } | null;
+    return {
+      message: typeof body?.message === 'string' ? body.message : undefined,
+      issues: Array.isArray(body?.issues)
+        ? (body.issues as { at: string; message: string }[])
+        : undefined,
+    };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -79,8 +93,13 @@ async function apiJson<T>(
   });
   if (!res.ok) {
     const detail = await upstreamErrorDetail(res);
-    throw new ApiError(res.status, detail ?? `${init?.method ?? 'GET'} ${path} → ${res.status}`);
+    throw new ApiError(
+      res.status,
+      detail.message ?? `${init?.method ?? 'GET'} ${path} → ${res.status}`,
+      detail.issues,
+    );
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -143,6 +162,72 @@ export function startConnectorSync(
     token,
     { method: 'POST', body: JSON.stringify({ mode }) },
   );
+}
+
+// --- Custom integrations -----------------------------------------------------
+
+export function getCustomIntegrations(
+  token: string | undefined,
+  engagementId: string,
+): Promise<CustomIntegration[]> {
+  return apiJson<CustomIntegration[]>(`/engagements/${engagementId}/integrations`, token);
+}
+
+export function createCustomIntegration(
+  token: string | undefined,
+  engagementId: string,
+  body: { name: string; mapping: CustomIntegrationMapping },
+): Promise<CustomIntegrationWithSecret> {
+  return apiJson<CustomIntegrationWithSecret>(`/engagements/${engagementId}/integrations`, token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateCustomIntegration(
+  token: string | undefined,
+  engagementId: string,
+  integrationId: string,
+  body: UpdateCustomIntegrationBody,
+): Promise<CustomIntegration> {
+  return apiJson<CustomIntegration>(
+    `/engagements/${engagementId}/integrations/${integrationId}`,
+    token,
+    { method: 'PUT', body: JSON.stringify(body) },
+  );
+}
+
+export function deleteCustomIntegration(
+  token: string | undefined,
+  engagementId: string,
+  integrationId: string,
+): Promise<void> {
+  return apiJson<void>(`/engagements/${engagementId}/integrations/${integrationId}`, token, {
+    method: 'DELETE',
+  });
+}
+
+export function rotateCustomIntegrationSecret(
+  token: string | undefined,
+  engagementId: string,
+  integrationId: string,
+): Promise<CustomIntegrationWithSecret> {
+  return apiJson<CustomIntegrationWithSecret>(
+    `/engagements/${engagementId}/integrations/${integrationId}/rotate-secret`,
+    token,
+    { method: 'POST' },
+  );
+}
+
+export function testCustomIntegrationMapping(
+  token: string | undefined,
+  engagementId: string,
+  body: { mapping: CustomIntegrationMapping; payload: unknown },
+): Promise<CustomMappingTestResult> {
+  return apiJson<CustomMappingTestResult>(`/engagements/${engagementId}/integrations/test`, token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 // --- Data lineage ------------------------------------------------------------

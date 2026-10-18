@@ -8,3 +8,4 @@ export {
   type ConnectorBuildContext,
   type ConnectorFactory,
 } from './registry.js';
+export * from './custom/index.js';
