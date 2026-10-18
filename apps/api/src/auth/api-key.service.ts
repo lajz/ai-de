@@ -1,11 +1,10 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-
 import { Inject, Injectable } from '@nestjs/common';
 import type { TenantId, UserId } from '@fde/core';
 import { apiKeys, type Database } from '@fde/db';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { DB } from '../db/db.module.js';
+import { generateSecret, secretMatches } from './secret-hash.js';
 
 export interface ApiKeyIdentity {
   tenantId: TenantId;
@@ -16,10 +15,6 @@ const RAW_PREFIX = 'fde_';
 /** Chars of the raw key stored in cleartext for the indexed lookup bucket — never enough to guess the rest. */
 const PREFIX_LEN = RAW_PREFIX.length + 8;
 
-function hash(rawKey: string): Buffer {
-  return createHash('sha256').update(rawKey).digest();
-}
-
 /** A freshly minted key. `raw` is shown to the issuer exactly once — only `hash`/`prefix` are stored. */
 export interface GeneratedApiKey {
   raw: string;
@@ -29,8 +24,7 @@ export interface GeneratedApiKey {
 
 /** `randomBytes(32)` of entropy, `fde_`-prefixed so a leaked key is greppable. Never logged. */
 export function generateApiKey(): GeneratedApiKey {
-  const raw = `${RAW_PREFIX}${randomBytes(32).toString('base64url')}`;
-  return { raw, prefix: raw.slice(0, PREFIX_LEN), hashHex: hash(raw).toString('hex') };
+  return generateSecret({ rawPrefix: RAW_PREFIX, prefixLen: PREFIX_LEN });
 }
 
 /**
@@ -54,7 +48,6 @@ export class ApiKeyService {
   async resolve(rawKey: string | undefined): Promise<ApiKeyIdentity | undefined> {
     if (!rawKey || !rawKey.startsWith(RAW_PREFIX)) return undefined;
     const prefix = rawKey.slice(0, PREFIX_LEN);
-    const target = hash(rawKey);
 
     const candidates = await this.db
       .select({
@@ -68,7 +61,7 @@ export class ApiKeyService {
     let match: ApiKeyIdentity | undefined;
     for (const row of candidates) {
       // Non-short-circuiting: keep scanning every candidate in the bucket even after a hit.
-      if (timingSafeEqual(Buffer.from(row.keyHash, 'hex'), target)) {
+      if (secretMatches(rawKey, row.keyHash)) {
         match = { tenantId: row.tenantId as TenantId, userId: row.userId as UserId };
       }
     }

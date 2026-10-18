@@ -1798,3 +1798,74 @@ main.engagement {
   max-width: none;
   margin: 0;
 }
+
+/* ---------------------------------------------------------------------------
+   Custom integrations
+--------------------------------------------------------------------------- */
+
+.integration-panel,
+.integration-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.integration-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: var(--space-3) var(--space-4);
+  min-width: 0;
+}
+
+.integration-fieldset legend {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0 var(--space-2);
+}
+
+.integration-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--warning-wash);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+}
+
+.integration-reveal-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.integration-reveal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.integration-reveal code,
+.integration-url {
+  font-family: var(--font-data);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.integration-sample,
+.integration-test-result {
+  font-family: var(--font-data);
+  font-size: 0.8125rem;
+}
+
+.integration-test-result {
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  margin: 0;
+  overflow-x: auto;
+}

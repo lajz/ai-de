@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 import type { FakeWorkOsService } from '../auth/fake-workos.service.js';
 
@@ -43,6 +44,8 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   const { Test } = await import('@nestjs/testing');
   const { AppModule } = await import('../app.module.js');
   const { DB } = await import('../db/db.module.js');
+  const { MAX_CUSTOM_INGEST_BYTES } =
+    await import('../integrations/integrations-ingest.controller.js');
   const { WORKOS } = await import('../auth/workos.types.js');
   const { AuthzClient } = await import('@fde/authz');
   const { ROUTER, QUERY_EMBEDDING_CLIENT } = await import('../retrieval/retrieval.tokens.js');
@@ -61,7 +64,8 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     builder = builder.overrideProvider(QUERY_EMBEDDING_CLIENT).useValue(opts.embeddingClient);
   }
   const moduleRef = await builder.compile();
-  const app = moduleRef.createNestApplication({ rawBody: true });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
+  app.useBodyParser('json', { limit: MAX_CUSTOM_INGEST_BYTES });
   await app.init();
 
   return {

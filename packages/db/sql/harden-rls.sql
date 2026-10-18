@@ -41,5 +41,13 @@ begin
   -- `TENANT_SCOPED_TABLES`. No delete grant: a key is revoked (`revoked_at`),
   -- never removed, so the audit trail of what a key could ever do survives.
   execute 'grant select, insert, update on api_keys to app_rw';
+
+  -- custom_integrations likewise carries NO row-level security, for the same
+  -- reason: the public ingest endpoint resolves the row by primary key before
+  -- any tenant is known (see packages/db/src/schema/custom-integrations.ts).
+  -- Absent from `tenant_tables` above and `TENANT_SCOPED_TABLES`; every query
+  -- helper filters tenant_id/engagement_id by hand instead. Unlike api_keys,
+  -- DELETE is granted: nothing requires keeping a removed integration around.
+  execute 'grant select, insert, update, delete on custom_integrations to app_rw';
 end
 $$;
