@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, pgPolicy, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgPolicy, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { appRole, createdAt, pk, tenantIsolation, updatedAt } from '../columns/_helpers.js';
 import { encrypted } from '../columns/encrypted.js';
@@ -43,6 +43,8 @@ export const connectorConfig = pgTable(
     enabled: boolean('enabled').notNull().default(false),
     /** null → inherit the engagement's `retention_policy` (via `effectiveRetention`) */
     retentionOverride: retentionPolicyEnum('retention_override'),
+    /** null → polling off; otherwise seconds between scheduled `incremental` syncs (Temporal Schedule) */
+    pollIntervalSeconds: integer('poll_interval_seconds'),
     /** encrypted bearer token / Recall key today; the Nango connection id at M3 */
     credentialRef: encrypted('credential_ref'),
     /** null → unclaimed; see the table doc comment above */

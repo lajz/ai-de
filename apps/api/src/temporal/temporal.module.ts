@@ -1,6 +1,12 @@
 import { Global, Inject, Injectable, Module, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Connection, WorkflowClient } from '@temporalio/client';
+import {
+  Connection,
+  ScheduleClient,
+  ScheduleNotFoundError,
+  ScheduleOverlapPolicy,
+  WorkflowClient,
+} from '@temporalio/client';
 import type { EngagementId, TenantId } from '@fde/core';
 
 import type { Env } from '../config/env.js';
@@ -8,6 +14,8 @@ import { loadTemporalClientConfig } from './temporal-connection.js';
 
 /** DI token for the lazily-connecting `WorkflowClient`, or `null` when Temporal is unconfigured. */
 export const TEMPORAL_WORKFLOW_CLIENT = Symbol('TEMPORAL_WORKFLOW_CLIENT');
+/** DI token for the lazily-connecting `ScheduleClient`, or `null` when Temporal is unconfigured. */
+export const TEMPORAL_SCHEDULE_CLIENT = Symbol('TEMPORAL_SCHEDULE_CLIENT');
 /** DI token for the task queue the connector-sync worker listens on. */
 export const TEMPORAL_TASK_QUEUE = Symbol('TEMPORAL_TASK_QUEUE');
 
@@ -30,6 +38,13 @@ export interface ConnectorSyncStartInput {
   engagementId: EngagementId;
   connectorId: string;
   mode: 'backfill' | 'incremental';
+}
+
+export interface ConnectorPollUpsertInput {
+  tenantId: TenantId;
+  engagementId: EngagementId;
+  connectorId: string;
+  intervalSeconds: number;
 }
 
 /**
@@ -78,6 +93,91 @@ export interface AgenticLinkingStartInput {
   workItemEntityId: string;
   /** the `sources` row that landed this work item — stamped onto every edge this run writes */
   sourceId: string;
+}
+
+/**
+ * Manages the per-`(engagement, connector)` Temporal Schedule whose action
+ * starts `connectorSyncWorkflow` in `incremental` mode. Same 503 contract as
+ * `TemporalConnectorSync` (unconfigured or unreachable).
+ */
+@Injectable()
+export class TemporalConnectorPoll {
+  constructor(
+    @Inject(TEMPORAL_SCHEDULE_CLIENT) private readonly client: ScheduleClient | null,
+    @Inject(TEMPORAL_TASK_QUEUE) private readonly taskQueue: string,
+  ) {}
+
+  get configured(): boolean {
+    return this.client !== null;
+  }
+
+  scheduleId(engagementId: EngagementId, connectorId: string): string {
+    return `connector-poll-${engagementId}-${connectorId}`;
+  }
+
+  /** Create the schedule if absent, else update its interval in place. */
+  async upsert(input: ConnectorPollUpsertInput): Promise<void> {
+    const client = this.requireClient();
+    const scheduleId = this.scheduleId(input.engagementId, input.connectorId);
+    const syncInput: ConnectorSyncStartInput = {
+      tenantId: input.tenantId,
+      engagementId: input.engagementId,
+      connectorId: input.connectorId,
+      mode: 'incremental',
+    };
+    const spec = { intervals: [{ every: input.intervalSeconds * 1000 }] };
+    const action = {
+      type: 'startWorkflow' as const,
+      workflowType: CONNECTOR_SYNC_WORKFLOW_TYPE,
+      taskQueue: this.taskQueue,
+      args: [syncInput],
+    };
+    try {
+      try {
+        await client.getHandle(scheduleId).update((prev) => ({
+          ...prev,
+          spec,
+          action: { ...prev.action, ...action },
+        }));
+      } catch (err) {
+        if (!(err instanceof ScheduleNotFoundError)) throw err;
+        await client.create({
+          scheduleId,
+          spec,
+          action,
+          // a tick landing while the previous run is in flight is dropped, not queued
+          policies: { overlap: ScheduleOverlapPolicy.SKIP },
+        });
+      }
+    } catch (err) {
+      throw this.unreachable(err);
+    }
+  }
+
+  /** Delete the schedule; idempotent — a missing schedule is not an error. */
+  async remove(input: { engagementId: EngagementId; connectorId: string }): Promise<void> {
+    const client = this.requireClient();
+    try {
+      await client.getHandle(this.scheduleId(input.engagementId, input.connectorId)).delete();
+    } catch (err) {
+      if (err instanceof ScheduleNotFoundError) return;
+      throw this.unreachable(err);
+    }
+  }
+
+  private requireClient(): ScheduleClient {
+    if (!this.client) {
+      throw new ServiceUnavailableException(
+        'Temporal is not configured — set TEMPORAL_ADDRESS to enable scheduled connector polling',
+      );
+    }
+    return this.client;
+  }
+
+  private unreachable(err: unknown): ServiceUnavailableException {
+    const message = err instanceof Error ? err.message : String(err);
+    return new ServiceUnavailableException(`could not reach Temporal: ${message}`);
+  }
 }
 
 /**
@@ -200,15 +300,38 @@ export class TemporalCryptoShred {
       },
     },
     {
+      provide: TEMPORAL_SCHEDULE_CLIENT,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): ScheduleClient | null => {
+        const env = {
+          TEMPORAL_ADDRESS: config.get('TEMPORAL_ADDRESS', { infer: true }),
+          TEMPORAL_NAMESPACE: config.get('TEMPORAL_NAMESPACE', { infer: true }),
+          TEMPORAL_API_KEY: config.get('TEMPORAL_API_KEY', { infer: true }),
+          TEMPORAL_CLIENT_CERT: config.get('TEMPORAL_CLIENT_CERT', { infer: true }),
+          TEMPORAL_CLIENT_KEY: config.get('TEMPORAL_CLIENT_KEY', { infer: true }),
+        } as Env;
+        const cfg = loadTemporalClientConfig(env);
+        if (!cfg) return null;
+        const connection = Connection.lazy(cfg.connection);
+        return new ScheduleClient({ connection, namespace: cfg.namespace });
+      },
+    },
+    {
       provide: TEMPORAL_TASK_QUEUE,
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>): string =>
         config.get('TEMPORAL_TASK_QUEUE', { infer: true }) ?? DEFAULT_TASK_QUEUE,
     },
     TemporalConnectorSync,
+    TemporalConnectorPoll,
     TemporalAgenticLinking,
     TemporalCryptoShred,
   ],
-  exports: [TemporalConnectorSync, TemporalAgenticLinking, TemporalCryptoShred],
+  exports: [
+    TemporalConnectorSync,
+    TemporalConnectorPoll,
+    TemporalAgenticLinking,
+    TemporalCryptoShred,
+  ],
 })
 export class TemporalModule {}

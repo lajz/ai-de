@@ -42,6 +42,14 @@ class ConnectorResponse {
       'the external workspace/org/repo this engagement claims (a Linear organization id, later a GitHub owner/repo) — null when unclaimed',
   })
   externalScopeRef!: string | null;
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    minimum: 300,
+    maximum: 86400,
+    description: 'seconds between scheduled incremental syncs — null when polling is off',
+  })
+  pollIntervalSeconds!: number | null;
   @ApiProperty({ type: ConnectorSyncResponse }) sync!: ConnectorSyncResponse;
 }
 
@@ -67,6 +75,15 @@ class PutConnectorBody {
       'the external workspace/org/repo this connection targets (a Linear organization id, later a GitHub owner/repo) — must be globally unique per connector; null releases the claim',
   })
   externalScopeRef?: string | null;
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    minimum: 300,
+    maximum: 86400,
+    description:
+      'seconds between scheduled incremental syncs (5 min – 24 h); null turns polling off. Takes effect only while the connector is enabled and has a credential',
+  })
+  pollIntervalSeconds?: number | null;
 }
 
 class SyncBody {

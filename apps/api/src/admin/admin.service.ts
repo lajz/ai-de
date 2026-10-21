@@ -28,8 +28,12 @@ import {
 
 import type { Env } from '../config/env.js';
 import { getEngagementContext, getRequestContext } from '@fde/request-context';
-import { TemporalConnectorSync } from '../temporal/temporal.module.js';
+import { TemporalConnectorPoll, TemporalConnectorSync } from '../temporal/temporal.module.js';
 import { CONNECTOR_REGISTRY } from './admin.tokens.js';
+
+/** Bounds for `pollIntervalSeconds`: 5 minutes – 24 hours. */
+export const POLL_INTERVAL_MIN_SECONDS = 300;
+export const POLL_INTERVAL_MAX_SECONDS = 86400;
 
 export interface ConnectorSyncView {
   status: 'idle' | 'running' | 'error' | null;
@@ -45,6 +49,8 @@ export interface ConnectorView {
   hasCredential: boolean;
   /** the external workspace/org/repo this engagement's connection is bound to, or null if unclaimed */
   externalScopeRef: string | null;
+  /** seconds between scheduled incremental syncs, or null when polling is off */
+  pollIntervalSeconds: number | null;
   sync: ConnectorSyncView;
 }
 
@@ -52,6 +58,10 @@ export interface PutConnectorInput {
   enabled?: boolean;
   /** `null` clears the override */
   retentionOverride?: RetentionPolicy | null;
+  /** `null` turns polling off; otherwise an integer in [POLL_INTERVAL_MIN_SECONDS, POLL_INTERVAL_MAX_SECONDS] */
+  pollIntervalSeconds?: number | null;
+  /** true when the request body carried a `pollIntervalSeconds` key at all */
+  pollIntervalSecondsProvided: boolean;
   /** cleartext secret — encrypted before it touches the DB, never returned */
   credential?: string;
   /** true when the request body carried a `retentionOverride` key at all */
@@ -78,6 +88,7 @@ export class AdminService {
     @Inject(CONNECTOR_REGISTRY) private readonly registry: ConnectorRegistry,
     @Inject(AuthzClient) private readonly authz: AuthzClient,
     @Inject(TemporalConnectorSync) private readonly temporal: TemporalConnectorSync,
+    @Inject(TemporalConnectorPoll) private readonly poll: TemporalConnectorPoll,
     @Inject(ConfigService) config: ConfigService<Env, true>,
   ) {
     this.enforce = config.get('AUTHZ_ENFORCE', { infer: true }) === 'true';
@@ -104,6 +115,9 @@ export class AdminService {
     const patch: ConnectorConfigPatch = {};
     if (input.enabled !== undefined) patch.enabled = input.enabled;
     if (input.retentionOverrideProvided) patch.retentionOverride = input.retentionOverride ?? null;
+    if (input.pollIntervalSecondsProvided) {
+      patch.pollIntervalSeconds = input.pollIntervalSeconds ?? null;
+    }
     if (input.credential !== undefined) {
       const { credentialRef } = await encryptRow(
         engagement.cipher,
@@ -131,6 +145,20 @@ export class AdminService {
 
     const view = (await this.buildViews()).find((c) => c.connector === connectorId);
     // registry.has() passed above, so the row is always in the list.
+    // Reconcile the schedule to the post-patch effective state, whichever field
+    // changed: disabling or clearing the credential tears the schedule down.
+    // Persisted config is already saved, so a Temporal outage (503) only blocks
+    // the schedule taking effect — it doesn't un-set what the admin asked for.
+    if (view!.enabled && view!.hasCredential && view!.pollIntervalSeconds != null) {
+      await this.poll.upsert({
+        tenantId,
+        engagementId: engagement.id,
+        connectorId,
+        intervalSeconds: view!.pollIntervalSeconds,
+      });
+    } else {
+      await this.poll.remove({ engagementId: engagement.id, connectorId });
+    }
     return view!;
   }
 
@@ -192,6 +220,7 @@ export class AdminService {
         effectiveRetention: connector.retentionPolicy,
         hasCredential: cfg?.credentialRef != null,
         externalScopeRef: cfg?.externalScopeRef ?? null,
+        pollIntervalSeconds: cfg?.pollIntervalSeconds ?? null,
         sync: {
           status: state?.status ?? null,
           lastRunAt: state?.lastRunAt ? state.lastRunAt.toISOString() : null,
@@ -239,6 +268,7 @@ export function parsePutConnectorBody(body: unknown): PutConnectorInput {
   const out: PutConnectorInput = {
     retentionOverrideProvided: 'retentionOverride' in b,
     externalScopeRefProvided: 'externalScopeRef' in b,
+    pollIntervalSecondsProvided: 'pollIntervalSeconds' in b,
   };
 
   if (b.enabled !== undefined) {
@@ -253,6 +283,21 @@ export function parsePutConnectorBody(body: unknown): PutConnectorInput {
       );
     }
     out.retentionOverride = ro as RetentionPolicy | null;
+  }
+  if (out.pollIntervalSecondsProvided) {
+    const p = b.pollIntervalSeconds;
+    if (
+      p !== null &&
+      (typeof p !== 'number' ||
+        !Number.isInteger(p) ||
+        p < POLL_INTERVAL_MIN_SECONDS ||
+        p > POLL_INTERVAL_MAX_SECONDS)
+    ) {
+      throw new BadRequestException(
+        `pollIntervalSeconds must be null or an integer between ${POLL_INTERVAL_MIN_SECONDS} and ${POLL_INTERVAL_MAX_SECONDS}`,
+      );
+    }
+    out.pollIntervalSeconds = p as number | null;
   }
   if (b.credential !== undefined) {
     if (typeof b.credential !== 'string' || b.credential.trim() === '') {

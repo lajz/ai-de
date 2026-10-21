@@ -66,6 +66,7 @@ export interface ConnectorConfigRow {
   connector: string;
   enabled: boolean;
   retentionOverride: RetentionPolicy | null;
+  pollIntervalSeconds: number | null;
   credentialRef: Ciphertext | null;
   externalScopeRef: string | null;
   updatedAt: Date;
@@ -82,6 +83,7 @@ export function selectConnectorConfigs(
       connector: connectorConfig.connector,
       enabled: connectorConfig.enabled,
       retentionOverride: connectorConfig.retentionOverride,
+      pollIntervalSeconds: connectorConfig.pollIntervalSeconds,
       credentialRef: connectorConfig.credentialRef,
       externalScopeRef: connectorConfig.externalScopeRef,
       updatedAt: connectorConfig.updatedAt,
@@ -165,6 +167,8 @@ export interface ConnectorConfigPatch {
   enabled?: boolean;
   /** `null` clears the override (inherit the engagement policy) */
   retentionOverride?: RetentionPolicy | null;
+  /** `null` turns polling off */
+  pollIntervalSeconds?: number | null;
   /** already-encrypted; `null` clears the stored credential */
   credentialRef?: Ciphertext | null;
   /** `null` releases the claim; a non-null value must be globally unique per connector */
@@ -190,6 +194,7 @@ export async function upsertConnectorConfig(
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.enabled !== undefined) set.enabled = patch.enabled;
   if (patch.retentionOverride !== undefined) set.retentionOverride = patch.retentionOverride;
+  if (patch.pollIntervalSeconds !== undefined) set.pollIntervalSeconds = patch.pollIntervalSeconds;
   if (patch.credentialRef !== undefined) set.credentialRef = patch.credentialRef;
   if (patch.externalScopeRef !== undefined) set.externalScopeRef = patch.externalScopeRef;
 
@@ -202,6 +207,7 @@ export async function upsertConnectorConfig(
         connector: ref.connector,
         enabled: patch.enabled ?? false,
         retentionOverride: patch.retentionOverride ?? null,
+        pollIntervalSeconds: patch.pollIntervalSeconds ?? null,
         credentialRef: patch.credentialRef ?? null,
         externalScopeRef: patch.externalScopeRef ?? null,
       })

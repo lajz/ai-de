@@ -36,6 +36,13 @@
       "when": 1792365136411,
       "tag": "0004_custom_integrations",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792608200806,
+      "tag": "0005_redundant_bloodaxe",
+      "breakpoints": true
     }
   ]
 }

@@ -86,12 +86,14 @@ export interface ConnectorConfig {
   enabled: boolean;
   effectiveRetention: RetentionPolicy;
   hasCredential: boolean;
+  pollIntervalSeconds: number | null;
   sync: ConnectorSync;
 }
 
 export interface PutConnectorBody {
   enabled?: boolean;
   retentionOverride?: RetentionPolicy | null;
+  pollIntervalSeconds?: number | null;
   credential?: string;
 }
 
