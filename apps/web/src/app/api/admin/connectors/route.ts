@@ -54,6 +54,13 @@ export async function PUT(req: Request): Promise<NextResponse> {
     }
     patch.retentionOverride = retentionOverride as RetentionPolicy | null;
   }
+  if ('pollIntervalSeconds' in (body as object)) {
+    const p = (body as { pollIntervalSeconds?: unknown }).pollIntervalSeconds;
+    if (p !== null && (typeof p !== 'number' || !Number.isInteger(p))) {
+      return NextResponse.json({ error: 'invalid pollIntervalSeconds' }, { status: 400 });
+    }
+    patch.pollIntervalSeconds = p as number | null;
+  }
   if (credential !== undefined) {
     if (typeof credential !== 'string' || credential.trim() === '') {
       return NextResponse.json({ error: 'credential must be a non-empty string' }, { status: 400 });

@@ -1,0 +1,1 @@
+ALTER TABLE "connector_config" ADD COLUMN "poll_interval_seconds" integer;

@@ -31,6 +31,7 @@ const connector: ConnectorConfig = {
   authKind: 'bearer',
   enabled: true,
   effectiveRetention: 'full-retention',
+  pollIntervalSeconds: null,
   hasCredential: true,
   sync: { status: 'idle', lastRunAt: '2026-09-09T00:00:00Z', cursorPresent: true },
 };

@@ -13,6 +13,15 @@ const RETENTION_OPTIONS: { value: RetentionPolicy | 'inherit'; label: string }[]
   { value: 'full-retention', label: 'full-retention' },
 ];
 
+const POLL_OPTIONS: { value: number | null; label: string }[] = [
+  { value: null, label: 'Off' },
+  { value: 900, label: '15m' },
+  { value: 1800, label: '30m' },
+  { value: 3600, label: '1h' },
+  { value: 21600, label: '6h' },
+  { value: 86400, label: '24h' },
+];
+
 export function ConnectorCard({
   engagementId,
   connector: initial,
@@ -97,6 +106,28 @@ export function ConnectorCard({
         <span className="connector-retention-effective">
           effective: {connector.effectiveRetention}
         </span>
+      </div>
+
+      <div className="connector-row">
+        <label className="field-label">
+          Poll
+          <select
+            className="field-input"
+            value={connector.pollIntervalSeconds ?? 'off'}
+            disabled={pending}
+            onChange={(e) =>
+              save({
+                pollIntervalSeconds: e.target.value === 'off' ? null : Number(e.target.value),
+              })
+            }
+          >
+            {POLL_OPTIONS.map((o) => (
+              <option key={o.label} value={o.value ?? 'off'}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <form

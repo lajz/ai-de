@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   ConnectorScopeConflictError,
   selectConnectorConfigByScopeRef,
+  selectConnectorConfigs,
   upsertConnectorConfig,
 } from './connector-config.js';
 import { createDbClient, type Database } from './client.js';
@@ -234,5 +235,24 @@ describe.skipIf(!url)('connector_config: external_scope_ref claim + lookup', () 
 
     expect(visibleEngagementIds).toEqual([claimedEngagement]);
     expect(visibleEngagementIds).not.toContain(unclaimedEngagement);
+  });
+  it('pollIntervalSeconds round-trips, is left alone when omitted, and null clears it', async () => {
+    const engagementId = await seedEngagement(tenantA);
+    const ref = { tenantId: tenantA, engagementId, connector: 'granola' };
+    const read = () =>
+      withTenant(handle.db, tenantA, (tx) => selectConnectorConfigs(tx, tenantA, engagementId));
+
+    await withTenant(handle.db, tenantA, (tx) =>
+      upsertConnectorConfig(tx, ref, { enabled: true, pollIntervalSeconds: 900 }),
+    );
+    expect((await read())[0]!.pollIntervalSeconds).toBe(900);
+
+    await withTenant(handle.db, tenantA, (tx) => upsertConnectorConfig(tx, ref, { enabled: true }));
+    expect((await read())[0]!.pollIntervalSeconds).toBe(900);
+
+    await withTenant(handle.db, tenantA, (tx) =>
+      upsertConnectorConfig(tx, ref, { pollIntervalSeconds: null }),
+    );
+    expect((await read())[0]!.pollIntervalSeconds).toBeNull();
   });
 });

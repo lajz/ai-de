@@ -13,8 +13,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
 import { runWithRequestContext } from '@fde/request-context';
-import type { TemporalConnectorSync } from '../temporal/temporal.module.js';
-import { AdminService } from './admin.service.js';
+import type { TemporalConnectorPoll, TemporalConnectorSync } from '../temporal/temporal.module.js';
+import { AdminService, parsePutConnectorBody } from './admin.service.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -68,6 +68,16 @@ const temporal = (configured: boolean) =>
     start: vi.fn(async () => ({ workflowId: 'wf-123' })),
   }) as unknown as TemporalConnectorSync & { start: ReturnType<typeof vi.fn> };
 
+const poll = () =>
+  ({
+    configured: true,
+    upsert: vi.fn(async () => undefined),
+    remove: vi.fn(async () => undefined),
+  }) as unknown as TemporalConnectorPoll & {
+    upsert: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
+
 function run<T>(tx: unknown, fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext(
     { tenantId, userId, tx: tx as never, engagement: { id: engagementId, cipher } },
@@ -85,6 +95,7 @@ describe('AdminService.listConnectors', () => {
       registry,
       new InMemoryAuthzClient(),
       temporal(true),
+      poll(),
       config(false),
     );
     const { tx } = fakeTx([
@@ -116,6 +127,7 @@ describe('AdminService.listConnectors', () => {
       effectiveRetention: 'full-retention',
       hasCredential: true,
       externalScopeRef: null,
+      pollIntervalSeconds: null,
       sync: { status: 'idle', lastRunAt: '2026-03-01T00:00:00.000Z', cursorPresent: true },
     });
   });
@@ -125,6 +137,7 @@ describe('AdminService.listConnectors', () => {
       registry,
       new InMemoryAuthzClient(),
       temporal(true),
+      poll(),
       config(false),
     );
     const { tx } = fakeTx([engRow, [], []]);
@@ -137,7 +150,13 @@ describe('AdminService.listConnectors', () => {
   });
 
   it('403s under enforce when the caller has no role', async () => {
-    const svc = new AdminService(registry, new InMemoryAuthzClient(), temporal(true), config(true));
+    const svc = new AdminService(
+      registry,
+      new InMemoryAuthzClient(),
+      temporal(true),
+      poll(),
+      config(true),
+    );
     await expect(run(fakeTx([]).tx, () => svc.listConnectors())).rejects.toBeInstanceOf(
       ForbiddenException,
     );
@@ -148,7 +167,7 @@ describe('AdminService.putConnector', () => {
   async function adminSvc() {
     const authz = new InMemoryAuthzClient();
     await authz.grantTenantRole(userId, tenantId, 'admin');
-    return new AdminService(registry, authz, temporal(true), config(true));
+    return new AdminService(registry, authz, temporal(true), poll(), config(true));
   }
 
   it('encrypts the credential, stores ciphertext, and never returns the secret', async () => {
@@ -172,6 +191,7 @@ describe('AdminService.putConnector', () => {
         enabled: true,
         credential: 'grn_secret_token',
         retentionOverrideProvided: false,
+        pollIntervalSecondsProvided: false,
       }),
     );
 
@@ -189,7 +209,11 @@ describe('AdminService.putConnector', () => {
     const svc = await adminSvc();
     const { tx, inserts } = fakeTx([engRow, [], []]);
     await run(tx, () =>
-      svc.putConnector('granola', { enabled: false, retentionOverrideProvided: false }),
+      svc.putConnector('granola', {
+        enabled: false,
+        retentionOverrideProvided: false,
+        pollIntervalSecondsProvided: false,
+      }),
     );
     expect(inserts[0]!.set).not.toHaveProperty('credentialRef');
     expect(cipher.encryptString).not.toHaveBeenCalled();
@@ -199,7 +223,10 @@ describe('AdminService.putConnector', () => {
     const svc = await adminSvc();
     await expect(
       run(fakeTx([]).tx, () =>
-        svc.putConnector('notaconnector', { retentionOverrideProvided: false }),
+        svc.putConnector('notaconnector', {
+          retentionOverrideProvided: false,
+          pollIntervalSecondsProvided: false,
+        }),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -207,9 +234,14 @@ describe('AdminService.putConnector', () => {
   it('403s a caller who is neither engagement nor tenant admin', async () => {
     const authz = new InMemoryAuthzClient();
     await authz.grantEngagementRole(userId, engagementId, 'member');
-    const svc = new AdminService(registry, authz, temporal(true), config(true));
+    const svc = new AdminService(registry, authz, temporal(true), poll(), config(true));
     await expect(
-      run(fakeTx([]).tx, () => svc.putConnector('granola', { retentionOverrideProvided: false })),
+      run(fakeTx([]).tx, () =>
+        svc.putConnector('granola', {
+          retentionOverrideProvided: false,
+          pollIntervalSecondsProvided: false,
+        }),
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -219,6 +251,7 @@ describe('AdminService.putConnector', () => {
     await run(tx, () =>
       svc.putConnector('granola', {
         retentionOverrideProvided: false,
+        pollIntervalSecondsProvided: false,
         externalScopeRefProvided: true,
         externalScopeRef: 'linear-org-1',
       }),
@@ -231,7 +264,11 @@ describe('AdminService.putConnector', () => {
     const svc = await adminSvc();
     const { tx, inserts } = fakeTx([engRow, [], []]);
     await run(tx, () =>
-      svc.putConnector('granola', { enabled: true, retentionOverrideProvided: false }),
+      svc.putConnector('granola', {
+        enabled: true,
+        retentionOverrideProvided: false,
+        pollIntervalSecondsProvided: false,
+      }),
     );
     expect(inserts[0]!.set).not.toHaveProperty('externalScopeRef');
   });
@@ -244,11 +281,119 @@ describe('AdminService.putConnector', () => {
       run(tx, () =>
         svc.putConnector('granola', {
           retentionOverrideProvided: false,
+          pollIntervalSecondsProvided: false,
           externalScopeRefProvided: true,
           externalScopeRef: 'linear-org-1',
         }),
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('AdminService.putConnector poll reconciliation', () => {
+  const cfgRow = (over: Record<string, unknown>) => ({
+    connector: 'granola',
+    enabled: true,
+    retentionOverride: null,
+    pollIntervalSeconds: 900,
+    credentialRef: new Uint8Array([1]),
+    updatedAt: new Date(),
+    ...over,
+  });
+
+  async function setup(row: Record<string, unknown>) {
+    const authz = new InMemoryAuthzClient();
+    await authz.grantTenantRole(userId, tenantId, 'admin');
+    const p = poll();
+    const svc = new AdminService(registry, authz, temporal(true), p, config(true));
+    const { tx } = fakeTx([engRow, [cfgRow(row)], []]);
+    return { svc, p, tx };
+  }
+  const input = (over: Record<string, unknown>) => ({
+    retentionOverrideProvided: false,
+    pollIntervalSecondsProvided: false,
+    ...over,
+  });
+
+  it('upserts the schedule when polling is set on an enabled, credentialed connector', async () => {
+    const { svc, p, tx } = await setup({});
+    const res = await run(tx, () =>
+      svc.putConnector(
+        'granola',
+        input({ pollIntervalSecondsProvided: true, pollIntervalSeconds: 900 }),
+      ),
+    );
+    expect(res.pollIntervalSeconds).toBe(900);
+    expect(p.upsert).toHaveBeenCalledWith({
+      tenantId,
+      engagementId,
+      connectorId: 'granola',
+      intervalSeconds: 900,
+    });
+    expect(p.remove).not.toHaveBeenCalled();
+  });
+
+  it('removes the schedule when the connector is disabled while an interval is still set', async () => {
+    const { svc, p, tx } = await setup({ enabled: false });
+    await run(tx, () => svc.putConnector('granola', input({ enabled: false })));
+    expect(p.remove).toHaveBeenCalledWith({ engagementId, connectorId: 'granola' });
+    expect(p.upsert).not.toHaveBeenCalled();
+  });
+
+  it('removes the schedule when the credential is cleared', async () => {
+    const { svc, p, tx } = await setup({ credentialRef: null });
+    await run(tx, () => svc.putConnector('granola', input({})));
+    expect(p.remove).toHaveBeenCalledWith({ engagementId, connectorId: 'granola' });
+    expect(p.upsert).not.toHaveBeenCalled();
+  });
+
+  it('removes the schedule when polling is cleared (null) while still enabled', async () => {
+    const { svc, p, tx } = await setup({ pollIntervalSeconds: null });
+    await run(tx, () =>
+      svc.putConnector(
+        'granola',
+        input({ pollIntervalSecondsProvided: true, pollIntervalSeconds: null }),
+      ),
+    );
+    expect(p.remove).toHaveBeenCalledWith({ engagementId, connectorId: 'granola' });
+    expect(p.upsert).not.toHaveBeenCalled();
+  });
+
+  it('persists pollIntervalSeconds only when the body carried the key', async () => {
+    const { svc, tx } = await setup({});
+    const { tx: tx2, inserts } = fakeTx([engRow, [cfgRow({})], []]);
+    await run(tx2, () =>
+      svc.putConnector(
+        'granola',
+        input({ pollIntervalSecondsProvided: true, pollIntervalSeconds: 3600 }),
+      ),
+    );
+    expect(inserts[0]!.set.pollIntervalSeconds).toBe(3600);
+    const { tx: tx3, inserts: ins3 } = fakeTx([engRow, [cfgRow({})], []]);
+    await run(tx3, () => svc.putConnector('granola', input({ enabled: true })));
+    expect(ins3[0]!.set).not.toHaveProperty('pollIntervalSeconds');
+    void tx;
+  });
+});
+
+describe('parsePutConnectorBody pollIntervalSeconds', () => {
+  it.each([300, 86400, 3600])('accepts %s', (n) => {
+    expect(parsePutConnectorBody({ pollIntervalSeconds: n })).toMatchObject({
+      pollIntervalSecondsProvided: true,
+      pollIntervalSeconds: n,
+    });
+  });
+  it('accepts null (polling off)', () => {
+    expect(parsePutConnectorBody({ pollIntervalSeconds: null })).toMatchObject({
+      pollIntervalSecondsProvided: true,
+      pollIntervalSeconds: null,
+    });
+  });
+  it('marks the key not provided when omitted', () => {
+    expect(parsePutConnectorBody({}).pollIntervalSecondsProvided).toBe(false);
+  });
+  it.each([299, 60, 86401, 100000, 600.5, '900', NaN, true])('400s on %s', (v) => {
+    expect(() => parsePutConnectorBody({ pollIntervalSeconds: v })).toThrow(BadRequestException);
   });
 });
 
@@ -261,7 +406,7 @@ describe('AdminService.startSync', () => {
 
   it('starts the workflow when the connector is enabled and has a credential', async () => {
     const t = temporal(true);
-    const svc = new AdminService(registry, await adminAuthz(), t, config(true));
+    const svc = new AdminService(registry, await adminAuthz(), t, poll(), config(true));
     const { tx } = fakeTx([
       [
         {
@@ -284,7 +429,13 @@ describe('AdminService.startSync', () => {
   });
 
   it('409s when the connector is not enabled', async () => {
-    const svc = new AdminService(registry, await adminAuthz(), temporal(true), config(true));
+    const svc = new AdminService(
+      registry,
+      await adminAuthz(),
+      temporal(true),
+      poll(),
+      config(true),
+    );
     const { tx } = fakeTx([
       [
         {
@@ -302,7 +453,13 @@ describe('AdminService.startSync', () => {
   });
 
   it('409s when the connector has no stored credential', async () => {
-    const svc = new AdminService(registry, await adminAuthz(), temporal(true), config(true));
+    const svc = new AdminService(
+      registry,
+      await adminAuthz(),
+      temporal(true),
+      poll(),
+      config(true),
+    );
     const { tx } = fakeTx([
       [
         {
@@ -327,7 +484,7 @@ describe('AdminService.startSync', () => {
         throw new ServiceUnavailableException('Temporal is not configured');
       }),
     } as unknown as TemporalConnectorSync;
-    const svc = new AdminService(registry, await adminAuthz(), off, config(true));
+    const svc = new AdminService(registry, await adminAuthz(), off, poll(), config(true));
     const { tx } = fakeTx([
       [
         {
