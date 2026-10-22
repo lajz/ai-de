@@ -128,6 +128,12 @@ export function ConnectorCard({
             ))}
           </select>
         </label>
+        {(!connector.enabled || !connector.hasCredential) &&
+          connector.pollIntervalSeconds != null && (
+            <span className="connector-retention-effective">
+              not currently running — {!connector.enabled ? 'connector disabled' : 'no credential'}
+            </span>
+          )}
       </div>
 
       <form
