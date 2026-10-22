@@ -1,3 +1,4 @@
+import type { CustomIntegrationMapping } from '@fde/core';
 import type {
   GitHubPullRequest,
   GitHubRepository,
@@ -442,5 +443,89 @@ export const DEMO_GITHUB_PULL_REQUESTS: GitHubPullRequest[] = [
     author: GH_JORDAN,
     requestedReviewers: [GH_SAM],
     completedReviewers: [],
+  },
+];
+
+// --- custom integration -----------------------------------------------------
+// Lucerne's claims-ops team tracks reconciliation exceptions in a homegrown
+// ticketing tool with no public API — exactly the case the self-serve custom
+// integrations feature targets. Elena Vasquez is seen ONLY through this
+// integration: `normalizeCustomArtifact` gives every entity a single
+// `externalRef` scoped to the custom connector id, never a second
+// identity-key ref like Granola/Linear's `{connector:'email', externalId}`
+// (see `granola-connector.ts`), so a custom-integration person entity cannot
+// cross-connector-merge with the Granola/Linear people above today. Reusing
+// one of those people here would misleadingly look like it merged when it
+// doesn't.
+
+export const DEMO_CUSTOM_INTEGRATION_NAME = 'Claims Ops Tracker (homegrown)';
+
+export const DEMO_CUSTOM_INTEGRATION_MAPPING: CustomIntegrationMapping = {
+  artifact: {
+    externalIdPath: 'ticket.id',
+    kind: 'issue',
+    occurredAtPath: 'ticket.updatedAt',
+    urlPermalinkPath: 'ticket.url',
+  },
+  entities: [
+    {
+      key: 'ticket',
+      type: 'work_item',
+      externalIdPath: 'ticket.id',
+      displayNamePath: 'ticket.title',
+      bodyPath: 'ticket.description',
+      attributes: { status: 'ticket.status' },
+    },
+    {
+      key: 'reporter',
+      type: 'person',
+      externalIdPath: 'ticket.reporter.id',
+      displayNamePath: 'ticket.reporter.name',
+      attributes: { email: 'ticket.reporter.email' },
+    },
+  ],
+  relationships: [{ from: 'reporter', predicate: 'relates_to', to: 'ticket' }],
+};
+
+/**
+ * Same `ticket.id` pushed twice — the second push exercises the real
+ * upsert-by-external-ref path (`persistGraph` → `upsertEntityByRef`): the
+ * entity's attributes/body update in place instead of duplicating, matching
+ * how a real customer's tool would re-POST a ticket as its status changes.
+ * Timestamps line up with the Week 2 → Week 3 reconciliation-SLA-risk arc
+ * Derek and Jordan discuss in `DEMO_GRANOLA_TRANSCRIPTS`.
+ */
+export const DEMO_CUSTOM_INTEGRATION_PAYLOADS: Record<string, unknown>[] = [
+  {
+    ticket: {
+      id: 'claims-ops-104',
+      title: 'Reconciliation exception queue backing up under enrollment-like load',
+      status: 'open',
+      description:
+        "Exception queue depth has tripled during this week's enrollment-volume rehearsal. Same 3x-volume concern Derek raised on the Harbor sync — opening this to track it from the claims-ops side.",
+      updatedAt: '2026-09-10T17:00:00.000Z',
+      url: 'https://claimsops.lucernehealth.example/tickets/104',
+      reporter: {
+        id: 'claimsops-elena',
+        name: 'Elena Vasquez',
+        email: 'elena@lucernehealth.example',
+      },
+    },
+  },
+  {
+    ticket: {
+      id: 'claims-ops-104',
+      title: 'Reconciliation exception queue backing up under enrollment-like load',
+      status: 'resolved',
+      description:
+        "Closing — this week's load test confirmed batch reconciliation holds at 3x volume, well within the SLA. Exception queue depth is back to baseline.",
+      updatedAt: '2026-09-16T18:00:00.000Z',
+      url: 'https://claimsops.lucernehealth.example/tickets/104',
+      reporter: {
+        id: 'claimsops-elena',
+        name: 'Elena Vasquez',
+        email: 'elena@lucernehealth.example',
+      },
+    },
   },
 ];
