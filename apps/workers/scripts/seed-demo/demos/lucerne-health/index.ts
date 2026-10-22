@@ -1,5 +1,8 @@
 import type { DemoDefinition } from '../../lib/types.js';
 import {
+  DEMO_CUSTOM_INTEGRATION_MAPPING,
+  DEMO_CUSTOM_INTEGRATION_NAME,
+  DEMO_CUSTOM_INTEGRATION_PAYLOADS,
   DEMO_GITHUB_PULL_REQUESTS,
   DEMO_GITHUB_REPOSITORY,
   DEMO_GRANOLA_BODIES,
@@ -49,6 +52,11 @@ export const lucerneHealth: DemoDefinition = {
         factType: 'decision',
       },
     ],
+  },
+  customIntegration: {
+    name: DEMO_CUSTOM_INTEGRATION_NAME,
+    mapping: DEMO_CUSTOM_INTEGRATION_MAPPING,
+    payloads: DEMO_CUSTOM_INTEGRATION_PAYLOADS,
   },
   qaQuestions: [
     {

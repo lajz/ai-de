@@ -1,4 +1,4 @@
-import type { FactType } from '@fde/core';
+import type { CustomIntegrationMapping, FactType } from '@fde/core';
 import type {
   GitHubPullRequest,
   GitHubRepository,
@@ -75,6 +75,20 @@ export interface DemoDefinition {
       /** the pull request (by `GitHubPullRequest.id`) that gets the marker appended */
       pullRequestId: string;
     })[];
+  };
+  /**
+   * Optional — showcases the self-serve custom-integrations feature (a
+   * tenant-admin-authored, no-code connector) as a fourth data source.
+   * `payloads` are pushed in order through the real `CustomWebhookConnector` +
+   * `landConnectorArtifactWithGraph` path (see `orchestrate.ts`'s
+   * `seedCustomIntegration`) — the same code a real customer's push hits.
+   */
+  customIntegration?: {
+    /** shown as the integration's name in the admin UI */
+    name: string;
+    mapping: CustomIntegrationMapping;
+    /** pushed in order; a repeated externalId exercises the real update path */
+    payloads: Record<string, unknown>[];
   };
   /** printed in the run summary, and used for the browser verification pass */
   qaQuestions: DemoQaQuestion[];

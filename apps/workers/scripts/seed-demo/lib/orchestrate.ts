@@ -1,13 +1,14 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { Connection, WorkflowClient } from '@temporalio/client';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { and, asc, desc, eq } from 'drizzle-orm';
 
-import type { EngagementId, TenantId } from '@fde/core';
+import type { EngagementId, RawArtifact, TenantId } from '@fde/core';
 import {
   type ConnectorBuildContext,
   ConnectorRegistry,
+  CustomWebhookConnector,
   FakeGitHubClient,
   FakeGranolaClient,
   FakeLinearClient,
@@ -22,12 +23,15 @@ import {
   engagements,
   ensureDevTenant,
   facts,
+  insertCustomIntegration,
   sources,
+  touchCustomIntegrationLastIngestedAt,
   upsertConnectorConfig,
   withEngagement,
   withTenant,
   type Database,
 } from '@fde/db';
+import { landConnectorArtifactWithGraph } from '@fde/identity';
 
 import {
   createConnectorSyncActivities,
@@ -273,6 +277,17 @@ export async function orchestrate(
       }
     }
 
+    if (definition.customIntegration) {
+      console.log('seeding a custom integration and pushing its payload(s)…');
+      await seedCustomIntegration(
+        db,
+        provider,
+        tenantId,
+        engagementId,
+        definition.customIntegration,
+      );
+    }
+
     printSummary(definition, engagementId, decisionFactId, extractionRunIdBySourceId);
   } finally {
     await close();
@@ -375,6 +390,83 @@ async function seedConnectorConfig(
       );
     }
   });
+}
+
+/**
+ * Creates a real `custom_integrations` row and pushes `payloads` through the
+ * exact production path a real customer's integration hits:
+ * `CustomWebhookConnector.handleWebhook` → `.resolveAcl` →
+ * `landConnectorArtifactWithGraph` (`@fde/identity`) — the same function
+ * `IntegrationsIngestController` calls on a real POST. No reimplementation,
+ * same principle `runSync` above follows for Granola/Linear/GitHub.
+ *
+ * The secret hash/prefix scheme below duplicates
+ * `apps/api/src/auth/secret-hash.ts` rather than importing it: `apps/workers`
+ * cannot depend on `apps/api` (a sibling deployable app, not a shared
+ * package), and the scheme is three lines of `node:crypto`.
+ *
+ * `'full-retention'` matches what `createEngagement` above always sets for
+ * every demo engagement — not a new assumption, just naming the existing one.
+ */
+async function seedCustomIntegration(
+  db: Database,
+  provider: FakeKeyProvider,
+  tenantId: TenantId,
+  engagementId: EngagementId,
+  def: NonNullable<DemoDefinition['customIntegration']>,
+): Promise<void> {
+  const rawSecret = `fdeci_${randomBytes(32).toString('base64url')}`;
+  const secretHash = createHash('sha256').update(rawSecret).digest('hex');
+  const secretPrefix = rawSecret.slice(0, 14);
+
+  const row = await insertCustomIntegration(db, {
+    tenantId,
+    engagementId,
+    name: def.name,
+    mapping: def.mapping,
+    secretHash,
+    secretPrefix,
+    createdByUserId: null,
+  });
+
+  const connector = new CustomWebhookConnector({
+    integrationId: row.id,
+    mapping: def.mapping,
+    engagementRetentionPolicy: 'full-retention',
+  });
+
+  for (const payload of def.payloads) {
+    const artifacts: RawArtifact[] = await connector.handleWebhook({
+      headers: {},
+      rawBody: new TextEncoder().encode(JSON.stringify(payload)),
+      connectorId: connector.id,
+    });
+    for (const artifact of artifacts) {
+      const aclSnapshot = await connector.resolveAcl();
+      const landed = await landConnectorArtifactWithGraph(db, provider, {
+        tenantId,
+        engagementId,
+        connectorId: connector.id,
+        retentionPolicy: connector.retentionPolicy,
+        artifact,
+        aclSnapshot,
+        connector,
+      });
+      console.log(
+        `  pushed '${artifact.externalId}': ${landed.inserted ? 'landed' : 'already landed (dedupe)'}, ` +
+          `${landed.graph.entitiesUpserted + landed.graph.entitiesResolved} entity write(s)`,
+      );
+    }
+  }
+
+  await touchCustomIntegrationLastIngestedAt(db, row.id);
+
+  const publicUrl = (process.env.API_PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+  console.log(`  integration '${def.name}' (${row.id}):`);
+  console.log(
+    `    ingest URL: ${publicUrl}/engagements/${engagementId}/integrations/${row.id}/ingest`,
+  );
+  console.log(`    secret (one-time, dev-only): ${rawSecret}`);
 }
 
 /**
@@ -506,6 +598,12 @@ function printSummary(
   );
   console.log(`  decision fact: ${decisionFactId}`);
   console.log(`  extraction runs: ${extractionRunIdBySourceId.size}`);
+  if (definition.customIntegration) {
+    console.log(
+      `  custom integration: "${definition.customIntegration.name}" — ` +
+        `${definition.customIntegration.payloads.length} push(es) landed one ticket (open → resolved)`,
+    );
+  }
   printUrls(engagementId);
   console.log('');
   console.log('Ask panel questions to try:');
